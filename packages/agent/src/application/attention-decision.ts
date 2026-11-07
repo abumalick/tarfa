@@ -184,7 +184,9 @@ export function attentionDecision(input: {
           messagedLast: isPeerMessage(input.claude) ? 'set' : 'clear',
         };
       }
-      return { reason: 'tool', status: 'working', deferral: 'keep' };
+      // Another tool starting means the turn went on past any message it sent. Not while a send
+      // is pending: Pi posts its hooks from a queue, so this may be the send's own PreToolUse, late.
+      return { reason: 'tool', status: 'working', deferral: 'keep', ...(input.sentDuringTool ? {} : { messagedLast: 'clear' as const }) };
     default:
       return { reason: 'unknown-event', status: null, deferral: 'keep' };
   }

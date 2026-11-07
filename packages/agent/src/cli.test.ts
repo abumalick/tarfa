@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deviceFingerprint, generateDeviceKeys, parsePairingLink } from '@tarfa/secure-channel';
 import { FileDeviceStore } from './infrastructure/file-device-store';
+import { TmuxAdapter } from './infrastructure/tmux-adapter';
 import { parseEnvFile } from './application/agent-env';
 import { enrolDevice, enrolmentMode, withEnrolmentMode } from './application/device-roster';
 import { loadOrCreateAgentKeys } from './infrastructure/agent-key-file';
@@ -48,7 +49,7 @@ describe('tarfa CLI (real tmux)', () => {
     const recentJson = await run(['recent'], env, home);
     expect(JSON.parse(recentJson)).toContain(project);
 
-    await run(['close', ws.id], env, home);
+    await new TmuxAdapter().killSession(ws.id);
     const afterJson = await run(['list'], env, home);
     const after = JSON.parse(afterJson) as Array<{ id: string }>;
     expect(after.some((w) => w.id === ws.id)).toBe(false);
@@ -603,6 +604,154 @@ describe('tarfa ls / spawn / peek (fake tmux)', () => {
     await expect(run(['unpark', 'perch-aaaaaa'], env, home, io(fakeTmux().tmux, { fetch }))).rejects.toThrow(/agent is not running/);
     await rm(join(home, '.tarfa', 'token'));
     await expect(run(['unpark', 'perch-aaaaaa'], env, home, io(fakeTmux().tmux, { fetch }))).rejects.toThrow(/agent is not running/);
+  });
+
+  describe('close', () => {
+    async function closing(results: Record<string, string> = {}) {
+      const { home } = await machine();
+      await writeFile(join(home, '.tarfa', 'token'), 'hook-secret');
+      const env = { TARFA_AGENT_ENV: join(home, 'agent.env') };
+      await writeFile(env.TARFA_AGENT_ENV, 'TARFA_PORT=9911\n');
+      const calls: Array<{ url: string; auth: string; body: string }> = [];
+      const fetch = async (url: string | URL | Request, init?: RequestInit) => {
+        const body = String(init?.body);
+        calls.push({ url: String(url), auth: new Headers(init?.headers).get('authorization') ?? '', body });
+        const { id } = JSON.parse(body) as { id: string };
+        return Response.json({ result: results[id] ?? 'closed' });
+      };
+      return { home, env, calls, fetch };
+    }
+
+    it('closes through the running agent, one line per id', async () => {
+      const { home, env, calls, fetch } = await closing();
+      expect(await run(['close', 'perch-aaaaaa', 'perch-bbbbbb'], env, home, io(fakeTmux().tmux, { fetch }))).toBe('perch-aaaaaa: closed\nperch-bbbbbb: closed');
+      expect(calls[0]).toEqual({ url: 'http://127.0.0.1:9911/close', auth: 'Bearer hook-secret', body: '{"id":"perch-aaaaaa"}' });
+    });
+
+    it('tries every id and fails if any does not exist', async () => {
+      const { home, env, calls, fetch } = await closing({ 'perch-nope': 'no-such-workspace' });
+      await expect(run(['close', 'perch-nope', 'perch-aaaaaa'], env, home, io(fakeTmux().tmux, { fetch }))).rejects.toThrow(
+        'perch-nope: no such workspace (see tarfa ls)\nperch-aaaaaa: closed',
+      );
+      expect(calls).toHaveLength(2);
+    });
+
+    // The close would kill the command asking for it before it could report anything.
+    it('refuses to close the workspace it runs in, before closing any other', async () => {
+      const { home, env, calls, fetch } = await closing();
+      const inside = { ...env, TMUX_PANE: '%1' };
+      await expect(run(['close', 'perch-bbbbbb', 'perch-aaaaaa'], inside, home, io(fakeTmux({ '%1': 'perch-aaaaaa' }).tmux, { fetch }))).rejects.toThrow(/perch-aaaaaa is this workspace/);
+      expect(calls).toEqual([]);
+    });
+
+    it('closes from a shell outside any workspace', async () => {
+      const { home, env, fetch } = await closing();
+      expect(await run(['close', 'perch-aaaaaa'], { ...env, TMUX_PANE: '%9' }, home, io(fakeTmux().tmux, { fetch }))).toBe('perch-aaaaaa: closed');
+    });
+
+    it('names an agent too old to have the route, and keeps what it already closed', async () => {
+      const { home, env } = await closing();
+      let first = true;
+      const fetch = async () => {
+        if (first) {
+          first = false;
+          return Response.json({ result: 'closed' });
+        }
+        return new Response(null, { status: 404 });
+      };
+      await expect(run(['close', 'perch-aaaaaa', 'perch-bbbbbb'], env, home, io(fakeTmux().tmux, { fetch }))).rejects.toThrow(
+        'perch-aaaaaa: closed\nperch-bbbbbb: the agent answered 404 (it predates tarfa close: restart it)',
+      );
+    });
+
+    it('answers a missing id or a flag with the usage and exit code 2', async () => {
+      const { home, env, fetch } = await closing();
+      await expect(run(['close'], env, home, io(fakeTmux().tmux, { fetch }))).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining('usage: tarfa close') });
+      await expect(run(['close', '--all'], env, home, io(fakeTmux().tmux, { fetch }))).rejects.toMatchObject({ exitCode: 2 });
+    });
+  });
+
+  describe('wait', () => {
+    // Time moves only when the command sleeps; `onSleep` changes the world between two polls.
+    function clock(onSleep: (now: number) => Promise<void> | void = () => {}) {
+      let now = NOW;
+      return {
+        now: () => now,
+        sleep: async (ms: number) => {
+          now += ms;
+          await onSleep(now);
+        },
+        elapsed: () => now - NOW,
+      };
+    }
+    const setStatus = (home: string, entries: Record<string, unknown>) => writeFile(join(home, '.tarfa', 'status.json'), JSON.stringify(entries));
+
+    it('blocks while the child works, then prints its id and state, re-reading the store each poll', async () => {
+      const { home, env } = await machine();
+      await setStatus(home, { 'perch-bbbbbb': { status: 'working' } });
+      const c = clock(async (now) => {
+        if (now - NOW >= 30_000) await setStatus(home, { 'perch-bbbbbb': { status: 'needs-feedback' } });
+      });
+      expect(await run(['wait', 'perch-bbbbbb'], env, home, io(fakeTmux().tmux, c))).toBe('perch-bbbbbb needs-feedback');
+      expect(c.elapsed()).toBeGreaterThanOrEqual(30_000);
+    });
+
+    it('prints needs-orchestrator for a child that ended its turn on a message to its parent', async () => {
+      const { home, env } = await machine();
+      await setStatus(home, { 'perch-bbbbbb': { status: 'working', messagedLast: true } });
+      expect(await run(['wait', 'perch-bbbbbb'], env, home, io(fakeTmux().tmux, clock()))).toBe('perch-bbbbbb needs-orchestrator');
+    });
+
+    it('returns on the first of several, naming each one stopped', async () => {
+      const { home, env } = await machine();
+      await setStatus(home, { 'perch-aaaaaa': { status: 'working' }, 'perch-bbbbbb': { status: 'working' } });
+      expect(await run(['wait', 'perch-aaaaaa', 'perch-bbbbbb', 'perch-gone00'], env, home, io(fakeTmux().tmux, clock()))).toBe('perch-gone00 gone');
+    });
+
+    // `ls` hides these folders, but a child living in one is not gone.
+    it('follows a workspace in a hidden folder', async () => {
+      const { home, env } = await machine();
+      await setStatus(home, { 'perch-hhhhhh': { status: 'working' } });
+      const c = clock(async (now) => {
+        if (now - NOW >= 4000) await setStatus(home, { 'perch-hhhhhh': { status: 'needs-feedback' } });
+      });
+      expect(await run(['wait', 'perch-hhhhhh'], env, home, io(fakeTmux().tmux, c))).toBe('perch-hhhhhh needs-feedback');
+    });
+
+    it('exits 124 on the timeout, naming what it waited on', async () => {
+      const { home, env } = await machine();
+      await setStatus(home, { 'perch-bbbbbb': { status: 'working' } });
+      const c = clock();
+      await expect(run(['wait', 'perch-bbbbbb', '--timeout', '30'], env, home, io(fakeTmux().tmux, c))).rejects.toMatchObject({
+        exitCode: 124,
+        message: expect.stringContaining('no stop to report: perch-bbbbbb'),
+      });
+      expect(c.elapsed()).toBe(30_000);
+    });
+
+    // A Codex sandbox that blocks tmux's socket reads like a machine with no server at all, and
+    // every child would be reported gone.
+    it('fails rather than call every child gone when tmux lists nothing on the first look', async () => {
+      const { home, env } = await machine();
+      const tmux: TmuxPort = { ...fakeTmux().tmux, listSessions: async () => [] };
+      await expect(run(['wait', 'perch-bbbbbb'], env, home, io(tmux, clock()))).rejects.toThrow(/tmux lists no session/);
+    });
+
+    it('reports gone when tmux stops listing anything after the first look', async () => {
+      const { home, env } = await machine();
+      await setStatus(home, { 'perch-bbbbbb': { status: 'working' } });
+      const real = fakeTmux().tmux;
+      let polls = 0;
+      const tmux: TmuxPort = { ...real, listSessions: async (prefix) => (polls++ === 0 ? real.listSessions(prefix) : []) };
+      expect(await run(['wait', 'perch-bbbbbb'], env, home, io(tmux, clock()))).toBe('perch-bbbbbb gone');
+    });
+
+    it('answers bad arguments with the usage and exit code 2', async () => {
+      const { home, env } = await machine();
+      for (const argv of [['wait'], ['wait', '--timeout', '30'], ['wait', 'perch-bbbbbb', '--timeout', '0'], ['wait', 'perch-bbbbbb', '--timeout', '9'], ['wait', 'perch-bbbbbb', '--timeout', 'soon'], ['wait', '--mine']]) {
+        await expect(run(argv, env, home, io(fakeTmux().tmux, clock()))).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining('usage: tarfa wait') });
+      }
+    });
   });
 
   describe('send', () => {

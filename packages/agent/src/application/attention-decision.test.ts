@@ -180,6 +180,7 @@ describe('attentionDecision', () => {
       expect(attentionDecision({ event: 'PreToolUse', claude: undefined, wasDeferred: true })).toEqual({
         status: 'working',
         deferral: 'keep',
+        messagedLast: 'clear',
       });
     });
 
@@ -209,6 +210,7 @@ describe('attentionDecision', () => {
       expect(attentionDecision({ event: 'PreToolUse', claude: ownToolCall, wasDeferred: false })).toEqual({
         status: 'working',
         deferral: 'keep',
+        messagedLast: 'clear',
       });
     });
 

@@ -26,15 +26,12 @@ import type { KeytermsPort } from '../ports/keyterms-port';
 import type { WorkspaceLogPort } from '../ports/workspace-log-port';
 import type { ParkedStorePort } from '../ports/parked-store-port';
 import type { ProcessScopePort } from '../ports/process-scope-port';
-import { recordWorkspaceClosed } from '../application/record-workspace-closed';
 import { isHiddenPath } from '../application/is-hidden-path';
 import { listWorkspaces } from '../application/list-workspaces';
 import { createWorkspace } from '../application/create-workspace';
-import { closeWorkspace } from '../application/close-workspace';
-import { reapWorkspaceScope } from '../application/reap-workspace-scope';
+import { finishClose, retireWorkspace } from '../application/retire-workspace';
 import { parkWorkspace } from '../application/park-workspace';
 import { unparkWorkspace } from '../application/unpark-workspace';
-import { closeWorkspaceBrowserSessions } from '../application/close-workspace-browsers';
 import { getRecentPaths } from '../application/get-recent-paths';
 import { browseDir } from '../application/browse-dir';
 import { makeDir } from '../application/make-dir';
@@ -315,44 +312,10 @@ export class ConnectionHandler {
         return;
       }
       case 'close': {
-        const parkedRecord = await this.deps.parked.get(message.workspaceId);
-        const workspace =
-          this.deps.forgetWorkspace(message.workspaceId, true) ??
-          (parkedRecord
-            ? {
-                machineId: parkedRecord.machineId,
-                id: parkedRecord.id,
-                name: parkedRecord.name,
-                projectPath: parkedRecord.projectPath,
-                command: parkedRecord.command,
-                createdAt: parkedRecord.createdAt,
-                lastActivityAt: parkedRecord.parkedAt,
-                status: 'parked' as const,
-              }
-            : await this.snapshotWorkspace(message.workspaceId));
-        // Read first: once neither tmux nor parked.json holds the id, the poll may drop its
-        // status entry (WsServer.dropGoneWorkspaces) before the log entry below is written.
-        const lastStatus = this.deps.status.get(message.workspaceId);
-        const claudeSessionId = parkedRecord ? parkedRecord.claudeSessionId : this.deps.status.getClaudeSessionId(message.workspaceId);
-        if (parkedRecord) {
-          await this.deps.parked.remove(message.workspaceId);
-        }
-        const scope = await closeWorkspace(
-          { tmux, scopes: this.deps.scopes },
+        const scope = await retireWorkspace(
+          { ...this.deps, tmux, snapshot: (id) => this.snapshotWorkspace(id) },
           message.workspaceId,
         );
-        if (workspace) {
-          await recordWorkspaceClosed(
-            {
-              workspaceLog: this.deps.workspaceLog,
-              status: { get: () => lastStatus, getClaudeSessionId: () => claudeSessionId },
-              clock: this.deps.clock,
-            },
-            workspace,
-            'closed-by-user',
-          );
-        }
-        this.deps.dropWorkspaceState?.(message.workspaceId);
         // The tmux session is gone, so the workspace is closed as far as any device is
         // concerned — say so now. What remains (tearing down agent-browser sessions, which
         // waits on a Chrome shutdown, and stopping the pane's scope, which waits on
@@ -360,7 +323,7 @@ export class ConnectionHandler {
         // it had hung.
         this.conn.send({ type: 'closed', workspaceId: message.workspaceId });
         this.deps.broadcastClosed(message.workspaceId);
-        void this.finishClose(message.workspaceId, scope);
+        void finishClose(this.deps, message.workspaceId, scope);
         return;
       }
       case 'setStatus': {
@@ -595,21 +558,6 @@ export class ConnectionHandler {
   // The live workspace matching this id, freshly queried from tmux — used as a fallback
   // when no poll has observed this workspace yet (e.g. it was created and closed within
   // the same title-poll tick).
-  // The slow tail of a close, run detached once the client has been acknowledged. Both steps
-  // swallow their own failures; the outer catch only guards against an unhandled rejection
-  // taking the agent down for work nobody is waiting on.
-  private async finishClose(workspaceId: string, scope: string | null): Promise<void> {
-    try {
-      await reapWorkspaceScope({ scopes: this.deps.scopes }, scope);
-      await closeWorkspaceBrowserSessions(
-        { discovery: this.deps.browserDiscovery, commands: this.deps.browserCommands },
-        workspaceId,
-      );
-    } catch {
-      // best-effort
-    }
-  }
-
   private async snapshotWorkspace(workspaceId: string): Promise<Workspace | undefined> {
     const { config, tmux, status } = this.deps;
     const workspaces = await listWorkspaces({

@@ -1098,6 +1098,94 @@ describe('WsServer (E2E, real tmux)', () => {
     expect(await (await post({ id: name })).json()).toEqual({ result: 'not-parked' });
   });
 
+  it('closes a workspace over POST /close the way the phone does', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-close-'));
+    dirs.push(home);
+    const config = testConfig(home);
+    const name = `perch-close${process.pid}`;
+    sessions.push(name);
+    await exec('tmux', ['new-session', '-d', '-s', name, '-c', tmpdir(), 'sleep 30']);
+    await exec('tmux', ['set-option', '-t', `=${name}:`, '@tarfa_command', 'sleep 30']);
+    const logged: WorkspaceLogEntry[] = [];
+    const stopped: string[] = [];
+    let finishStop = () => {};
+    const deps = {
+      ...makeServerDeps(config, noClientLog),
+      workspaceLog: { append: async (e: WorkspaceLogEntry) => void logged.push(e) },
+      scopes: {
+        scopeForPid: async () => 'tmux-spawn-test.scope',
+        stopScope: (scope: string) => {
+          stopped.push(scope);
+          return new Promise<void>((resolve) => {
+            finishStop = resolve;
+          });
+        },
+      },
+    };
+    deps.status.set(name, 'working');
+    server = new WsServer(deps);
+    await server.start();
+    const broadcast = vi.spyOn(server, 'broadcastClosed');
+    const post = (body: unknown, token = HOOK_TOKEN) =>
+      fetch(`http://127.0.0.1:${server!.address().port}/close`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+
+    expect((await post({ id: name }, 'wrong')).status).toBe(401);
+    expect((await post({ nope: 1 })).status).toBe(400);
+    expect(await (await post({ id: 'perch-nosuch' })).json()).toEqual({ result: 'no-such-workspace' });
+    const res = await post({ id: name });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ result: 'closed' });
+    await expect(exec('tmux', ['has-session', '-t', `=${name}:`])).rejects.toBeDefined();
+    expect(logged).toEqual([expect.objectContaining({ id: name, reason: 'closed-by-user', lastStatus: 'working' })]);
+    expect(deps.status.get(name)).toBeUndefined();
+    expect(broadcast).toHaveBeenCalledWith(name);
+    // The reply came back with the scope's stop still pending: it does not wait on the slow tail.
+    await vi.waitFor(() => expect(stopped).toEqual(['tmux-spawn-test.scope']));
+    finishStop();
+    expect(await (await post({ id: name })).json()).toEqual({ result: 'no-such-workspace' });
+  });
+
+  // A tmux session Tarfa did not make is not a workspace, whatever it is called.
+  it('refuses to close a tmux session that is not a workspace', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-close-'));
+    dirs.push(home);
+    const name = `plain-close${process.pid}`;
+    sessions.push(name);
+    await exec('tmux', ['new-session', '-d', '-s', name, 'sleep 30']);
+    server = new WsServer(makeServerDeps(testConfig(home), noClientLog));
+    await server.start();
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/close`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${HOOK_TOKEN}` },
+      body: JSON.stringify({ id: name }),
+    });
+    expect(await res.json()).toEqual({ result: 'no-such-workspace' });
+    await exec('tmux', ['has-session', '-t', `=${name}:`]);
+  });
+
+  it('closes a parked workspace over POST /close, dropping its record', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-close-'));
+    dirs.push(home);
+    const logged: WorkspaceLogEntry[] = [];
+    const deps = { ...makeServerDeps(testConfig(home), noClientLog), workspaceLog: { append: async (e: WorkspaceLogEntry) => void logged.push(e) } };
+    const name = `perch-closep${process.pid}`;
+    await deps.parked.add({ id: name, name: 'parked', projectPath: tmpdir(), command: 'sleep 30', machineId: 'test', createdAt: 1, parkedAt: 2 });
+    server = new WsServer(deps);
+    await server.start();
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/close`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${HOOK_TOKEN}` },
+      body: JSON.stringify({ id: name }),
+    });
+    expect(await res.json()).toEqual({ result: 'closed' });
+    expect(await deps.parked.get(name)).toBeUndefined();
+    expect(logged).toEqual([expect.objectContaining({ id: name, reason: 'closed-by-user' })]);
+  });
+
   it('rejects a /hooks POST without the bearer token', async () => {
     const home = await mkdtemp(join(tmpdir(), 'perch-hook401-'));
     dirs.push(home);

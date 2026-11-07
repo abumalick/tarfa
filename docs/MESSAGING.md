@@ -58,7 +58,8 @@ there is no file option, so a body cannot smuggle a path or a binary.
   the tool (`sentDuringTool`) and that `PostToolUse` leaves it. Under Codex the mark holds until
   the next `PreToolUse`: a `write_stdin` poll that sees an earlier command exit fires that
   command's Bash `PostToolUse`, with no `PreToolUse` and nothing in the payload to say it is a
-  poll (Codex 0.166). The recipient's status moves to `working` through its CLI's normal
+  poll (Codex 0.166). For every CLI the next tool call starting ends the mark, so a child that sent
+  a note and started a long test does not read "Needs orchestrator". The recipient's status moves to `working` through its CLI's normal
   turn-start event.
 - **Spawning:** `tarfa spawn --cli claude|codex|pi`. Codex messaging works only for
   `tarfa spawn --cli codex` workspaces (see "Codex delivery"); a Codex workspace made from the
