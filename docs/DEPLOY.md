@@ -82,8 +82,9 @@ kept as `<unit>.bak-<time>`); restarts the agent; and writes the `tarfa` wrapper
 clone. Every flag you do not give (machine id, roots, phone port, default path) is read from the
 copied env. The agent key, roster and parked and live state are never touched. A package-run
 `tarfa setup` that finds such a unit adopts it the same way. Afterwards, `command -v tarfa` inside a
-workspace pane must print `~/.local/bin/tarfa` (the wrapper); another path means a project's `tarfa` comes
-first on PATH (setup and `tarfa apply` warn about it).
+workspace pane must print `~/.local/bin/tarfa` (the wrapper); another path means something else comes
+first on PATH: a project's `tarfa`, a mise shim, or another install directory (setup and `tarfa apply`
+warn about it).
 
 **Before adopting a Mac**, check that node-pty's prebuild loads and its helper is executable (the
 paths are the layout the packaging test installs; adjust if `mise where` shows another):

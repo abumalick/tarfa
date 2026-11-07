@@ -85,11 +85,11 @@ printf '%s\n' "${HOME5}/node" > "${HOME5}/where-node"
 printf '#!/bin/sh\necho "node $* | env=${TARFA_AGENT_ENV:-} | path=$PATH | pwd=$(pwd -P)"\n' > "${HOME5}/node/bin/node"
 chmod +x "${HOME5}/node/bin/node"
 HOME5_REAL="$(cd "${HOME5}" && pwd -P)"
-check "runs the installed package with its node, no mise exec, shims first on PATH, from \$HOME" \
-  "node ${HOME5}/cli/bin/tarfa serve | env=${HOME5}/.tarfa/agent.env | path=${HOME5}/.local/share/mise/shims:/usr/bin:/bin | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
+check "runs the installed package with its node, no mise exec, ~/.local/bin then shims on PATH, from \$HOME" \
+  "node ${HOME5}/cli/bin/tarfa serve | env=${HOME5}/.tarfa/agent.env | path=${HOME5}/.local/bin:${HOME5}/.local/share/mise/shims:/usr/bin:/bin | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
 out="$(cd "${SANDBOX}" && env -i HOME="${HOME5}" MISE_DATA_DIR="${HOME5}/data" PATH=/usr/bin:/bin sh "${LAUNCHER}" 2>&1)"
-check "puts MISE_DATA_DIR's shims on PATH when it is set" \
-  "node ${HOME5}/cli/bin/tarfa serve | env=${HOME5}/.tarfa/agent.env | path=${HOME5}/data/shims:/usr/bin:/bin | pwd=${HOME5_REAL}" "${out}"
+check "puts MISE_DATA_DIR's shims on PATH when it is set, after ~/.local/bin" \
+  "node ${HOME5}/cli/bin/tarfa serve | env=${HOME5}/.tarfa/agent.env | path=${HOME5}/.local/bin:${HOME5}/data/shims:/usr/bin:/bin | pwd=${HOME5_REAL}" "${out}"
 rm "${HOME5}/where-node"
 check "falls back to mise exec when where names no node" \
   "mise exec -- tarfa serve | env=${HOME5}/.tarfa/agent.env | token=from-state-env | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
@@ -116,6 +116,14 @@ printf '#!/bin/sh\necho "tarfa $* | env=${TARFA_AGENT_ENV:-}"\n' > "${SANDBOX}/s
 chmod +x "${SANDBOX}/stubbin/tarfa"
 out="$(cd "${SANDBOX}" && env -i HOME="${HOME2}" PATH="${SANDBOX}/stubbin:/usr/bin:/bin" sh "${LAUNCHER}" 2>&1)"
 check "with no mise, runs tarfa serve from PATH" "tarfa serve | env=${HOME2}/.tarfa/agent.env" "${out}"
+
+HOME7="$(new_home h7)"
+rm "${HOME7}/.local/bin/mise"
+mkdir -p "${HOME7}/.local/share/mise/shims"
+printf '#!/bin/sh\necho "wrapper $*"\n' > "${HOME7}/.local/bin/tarfa"
+printf '#!/bin/sh\necho "shim $*"\n' > "${HOME7}/.local/share/mise/shims/tarfa"
+chmod +x "${HOME7}/.local/bin/tarfa" "${HOME7}/.local/share/mise/shims/tarfa"
+check "a tarfa in ~/.local/bin wins over mise's shims" "wrapper serve" "$(launch "${HOME7}")"
 
 HOME3="$(new_home h3)"
 rm "${HOME3}/.tarfa/agent.env"

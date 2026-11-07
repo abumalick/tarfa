@@ -34,7 +34,7 @@ cd "$home"
 # slow, and a tool that cannot install would block it for good. So run the installed package with
 # its node directly, as the tarfa wrapper does, and keep mise's shims on PATH for what the agent's
 # panes and child tools run.
-PATH="${MISE_DATA_DIR:-$home/.local/share/mise}/shims:$PATH"
+PATH="$home/.local/bin:${MISE_DATA_DIR:-$home/.local/share/mise}/shims:$PATH"
 export PATH
 for mise_bin in "$home/.local/bin/mise" /opt/homebrew/bin/mise /usr/local/bin/mise; do
   if [ -x "$mise_bin" ]; then
