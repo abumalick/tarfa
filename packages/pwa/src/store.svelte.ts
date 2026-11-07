@@ -1,6 +1,7 @@
 import type { AgentMessage, BrowserSession, ClientMessage, MachineStats, MediaResult, Workspace, WorkspaceStatus } from '@tarfa/contracts';
 import { imageMediaType, pdfMediaType, audioMediaType, runsClaude } from '@tarfa/contracts';
 import { SvelteSet } from 'svelte/reactivity';
+import { agentTooOld, MIN_AGENT_VERSION } from './core/agent-skew';
 import type { ConnectionManager } from './core/connection-manager';
 import type { WorkspaceAggregator } from './core/workspace-aggregator';
 import type { SettingsStore, MachineConfig } from './core/settings-store';
@@ -110,6 +111,8 @@ export class TarfaStore {
   // The stored identity reads back malformed: the one case Settings offers to make a new one.
   deviceKeyUnreadable = $state(false);
   machines = $state<MachineConfig[]>([]);
+  // Machines whose agent reports a version below the minimum: informational, the connection stays open.
+  agentTooOld = $state<Record<string, boolean>>({});
   // Machines that have reached `online` at least once this session — i.e. known-reachable, so
   // they auto-retry forever. Used to show a calm "Reconnecting…" instead of "Can't reach"
   // while such a machine is briefly down. Reactive record (not a Set) so `homeView` recomputes.
@@ -324,6 +327,8 @@ export class TarfaStore {
       // that don't exercise logging; when absent, event recording and flushing are no-ops.
       connectionLog?: ConnectionLog;
       logMeta?: { ua?: string; shell?: string };
+      // The oldest agent version this app accepts without a notice; tests inject their own.
+      minAgentVersion?: string;
       // Milliseconds since the app was launched (navigation start); logged once as `boot` when
       // the first connect begins, so the time before connecting is measured too.
       sinceLaunch?: () => number;
@@ -395,6 +400,10 @@ export class TarfaStore {
     this.machines = this.deps.settings.list();
   }
 
+  setAgent(machineId: string, agent: { version?: string } | undefined): void {
+    this.agentTooOld = { ...this.agentTooOld, [machineId]: agentTooOld(agent?.version, this.deps.minAgentVersion ?? MIN_AGENT_VERSION) };
+  }
+
   setStatus(machineId: string, status: ConnectionStatus): void {
     this.statuses[machineId] = status;
     if (status === 'connecting') {
@@ -407,6 +416,7 @@ export class TarfaStore {
       this.disconnected.add(machineId);
       const { [machineId]: _dropped, ...rest } = this.machineStats;
       this.machineStats = rest;
+      this.agentTooOld = { ...this.agentTooOld, [machineId]: false };
     } else if (status === 'online') {
       this.reachedOnce[machineId] = true;
       this.deps.connectionLog?.push(machineId, 'online');

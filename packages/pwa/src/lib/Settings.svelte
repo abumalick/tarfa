@@ -116,6 +116,9 @@
                   {:else}
                     <span class="sub">{STATUS_LABEL[shown]}</span>
                   {/if}
+                  {#if store.agentTooOld?.[machine.id]}
+                    <span class="sub diag" data-testid="agent-too-old">{msg().status.agentTooOld("tarfa update")}</span>
+                  {/if}
                 </span>
                 <span class="chevron" aria-hidden="true">›</span>
               </button>

@@ -10,6 +10,7 @@ export const status = {
     working: 'Working',
   },
   needsOrchestrator: 'Needs orchestrator',
+  agentTooOld: (command: string) => `This machine's agent is too old for this app. Update it: ${command}`,
   pill: (label: string) => `Status: ${label}`,
   closeMenu: 'Close status menu',
   setStatus: 'Set status',

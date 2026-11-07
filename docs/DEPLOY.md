@@ -9,37 +9,83 @@ pinned to the agent's key). Both listeners bind `127.0.0.1` only: the hooks endp
 
 ## 0. Prerequisites (every machine)
 - A machine published with `tailscale serve` or Funnel, and the machine hosting the staging PWA (step 5), need Tailscale with MagicDNS + HTTPS enabled in the tailnet admin (`https://login.tailscale.com/admin/dns`). An agent published another way (a reverse proxy) needs no Tailscale.
-- `tmux`, and the toolchain via mise: `mise trust` (the config isn't trusted on a fresh clone), then `mise install`, then `mise exec -- pnpm install` (the postinstall fixes node-pty's `spawn-helper` perms — works on macOS and Linux).
-- Clone the repo on each machine that runs an agent (`deploy/agent.env` is per-machine and gitignored).
-- Verify node-pty: `mise exec -- pnpm --filter @tarfa/cli test` should pass (real tmux/node-pty). On Ubuntu, `node-pty` prebuilds + the spawn-helper postinstall work without extra build tools.
-- `deploy/run-agent.sh` and `run-pwa.sh` self-locate `mise`, so launchd/systemd units don't need mise on their PATH.
+- `tmux` and [mise](https://mise.jdx.dev). Nothing else: no repository, no pnpm, no compiler.
+
+## Install the package
+```sh
+mise use -g node@24 npm:@tarfa/cli@<version>   # then: tarfa setup … (next section)
+```
+`node-pty` ships prebuilds for macOS and Linux and the install runs no lifecycle scripts (mise
+installs with `--ignore-scripts`), so there is nothing to build. A **global node 24 is required**:
+the `~/.local/bin/tarfa` wrapper and the service's launcher look node up from `$HOME`, never from
+the folder they are run in, so a project's own node never runs Tarfa.
+
+What a package install leaves on the machine:
+- `~/.tarfa/agent.env`: the agent's settings (`tarfa setup` writes it; the annotated example is `deploy/agent.env.example`
+  in the repository). Every command reads it, in one order: `TARFA_AGENT_ENV`, then `~/.tarfa/agent.env`,
+  then a clone's `deploy/agent.env`.
+- `~/.tarfa/bin/tarfa-agent`: the launcher the service runs. It sources `agent.env`, then runs the
+  checkout named by `~/.tarfa/agent-source` when that file exists and still points at a checkout,
+  else `tarfa serve` of the installed release through mise.
+- `~/.local/bin/tarfa` (and `perch`, a link to it): a wrapper script, not a mise shim, which resolves
+  the install and node from `$HOME` and never changes directory.
+- The systemd user unit (linger) or launchd agent, running the launcher.
+
+## Updating: `tarfa update` and `tarfa apply`
+```sh
+tarfa update              # the newest release; --version <v> pins one, --force re-applies the current
+```
+`tarfa update` asks the registry for the newest version, installs it with
+`mise --cd $HOME use -g npm:@tarfa/cli@<v>`, then runs the **new** version's `tarfa apply` (found with
+`mise where`, never the PATH, since `update` runs from project folders). `tarfa apply` rewrites the
+launcher and unit when they differ, reinstalls the hooks, restarts the agent and checks the phone
+port and the log's `phones on` line since the restart. Workspaces survive: the unit has
+`KillMode=process`. `tarfa update` never touches Claude Code or Codex. From a clone it prints
+`this is a source install; git pull` and exits 2.
 
 ## In one command: `tarfa setup`
 Steps 1, 2 and 4 below, plus a Tailscale address for phones, are one non-interactive command
-run from the checkout (`pnpm tarfa setup --help` lists every flag and the Tailscale primer):
+(`tarfa setup --help` lists every flag and the Tailscale primer):
 ```sh
-pnpm tarfa setup --machine-id dev --project-roots ~/workspace --default-path ~/workspace \
+tarfa setup --machine-id dev --project-roots ~/workspace --default-path ~/workspace \
   --tailscale funnel --slug me --pair            # add --dry-run first to see the plan
 ```
-It writes `deploy/agent.env` (backed up first, `600`; a `TARFA_TOKEN` only if there is none),
+It writes `~/.tarfa/agent.env` (backed up first, `600`; a `TARFA_TOKEN` only if there is none),
 creates the agent key, writes `~/.tarfa/devices.json` with token enrolment **off** before the
 service first starts (a missing roster would let the token enrol phones on a public port),
-installs the systemd user unit with linger or the launchd agent, runs `install-hooks`, adds one
+writes the launcher and the `~/.local/bin/tarfa` wrapper, installs the systemd user unit with linger or the launchd agent (running the launcher), runs `install-hooks`, adds one
 `tailscale serve` (or `funnel`) handler for the phone port, restarts the agent only if anything
 changed and checks the phone port answers. On a machine whose existing roster has token
 enrolment on, a run that leaves phones an address (new, or already in `agent.env`) refuses until `--token-enrolment off` switches it
 off or `--token-enrolment on` keeps it deliberately. Rerun with the same flags, it changes nothing. It
-never replaces an agent key, a token, an installed unit that already runs this checkout's
-`deploy/run-agent.sh` with `KillMode=process`, or a `tailscale serve` entry pointing elsewhere.
+never replaces an agent key, a token, an installed unit that already runs the launcher (or a clone's
+`deploy/run-agent.sh`) with `KillMode=process`, or a `tailscale serve` entry pointing elsewhere.
 An existing `TARFA_PWA_ORIGIN` is kept unless `--pwa` names another (the default is
 `https://tarfa.app`). Where Tailscale needs root, it prints `sudo tailscale set --operator=$USER`
 and exits 1. The address it derives, `wss://<node>.<tailnet>.ts.net:<port>/<slug>`, goes first in
 `TARFA_PHONE_ADDRESSES`, then any `--address`; `tarfa pair` then mints links with all of them, in
 order.
 
+### A machine running from a clone: `tarfa setup --adopt`
+A machine whose service runs a clone's `deploy/run-agent.sh` moves to the package without pairing
+any phone again. Install the package, then plan before applying:
+```sh
+mise use -g node@24 npm:@tarfa/cli@<version>
+tarfa setup --adopt --dry-run     # the plan, nothing changed
+tarfa setup --adopt
+```
+It refuses from a clone and when no service is installed. In order, it: moves `~/.perch` to
+`~/.tarfa` if that has not happened; copies the clone's `deploy/agent.env` to `~/.tarfa/agent.env`
+(`600`, kept if already there, the original untouched); writes the launcher; removes the clone's
+`deploy/agent-live` only when it is a symlink; rewrites the unit to run the launcher (the old text is
+kept as `<unit>.bak-<time>`); restarts the agent; and writes the `tarfa` wrapper over a link into the
+clone. Every flag you do not give (machine id, roots, phone port, default path) is read from the
+copied env. The agent key, roster and parked and live state are never touched. A package-run
+`tarfa setup` that finds such a unit adopts it the same way.
+
 ### A machine set up as Perch
-Update the checkout (`git pull`, `pnpm install --frozen-lockfile`, `deploy/install-cli.sh`), then
-run `tarfa setup` with the machine's usual flags. It stops `perch-agent` (launchd:
+Install the package (above) and run `tarfa setup --adopt`, or, from a clone (`git pull`,
+`pnpm install --frozen-lockfile`, `deploy/install-cli.sh`), run `tarfa setup` with the machine's usual flags. It stops `perch-agent` (launchd:
 `com.perch.agent`; tmux and every workspace keep running), moves `~/.perch` to `~/.tarfa` (keeping
 `~/.perch` as a link to it, and the agent key as `agent-key.json`), renames `deploy/agent.env`'s
 `PERCH_*` lines to `TARFA_*` (the token is kept), installs and starts `tarfa-agent`
@@ -67,9 +113,11 @@ to reach that user's systemd manager, and stops without it rather than reinstall
 the tailnet peer's address, so the per-address caps see the real client.
 
 ## 1. Configure each agent
+`tarfa setup` writes `~/.tarfa/agent.env` for you; by hand (a source install uses `deploy/agent.env`
+from the clone):
 ```sh
-install -m 600 deploy/agent.env.example deploy/agent.env
-# edit deploy/agent.env: set TARFA_TOKEN (openssl rand -hex 32 — a strong random value, one per machine),
+install -m 600 deploy/agent.env.example ~/.tarfa/agent.env   # the example is in the repository
+# edit it: set TARFA_TOKEN (openssl rand -hex 32 — a strong random value, one per machine),
 # TARFA_MACHINE_ID (unique: "mac"/"mini"), TARFA_PROJECT_ROOTS (e.g. ~/workspace), keep TARFA_PORT=8787
 ```
 > The token enrols a phone entry added by hand that carries it, while token enrolment is on
@@ -77,35 +125,24 @@ install -m 600 deploy/agent.env.example deploy/agent.env
 > `~/.tarfa/token` at each start. A phone paired with `tarfa pair`
 > holds no token: its enrolled device key is its credential. Use a strong random value either way.
 >
-> `deploy/agent.env` must be readable by you alone: the agent refuses to start while another user
+> `agent.env` must be readable by you alone: the agent refuses to start while another user
 > can read or change it (it holds the token, which enrols a phone), and says so naming the fix,
-> `chmod 600 deploy/agent.env`. A plain `cp` of the example keeps the checkout's mode, which on
+> `chmod 600 ~/.tarfa/agent.env`. A plain `cp` keeps the source's mode, which on
 > most systems is readable by everyone; `install -m 600` does not.
 >
 > Several agents can share one machine, one per Linux user, each with its own `TARFA_PORT` and
 > `TARFA_MACHINE_ID`: `docs/SETUP-MACHINE.md`, step 13.
 
 ## 2. Run the agent as a service
-> Run these from the repo root (the `$(pwd)` substitution bakes in the absolute repo path).
-> Run `mise trust` first on BOTH platforms — `run-agent.sh` calls `mise exec`, and a service
-> context won't have an interactive trust, so an untrusted config makes the unit crash-loop.
+`tarfa setup` installs the service (the unit's `ExecStart` is the launcher `~/.tarfa/bin/tarfa-agent`;
+the templates carry an `AGENT_COMMAND` placeholder that setup fills), and `tarfa apply` keeps it
+current. Do not copy a template by hand. Run `mise trust` first on a source install: `run-agent.sh`
+calls `mise exec`, and a service context cannot ask for trust, so an untrusted config makes the unit
+crash-loop.
 
-**macOS:**
-```sh
-mise trust
-sed "s#REPO_PATH#$(pwd)#g" packages/agent/templates/app.tarfa.agent.plist > ~/Library/LaunchAgents/app.tarfa.agent.plist
-launchctl load ~/Library/LaunchAgents/app.tarfa.agent.plist
-# logs: tail -f deploy/agent.err.log
-```
-**Linux (systemd):**
-```sh
-mkdir -p ~/.config/systemd/user
-sed "s#REPO_PATH#$(pwd)#g" packages/agent/templates/tarfa-agent.service > ~/.config/systemd/user/tarfa-agent.service
-systemctl --user daemon-reload
-systemctl --user enable --now tarfa-agent
-loginctl enable-linger "$USER"   # keep the user service running without an active login
-# logs: journalctl --user -u tarfa-agent -f
-```
+Logs: `journalctl --user -u tarfa-agent -f` (Linux), `tail -f ~/.tarfa/agent.err.log` (macOS).
+On Linux, keep the user running without a login: `loginctl enable-linger "$USER"`.
+
 **The agent's PATH is the one every workspace starts with.** A workspace command runs through a
 non-interactive shell, which reads no profile, so `claude` must be on the PATH systemd gives user
 services. Claude Code's installer puts it in `~/.local/bin`, which that PATH lacks on a stock
@@ -127,8 +164,8 @@ Confirm: `curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8787/h
 agent where phones reach it:
 ```sh
 tailscale serve --bg --https=10000 --set-path=/me http://127.0.0.1:8797   # or `tailscale funnel`
-# deploy/agent.env: TARFA_PHONE_ADDRESSES=wss://<node>.<tailnet>.ts.net:10000/me
-pnpm tarfa pair [--pwa https://<where phones open the app>] [--ttl <minutes>]
+# ~/.tarfa/agent.env: TARFA_PHONE_ADDRESSES=wss://<node>.<tailnet>.ts.net:10000/me
+tarfa pair [--pwa https://<where phones open the app>] [--ttl <minutes>]
 ```
 `tarfa pair` prints a one-time pairing QR code and link (ten minutes, or `--ttl` 1–10; one phone)
 with every address in `TARFA_PHONE_ADDRESSES`. When a phone enrols, every other phone connected to
@@ -141,7 +178,7 @@ startup; remove it.
 **Moving a machine off relays.** An agent updated past the relays' removal no longer dials
 them, so a machine phones reached only through a relay is cut off until it is moved: run
 `tarfa setup` with `--tailscale serve|funnel` (or `--address` for a proxy), remove
-`TARFA_RELAY_URLS` from `deploy/agent.env`, then send each phone a fresh `tarfa pair` link. The
+`TARFA_RELAY_URLS` from `agent.env`, then send each phone a fresh `tarfa pair` link. The
 entry, known by its agent key, takes the new addresses; its device key stays enrolled. Update the
 agent before phones use a current app: an older agent refuses a new phone's hello ("too old to
 pair"). A self-hosted app built before the change must be redeployed too, and the old relay
@@ -173,9 +210,7 @@ curl -si http://127.0.0.1:8797/hooks | head -1
 ## 4. Wire Claude Code hooks (each machine)
 The agent writes its token to `~/.tarfa/token` on startup (mode 600); the hook reads it.
 ```sh
-TARFA_MACHINE_ID=$(grep TARFA_MACHINE_ID deploy/agent.env | cut -d= -f2) \
-TARFA_PORT=8787 \
-pnpm --filter @tarfa/cli exec tsx src/cli.ts install-hooks
+tarfa install-hooks     # reads the machine id and hooks port from agent.env; `tarfa apply` reruns it
 # merges UserPromptSubmit/PreToolUse/PostToolUse/Notification/Stop hooks into ~/.claude/settings.json
 ```
 
@@ -197,23 +232,24 @@ the hook cannot tell which workspace they belong to, so it reports nothing for t
 
 Same idea, same per-machine cadence: link the `tarfa-spawn` and `tarfa-orchestrate` skills
 into the global skills directory so a workspace on any project can launch and follow further
-workspaces. They live in the repo (so they stay in step with the CLI they call) and are
-symlinked rather than copied, so `git pull` updates them. Both use the `tarfa` CLI, so install
-it too (next section).
+workspaces. They live in the repo, not in the package: link them from a clone, so `git pull`
+updates them. Both use the `tarfa` CLI (next section).
 ```sh
 ln -sfn "$(pwd)/.claude/skills/tarfa-spawn" ~/.claude/skills/tarfa-spawn
 ln -sfn "$(pwd)/.claude/skills/tarfa-orchestrate" ~/.claude/skills/tarfa-orchestrate
 ```
 
 ### Tarfa CLI (each machine)
-Put `tarfa` on PATH, from the main checkout:
+A package install already has `tarfa` on PATH (the wrapper `~/.local/bin/tarfa`, written by `tarfa
+setup`, adoption and `tarfa apply`; it replaces only nothing, a link into a clone or an earlier copy
+of itself, and leaves anything else with one warning). From a clone, for development:
 ```sh
 deploy/install-cli.sh   # links ~/.local/bin/tarfa to deploy/tarfa-cli.sh (and perch to tarfa); safe to re-run
 ```
 The link follows the checkout, so a `git pull` updates the CLI. The shim finds the checkout's
 node through mise and runs `packages/agent/src/cli.ts` from the caller's directory. It refuses
 to replace a `~/.local/bin/tarfa` or `~/.local/bin/perch` that is not a symlink. Every subcommand works through it (`tarfa
-pair`, `tarfa devices`, …). These three need no `deploy/agent.env`, so a session in any repo can
+pair`, `tarfa devices`, …). These three need no `agent.env`, so a session in any repo can
 use them:
 - `tarfa spawn [--title <title>] [--child] [--model <model>] <projectPath>`, with the brief on stdin:
   starts a workspace running Claude Code on the brief and prints its id (also its Claude session
@@ -231,7 +267,7 @@ use them:
 
 `tarfa unpark <workspace id>...` reopens parked workspaces, one line per id, exactly as opening
 one on the phone does. It asks the running agent over its loopback listener (`TARFA_PORT` from
-`deploy/agent.env`, the hooks secret in `~/.tarfa/token`), so it needs the agent running.
+`agent.env`, the hooks secret in `~/.tarfa/token`), so it needs the agent running.
 
 ## 5. The PWA: tarfa.app, and the tailnet staging copy
 Tarfa is a static-assets Worker (`packages/pwa/wrangler.jsonc`) in the maintainer's Cloudflare
@@ -244,7 +280,7 @@ deploy/pwa-deploy.sh --dry-run   # build and check only, from any checkout
 ```
 To test a worktree's PWA on a phone from a public origin, `deploy/pwa-deploy.sh --dev` deploys it
 to a throwaway `tarfa-dev` Worker on workers.dev and prints its URL (its header shows a
-`tarfa-dev` badge); mint a link for it with `pnpm tarfa pair --pwa <that URL>`, and remove it with
+`tarfa-dev` badge); mint a link for it with `tarfa pair --pwa <that URL>`, and remove it with
 `deploy/pwa-deploy.sh --dev --delete` when done. Another Cloudflare account serves its own copy the
 same way with `--env-file <its file>`.
 
@@ -273,23 +309,48 @@ Staging PWA URL: `https://mini.<tailnet>.ts.net:8443/`.
    is needed only for machines published with `tailscale serve` alone; a Funneled machine is
    reached without it.
 2. Share → **Add to Home Screen**. Launch Tarfa from the home screen (standalone).
-3. Pair each machine: on the machine, `pnpm tarfa pair` prints a QR code; in Tarfa, **Settings → Scan QR code**.
+3. Pair each machine: on the machine, `tarfa pair` prints a QR code; in Tarfa, **Settings → Scan QR code**.
    Nothing is typed on the phone. On Android, Chrome asks once to find devices on the local
    network the first time it opens a tailnet address: allow it.
 
 ## 7. On-device smoke test
-1. On a machine: `pnpm --filter @tarfa/cli exec tsx src/cli.ts create ~/workspace/SOME_PROJECT bash` (or create from the phone).
+1. On a machine: `tarfa create ~/workspace/SOME_PROJECT bash` (or create from the phone).
 2. Phone list shows the workspace under the right machine with a green status dot.
 3. Tap it → the terminal streams; type `echo hi` → see `hi`.
 4. In a workspace run `claude`; when it finishes a turn or asks for input, the row bubbles up with "Needs you". ("Finished" is a manual status you set from the status picker — no hook sets it.)
 5. Open the same workspace on a second device → the first shows "Opened on another device".
 6. Close from the phone → the workspace disappears from the list.
 
+## Releasing
+`@tarfa/cli` reaches machines as an npm package. A release publishes the package only: it never
+deploys tarfa.app, and `tarfa update` never touches Claude Code or Codex.
+1. Bump `version` in `packages/agent/package.json` and commit it to main.
+2. Tag the commit `v<version>` and push the tag (the pre-push gate runs the suite):
+   `git tag v<version> && git push origin v<version>`.
+3. `.github/workflows/release.yml` checks that the tag equals the package version and that the
+   tagged commit is on `origin/main`, runs the frozen install, typecheck and unit tests, packs the
+   tarball, runs the packaging test (`TARFA_PACK_TEST=1`) and **stages** it with
+   `npm stage publish --provenance` over OIDC (trusted publishing; the workflow holds no npm token and
+   its `npm stage` right does not extend to `npm publish`). It does not run `pnpm test:scripts`:
+   those scripts exercise this repository's local deploy tooling (worktrees, `pwa-deploy.sh`, the
+   leak-word list) and the pre-push gate has already run them.
+4. **The maintainer approves with 2FA; nothing is live before that.** `npm stage list @tarfa/cli`,
+   then `npm stage approve <stage-id>` (or the Staged Packages tab on npmjs.com).
+5. `tarfa update` on each machine.
+6. `deploy/pwa-deploy.sh` only after **every agent a phone pairs with** runs a release at least as
+   new as the app expects (`MIN_AGENT_VERSION` in `packages/pwa/src/core/agent-skew.ts`; an app
+   deploy never runs ahead of the oldest agent). An agent reports its version in `authResult`; the app
+   shows "This machine's agent is too old for this app. Update it: tarfa update" for one below the
+   minimum, and keeps the connection open. Raise the constant in the release that first breaks an older agent.
+
+`node-pty` is pinned exactly to a prerelease because it is the first upstream line with Linux
+prebuilds; move it to the stable release once one ships.
+
 ## 8. Troubleshooting
 - **`/hooks` 401 from the local hook:** the agent hasn't written `~/.tarfa/token` yet (start the agent first) or the hook ran before startup. The file holds a hooks-only secret the agent replaces at each start, not `TARFA_TOKEN`.
-- **node-pty `posix_spawnp failed` on Ubuntu:** re-run `pnpm install` (root postinstall chmods `spawn-helper`); confirm `node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/linux-*/spawn-helper` is `+x`.
+- **node-pty `posix_spawnp failed` on Ubuntu:** in a package install, an installer stripped the prebuild's execute bit: reinstall with `tarfa update --force`, and check `spawn-helper` under the install's `node_modules/node-pty/prebuilds/linux-*/` is `+x`. In a source install, re-run `pnpm install` (the root postinstall chmods it).
 - **The phone does not connect:** the entry's message in Settings names the refusal (an agent refusal: revoked, not enrolled, a spent or expired pairing code, the wrong agent key). Check the agent logs `phones on 127.0.0.1:<port>`, that the publishing entry points at that port (`tailscale serve status`), and that the phone reaches the address (a tailnet address needs the phone's Tailscale connected; a Funnel one does not).
 - **An old direct entry in Settings** ("no longer supported"): delete it and pair the machine again.
 - **PWA loads but no workspaces:** watch the agent log (`journalctl --user -u tarfa-agent -f` / `tail -f deploy/agent.log`) for `phone:` lines.
-- **Port already in use:** change `TARFA_PORT` in `deploy/agent.env`, then re-run `install-hooks` (step 4), which bakes the port into the hook command.
-- **`pnpm: command not found` from the service:** the launchd/systemd PATH may not include your pnpm (e.g. mise shims). Verify `which pnpm` in your normal shell; if it's under `~/.local/share/mise` or similar, either add that dir to the plist `PATH`/systemd `Environment=PATH=...`, or edit `deploy/run-agent.sh` to call pnpm by absolute path.
+- **Port already in use:** change `TARFA_PORT` in `agent.env`, then re-run `install-hooks` (step 4), which bakes the port into the hook command.
+- **`mise` or `node` not found from the service:** the launcher resolves both from `$HOME` (the global node 24 of `mise use -g`), so check `mise which node` as the service's user, and that `~/.local/bin/mise` (or the mise on the unit's PATH) exists.

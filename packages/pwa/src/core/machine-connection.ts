@@ -34,6 +34,8 @@ export interface MachineConnectionDeps {
   // remember a new one.
   preferredAddress?: () => string | undefined;
   onAddressWorked?: (address: string) => void;
+  // What the agent says of itself in an accepted authResult (absent from an older agent).
+  onAgent?: (agent: { protocol: number; version?: string } | undefined) => void;
   // One address failing and the next being tried, for the connection log.
   onPhase?: (phase: string, detail: string) => void;
   token: string;
@@ -355,6 +357,7 @@ export class MachineConnection {
         this.failCount = 0;
         this.everConnected = true;
         this.deps.onAddressWorked?.(this.order[this.index]!);
+        this.deps.onAgent?.(message.agent);
         this.startHeartbeat(socket);
         if (!message.pushed) this.deps.openingRequests?.forEach((request) => socket.send(JSON.stringify(request)));
         this.deps.onStatus('online');

@@ -1,0 +1,50 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+
+      - name: Tag matches the package version
+        run: |
+          version=$(node -p "require('./packages/agent/package.json').version")
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match packages/agent version v$version" >&2
+            exit 1
+          fi
+
+      # Trusted publishing is scoped to this workflow file, not to a branch.
+      - name: Tagged commit is on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+
+      - name: Build the tarball and prove it installs and starts
+        run: |
+          mkdir -p "$RUNNER_TEMP/tarball"
+          pnpm --filter @tarfa/cli pack --pack-destination "$RUNNER_TEMP/tarball"
+          TARFA_PACK_TEST=1 pnpm --filter @tarfa/cli exec vitest run src/packaging.test.ts
+
+      # Node 24's bundled npm has no `stage`. The version waits for 2FA approval on npmjs.com.
+      - name: Stage the release
+        run: |
+          npm install -g npm@11.19.1
+          npm --version
+          npm stage publish "$RUNNER_TEMP"/tarball/*.tgz --access public --provenance

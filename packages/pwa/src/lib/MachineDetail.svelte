@@ -14,7 +14,7 @@
     machine,
     onClose,
   }: {
-    store: Pick<TarfaStore, 'statuses' | 'lastConnectionError' | 'updateMachine' | 'removeMachine' | 'reconnectMachine'>;
+    store: Pick<TarfaStore, 'statuses' | 'lastConnectionError' | 'updateMachine' | 'removeMachine' | 'reconnectMachine' | 'agentTooOld'>;
     machine: MachineConfig;
     onClose: () => void;
   } = $props();
@@ -81,6 +81,9 @@
     </div>
     {#if err}
       <p class="diag" data-testid="diagnostic">{describeConnectionError(err)}</p>
+    {/if}
+    {#if store.agentTooOld?.[machine.id]}
+      <p class="diag" data-testid="agent-too-old">{msg().status.agentTooOld("tarfa update")}</p>
     {/if}
     {#if enabled && status !== 'online'}
       <button type="button" class="secondary" data-testid="reconnect" onclick={() => store.reconnectMachine(machine.id)}>

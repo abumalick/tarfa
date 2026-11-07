@@ -149,3 +149,23 @@ describe('MachineDetail in French', () => {
     expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeTruthy();
   });
 });
+
+describe('MachineDetail agent notice', () => {
+  afterEach(() => setLanguage('en'));
+
+  it('shows the update notice when the store flags the agent too old', () => {
+    setup({}, { agentTooOld: { mac: true } });
+    expect(screen.getByTestId('agent-too-old')).toHaveTextContent("This machine's agent is too old for this app. Update it: tarfa update");
+  });
+
+  it('words it in French and keeps the command untranslated', () => {
+    setLanguage('fr');
+    setup({}, { agentTooOld: { mac: true } });
+    expect(screen.getByTestId('agent-too-old')).toHaveTextContent(/trop ancien.*tarfa update$/);
+  });
+
+  it('shows nothing otherwise', () => {
+    setup({}, { agentTooOld: { mac: false } });
+    expect(screen.queryByTestId('agent-too-old')).toBeNull();
+  });
+});

@@ -38,7 +38,13 @@ the phone's device key, and streams its terminals. No agent listens off loopback
   bin symlink or shim still runs the CLI. Nothing in the package directory is written at runtime.
   `.pnpmfile.cjs` strips the workspace entries when packing. Pack and install it with
   `TARFA_PACK_TEST=1 pnpm --filter @tarfa/cli exec vitest run src/packaging.test.ts` (opt-in,
-  not in the gate; it compiles node-pty).
+  not in the gate; it compiles node-pty). **A release is a `v<version>` tag on main** (version from
+  `packages/agent/package.json`): `.github/workflows/release.yml` checks the tag and that the commit is
+  on main, tests, packs, runs the packaging test and **stages** the tarball with `npm stage publish
+  --provenance` over OIDC (no token, never `npm publish`); the maintainer approves it with 2FA
+  (`npm stage approve`), then `tarfa update` per machine, and `deploy/pwa-deploy.sh` only once every
+  agent phones pair with is at least as new as `MIN_AGENT_VERSION` (PWA `core/agent-skew.ts`, `0.0.0`
+  today: an agent below it, or one reporting no version, gets a notice and stays connected).
 - `packages/secure-channel` (`@tarfa/secure-channel`) — the Noise IK session both ends run, its
   framing, the device hello, pairing links and refusals (see "Device keys, enrolment and
   pairing").
@@ -82,17 +88,22 @@ Build each feature in its own git worktree; full runbook in `docs/WORKTREES.md`.
   (`--dev --delete` afterwards).
 - **Protocol changes need the worktree's agent too:** the PWA and agent share the zod wire
   protocol, so testing a protocol change on-device requires running the worktree's agent or
-  the deployed (main) agent silently drops the new/changed messages. `pnpm serve:agent
-  .worktrees/<feature>` runs that worktree's agent live (flips `deploy/agent-live`, restarts
-  the service — safe via `KillMode=process`); it takes the same phone port with the same
-  identity, so the phone's entries reach it unchanged. `pnpm serve:agent-restore` flips back.
-  Secrets and settings come from main's `deploy/agent.env`. Make additive protocol fields backward-compatible
+  the installed agent silently drops the new/changed messages. `pnpm serve:agent
+  .worktrees/<feature>` runs that worktree's agent live and restarts the service (safe via
+  `KillMode=process`); it takes the same phone port with the same identity, so the phone's entries
+  reach it unchanged. `pnpm serve:agent-restore` goes back to the release. On a launcher machine
+  (package install) it writes `~/.tarfa/agent-source` and the settings are `~/.tarfa/agent.env`; on a
+  source install it flips `deploy/agent-live` and the secrets come from main's `deploy/agent.env`. A
+  worktree branched before `run-agent.sh` learned to skip `deploy/agent.env` under the launcher will not
+  start there: merge main into it. **Merging to main no longer updates the dev agent** (a tag plus
+  `tarfa update` does): to run unreleased code, `pnpm serve:agent .` (the main checkout) and
+  `pnpm serve:agent-restore` back to the release. Make additive protocol fields backward-compatible
   (e.g. `z.array(...).default([])`) so a version-skewed rollout degrades gracefully instead
   of the strict client parser dropping the whole message.
 
 ## Runtime & deployment
 See `docs/DEPLOY.md` for the full runbook. In short:
-- Each agent reads `deploy/agent.env` (`TARFA_TOKEN`, `TARFA_MACHINE_ID`,
+- Each agent reads `~/.tarfa/agent.env` (a source install: `deploy/agent.env`) (`TARFA_TOKEN`, `TARFA_MACHINE_ID`,
   `TARFA_PROJECT_ROOTS`, `TARFA_PORT` for the loopback hooks listener, `TARFA_PHONE_PORT` for the
   phone port, `TARFA_PHONE_ADDRESSES` for where phones reach it) and
   runs as a service: **launchd** on macOS
@@ -1317,13 +1328,14 @@ reaches `origin`, including FF merges and `git update-ref` advances no commit ho
   playwright install webkit` — alongside `mise trust`; without them the gate fails closed.
 
 ## Pushing & merge conflicts
-**There is no remote test CI.** The only GitHub Action is a gitleaks secret scan
-(`.github/workflows/gitleaks.yml`), a backstop for the local leak check. The test gate
-runs entirely on the local git hooks (commit/merge/push) before anything reaches `origin`.
-So after a `git push`, do **not** wait for a remote test run — there is none. Verifying locally with
+**There is no remote test CI on pushes.** The GitHub Actions are a gitleaks secret scan
+(`.github/workflows/gitleaks.yml`), a backstop for the local leak check, and `release.yml`, which
+runs on `v*` tags only and stages the npm package (see "Releasing" in `docs/DEPLOY.md`). The test
+gate runs entirely on the local git hooks (commit/merge/push) before anything reaches `origin`.
+So after a `git push`, do **not** wait for a remote test run — there is none (a pushed tag starts `release.yml`, which only stages a package). Verifying locally with
 `pnpm -s test` + e2e is the whole story.
 
-`origin` is a real GitHub remote (no test CI). The post-merge hook auto-pushes `main`, but that
+`origin` is a real GitHub remote (no push CI). The post-merge hook auto-pushes `main`, but that
 push **fails whenever `origin/main` has advanced** since you branched. When a push fails —
 the hook's auto-push or a manual `git push` — integrate automatically; do **not** stop and
 ask:
@@ -1335,5 +1347,5 @@ ask:
    `main`.
 
 ## Reference
-- Deploy runbook: `docs/DEPLOY.md`. Worktree runbook: `docs/WORKTREES.md`.
-- The repo has no remote test CI; verify locally (`pnpm -s test` + e2e) before pushing.
+- Deploy and release runbook: `docs/DEPLOY.md`. Worktree runbook: `docs/WORKTREES.md`.
+- The repo has no CI on pushes (only the tag-triggered `release.yml` and the gitleaks scan); verify locally (`pnpm -s test` + e2e) before pushing.

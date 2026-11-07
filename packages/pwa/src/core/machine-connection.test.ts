@@ -43,6 +43,7 @@ function fakeSocket() {
 
 function harness(refusalContext?: RefusalContext, addresses = ['wss://m1.ts.net'], memory: { preferred?: string } = {}) {
   const spent: string[] = [];
+  const agents: unknown[] = [];
   const sockets: ReturnType<typeof fakeSocket>[] = [];
   const dialed: string[] = [];
   const phases: string[] = [];
@@ -78,9 +79,10 @@ function harness(refusalContext?: RefusalContext, addresses = ['wss://m1.ts.net'
     now: () => clock,
     refusalContext,
     onCredentialsSpent: (scope) => spent.push(scope),
+    onAgent: (agent) => agents.push(agent),
   });
   const advance = (ms: number) => (clock += ms);
-  return { conn, sockets, messages, statuses, diagnostics, scheduled, timers, spent, dialed, phases, memory, advance };
+  return { conn, agents, sockets, messages, statuses, diagnostics, scheduled, timers, spent, dialed, phases, memory, advance };
 }
 
 const authOf = (socket: ReturnType<typeof fakeSocket>) => socket.sent.map((d) => JSON.parse(d) as { type: string; token?: string }).find((m) => m.type === 'auth');
@@ -830,5 +832,23 @@ describe('MachineConnection address walk failures', () => {
     live(h.timers).at(-1)!.fn();
     h.sockets[1]!.fireClose({ code: 1006 });
     expect(h.diagnostics[0]!.message).toBe('connection failed (agent key mismatch)');
+  });
+});
+
+describe('MachineConnection agent info', () => {
+  it('reports what the agent says of itself in an accepted authResult, absent when it says nothing', () => {
+    const h = harness();
+    h.conn.connect();
+    h.sockets[0]!.open();
+    h.sockets[0]!.deliver({ type: 'authResult', ok: true, agent: { protocol: 1, version: '0.1.0' } });
+    expect(h.agents).toEqual([{ protocol: 1, version: '0.1.0' }]);
+  });
+
+  it('reports no agent info when an older agent sends none', () => {
+    const h = harness();
+    h.conn.connect();
+    h.sockets[0]!.open();
+    h.sockets[0]!.deliver({ type: 'authResult', ok: true });
+    expect(h.agents).toEqual([undefined]);
   });
 });

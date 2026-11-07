@@ -7,8 +7,8 @@ import { serviceInstall } from './service-install';
 async function dirs() {
   const templates = await mkdtemp(join(tmpdir(), 'tarfa-svc-templates-'));
   const home = await mkdtemp(join(tmpdir(), 'tarfa-svc-home-'));
-  await writeFile(join(templates, 'tarfa-agent.service'), 'unit REPO_PATH\n');
-  await writeFile(join(templates, 'app.tarfa.agent.plist'), 'plist REPO_PATH\n');
+  await writeFile(join(templates, 'tarfa-agent.service'), 'unit AGENT_COMMAND\n');
+  await writeFile(join(templates, 'app.tarfa.agent.plist'), 'plist AGENT_COMMAND\n');
   return { templates, home };
 }
 
@@ -26,7 +26,7 @@ describe('serviceInstall', () => {
     const ran: string[] = [];
     const service = serviceInstall({ templates, home, user: 'u', uid: 1000, platform: 'linux', run: async (c, a) => (ran.push([c, ...a].join(' ')), a.includes('Linger') ? 'yes\n' : '') });
     expect(service.kind).toBe('systemd');
-    expect(await service.template()).toBe('unit REPO_PATH\n');
+    expect(await service.template()).toBe('unit AGENT_COMMAND\n');
     expect(await service.installed()).toBeNull();
     await service.install('unit /r\n');
     expect(await readFile(join(home, '.config', 'systemd', 'user', 'tarfa-agent.service'), 'utf8')).toBe('unit /r\n');

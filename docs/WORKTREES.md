@@ -93,17 +93,29 @@ restart. Run `serve:restore` to flip back.
 ### Serving a worktree's agent
 
 A protocol change touches both the PWA **and** the agent, so testing it on-device needs the
-agent to run the worktree's code too — otherwise the updated PWA talks to main's agent and
-the versions skew. The agent equivalent of `serve:build`:
+agent to run the worktree's code too — otherwise the updated PWA talks to the installed
+agent and the versions skew. The agent equivalent of `serve:build`:
 
 ```sh
 pnpm serve:agent .worktrees/<feature>   # run that worktree's agent live, restart the service
 # … test on the phone …
-pnpm serve:agent-restore                # run main's agent again
+pnpm serve:agent-restore                # back to the installed release
 ```
 
-`run-agent.sh` runs the agent from a `deploy/agent-live` symlink (gitignored) when it
-resolves, else from main; secrets are always sourced from main's `deploy/agent.env`, so the
+**Merging to main does not update the dev agent.** A machine installed from the package runs the
+released `@tarfa/cli`; a tag plus `tarfa update` (`docs/DEPLOY.md`, "Releasing") is what changes it.
+To run unreleased code there, use `pnpm serve:agent .` (the main checkout as the override) and
+`pnpm serve:agent-restore` to go back to the release.
+
+On a launcher machine (a package install: the unit runs `~/.tarfa/bin/tarfa-agent`), `serve:agent`
+writes `~/.tarfa/agent-source`, which the launcher follows while it still points at a checkout, and
+`serve:agent-restore` removes it. The agent's settings come from `~/.tarfa/agent.env`, not from main's
+`deploy/agent.env`; `run-agent.sh` skips its own `deploy/agent.env` when the launcher has set
+`TARFA_AGENT_ENV`. A worktree branched before that skip will not start under the launcher (its
+`run-agent.sh` would source a `deploy/agent.env` that is not there): merge main into it first.
+
+On a source install, `run-agent.sh` runs the agent from a `deploy/agent-live` symlink (gitignored)
+when it resolves, else from main; secrets are sourced from main's `deploy/agent.env`, so the
 worktree needs no `agent.env` of its own. `serve:agent` flips the symlink at the worktree and
 restarts the service (`systemctl --user restart tarfa-agent`, or `launchctl kickstart` on
 macOS). The restart is safe: `KillMode=process` keeps the tmux server and its sessions alive
@@ -111,10 +123,10 @@ macOS). The restart is safe: `KillMode=process` keeps the tmux server and its se
 stored in `~/.tarfa/status.json`), and the PWA briefly reconnects.
 The worktree must have its deps installed (`pnpm install`) since the agent runs from its
 source. Restarting the `tarfa-agent` service does **not** restore main on its own (same as
-the PWA) — the symlink persists across restarts; run `serve:agent-restore` (or
+the PWA) — the symlink (or `agent-source`) persists across restarts; run `serve:agent-restore` (or
 `worktree:remove`, below) to flip back.
 
-`agent-live` is a **single global slot**: there is one symlink and one agent service, so two
+`agent-live` (and `agent-source`) is a **single global slot**: there is one symlink and one agent service, so two
 sessions each running `serve:agent` on their own worktree clobber each other (last writer
 wins). If the live agent is unexpectedly running another worktree's code, a parallel session
 grabbed the slot — check `readlink deploy/agent-live`. `worktree:remove` only restores the

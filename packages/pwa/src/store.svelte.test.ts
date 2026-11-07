@@ -65,7 +65,7 @@ function build(
   applyUpdate?: () => void,
   startTimer?: (fn: () => void, ms: number) => () => void,
   log?: { connectionLog: import('./core/connection-log').ConnectionLog; sinceLaunch?: () => number },
-  ask: { confirm?: (message: string) => boolean; alert?: (message: string) => void } = {},
+  ask: { confirm?: (message: string) => boolean; alert?: (message: string) => void; minAgentVersion?: string } = {},
 ) {
   const sockets: Record<string, { open: () => void; deliver: (m: unknown) => void; sent: string[] }> = {};
   const aggregator = new WorkspaceAggregator();
@@ -92,6 +92,7 @@ function build(
     onStatus: (id, s) => {
       store.statuses[id] = s;
     },
+    onAgent: (id, agent) => store.setAgent(id, agent),
     onCredentialsSpent: (id, scope) => store.forgetCredentials(id, scope),
     schedule: () => undefined,
   });
@@ -586,6 +587,37 @@ describe('TarfaStore', () => {
     expect(store.terminalState).toBe('live');
     const attach = sockets['wss://mac']!.sent.map((s) => JSON.parse(s)).find((m) => m.type === 'attach');
     expect(attach).toMatchObject({ type: 'attach', workspaceId: 'perch-a', cols: 80, rows: 24 });
+  });
+
+  describe('agent version skew', () => {
+    function online(version: string | undefined, minAgentVersion: string) {
+      const { store, sockets } = build([mac], undefined, undefined, undefined, { minAgentVersion });
+      store.start();
+      sockets['wss://mac']!.open();
+      sockets['wss://mac']!.deliver({ type: 'authResult', ok: true, agent: { protocol: 1, ...(version ? { version } : {}) } });
+      return store;
+    }
+
+    it('flags an agent that reports no version when the minimum is above 0.0.0', () => {
+      expect(online(undefined, '0.1.0').agentTooOld['mac']).toBe(true);
+    });
+
+    it('flags an older agent and keeps the connection open', () => {
+      const store = online('0.0.9', '0.1.0');
+      expect(store.agentTooOld['mac']).toBe(true);
+      expect(store.statuses['mac']).toBe('online');
+    });
+
+    it('does not flag an agent at or above the minimum, or anyone at the shipped minimum', () => {
+      expect(online('0.1.0', '0.1.0').agentTooOld['mac']).toBe(false);
+      expect(online(undefined, '0.0.0').agentTooOld['mac']).toBe(false);
+    });
+
+    it('clears the notice when the machine goes offline', () => {
+      const store = online('0.0.1', '0.1.0');
+      store.setStatus('mac', 'offline');
+      expect(store.agentTooOld['mac']).toBe(false);
+    });
   });
 
   it('records a connection error and clears it on online', () => {

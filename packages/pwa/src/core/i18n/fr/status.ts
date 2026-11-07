@@ -12,6 +12,7 @@ export const status: Messages['status'] = {
     working: 'En cours',
   },
   needsOrchestrator: 'Attend l’orchestrateur',
+  agentTooOld: (command) => `L’agent de cette machine est trop ancien pour cette appli. Mettez-le à jour : ${command}`,
   pill: (label) => `Statut : ${label}`,
   closeMenu: 'Fermer le menu des statuts',
   setStatus: 'Choisir le statut',

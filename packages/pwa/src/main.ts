@@ -112,6 +112,7 @@ const manager = new ConnectionManager({
   onMessage: (id, message) => store.handleMessage(id, message),
   onStatus: (id, status) => store.setStatus(id, status),
   onDiagnostic: (id, diagnostic) => store.setConnectionError(id, diagnostic),
+  onAgent: (id, agent) => store.setAgent(id, agent),
   onPhase: (id, phase, detail) => store.logPhase(id, phase, detail),
   onCredentialsSpent: (id, scope) => store.forgetCredentials(id, scope),
 });

@@ -13,6 +13,7 @@ export interface ConnectionManagerDeps {
   onMessage: (machineId: string, message: AgentMessage) => void;
   onStatus: (machineId: string, status: ConnectionStatus) => void;
   onDiagnostic?: (machineId: string, diagnostic: ConnectionDiagnostic) => void;
+  onAgent?: (machineId: string, agent: { protocol: number; version?: string } | undefined) => void;
   // A phase of a connect (device key, socket open, handshake, an address failing) with its timing.
   onPhase?: (machineId: string, phase: string, detail: string) => void;
   // The agent said this entry's device key is enrolled (`all`: its token and pairing secret are to
@@ -67,6 +68,7 @@ export class ConnectionManager {
         addresses: config.addresses,
         preferredAddress: () => this.worked.get(config.id),
         onAddressWorked: (address) => this.worked.set(config.id, address),
+        onAgent: (agent) => this.deps.onAgent?.(config.id, agent),
         onPhase: (phase, detail) => this.deps.onPhase?.(config.id, phase, detail),
         token: credential(config),
         socketFactory: (url) => this.socketFactoryFor(this.configs.get(config.id) ?? config, url)(url),

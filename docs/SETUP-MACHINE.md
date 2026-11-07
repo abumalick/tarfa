@@ -86,7 +86,7 @@ As your user:
 curl https://mise.run | sh                       # mise: runtimes and CLIs, in ~/.local/bin
 echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
 exec bash
-mise use -g node@24 pnpm@11 gh npm:@openai/codex
+mise use -g node@24 gh npm:@openai/codex
 
 curl -LsSf https://astral.sh/uv/install.sh | sh  # uv, if you work in Python
 curl -fsSL https://claude.ai/install.sh | bash   # Claude Code, in ~/.local/bin/claude
@@ -145,52 +145,46 @@ Workspaces do not come back after a reboot; a Claude conversation can be resumed
 
 ## 6. Install the agent
 
-Details: `docs/DEPLOY.md`, steps 0 to 2 and 4.
+Details: `docs/DEPLOY.md`, "Install the package" and "In one command".
 
 ```bash
-mkdir -p ~/workspace && cd ~/workspace
-git clone <your fork> tarfa && cd tarfa
-mise trust && mise install && mise exec -- pnpm install
-
-install -m 600 deploy/agent.env.example deploy/agent.env
-openssl rand -hex 32        # → TARFA_TOKEN in deploy/agent.env
+mise use -g node@24 npm:@tarfa/cli@<version>          # a release: see docs/DEPLOY.md, "Releasing"
+tarfa setup --machine-id <name> --project-roots /home/<user>/workspace \
+  --default-path /home/<user>/workspace --dry-run      # the plan; drop --dry-run to apply it
 ```
 
-In `deploy/agent.env`, set `TARFA_TOKEN`, `TARFA_MACHINE_ID` (a short name for this machine),
-`TARFA_PROJECT_ROOTS` (e.g. `/home/<user>/workspace`) and, optionally, `TARFA_DEFAULT_PATH`
-(absolute). Keep `TARFA_PORT=8787`. The file must stay `600`: the agent refuses to start while
-another user can read it.
+There is no repository, no pnpm and no compiler: `node-pty` ships prebuilds and the install runs
+no lifecycle scripts. A global node 24 is required, because the `tarfa` wrapper and the service's
+launcher find node from `$HOME`, never from the folder they run in.
+
+`tarfa setup` writes `~/.tarfa/agent.env` (`600`; a token only if there is none), the launcher
+`~/.tarfa/bin/tarfa-agent` and the `~/.local/bin/tarfa` wrapper, installs and starts the user unit with
+linger, and installs the status hooks, without prompting; it is safe to rerun and changes only what
+differs. If you run tmux as its own service (step 5), add its drop-in first:
 
 ```bash
-mkdir -p ~/.config/systemd/user
-sed "s#REPO_PATH#$(pwd)#g" packages/agent/templates/tarfa-agent.service > ~/.config/systemd/user/tarfa-agent.service
 mkdir -p ~/.config/systemd/user/tarfa-agent.service.d
 printf '[Unit]\nAfter=tmux-server.service\nWants=tmux-server.service\n' \
-  > ~/.config/systemd/user/tarfa-agent.service.d/10-tmux.conf    # only with step 5
-systemctl --user daemon-reload && systemctl --user enable --now tarfa-agent
-
-pnpm tarfa install-hooks                                         # status hooks, see below
-mkdir -p ~/.claude/skills && ln -sfn "$(pwd)/.claude/skills/tarfa-spawn" ~/.claude/skills/tarfa-spawn
-ln -sfn "$(pwd)/.claude/skills/tarfa-orchestrate" ~/.claude/skills/tarfa-orchestrate
-deploy/install-cli.sh                                            # `tarfa` on PATH (the skills use it)
-```
-
-Check: `curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8787/hooks` prints
-`401` (running, and refusing an unauthenticated hook).
-
-**Or in one step.** `pnpm tarfa setup` does the `agent.env`, unit and hooks steps above without
-prompting, and is safe to rerun (it changes only what differs):
-
-```bash
-pnpm tarfa setup --machine-id <name> --project-roots /home/<user>/workspace \
-  --default-path /home/<user>/workspace --dry-run      # the plan; drop --dry-run to apply it
+  > ~/.config/systemd/user/tarfa-agent.service.d/10-tmux.conf
+systemctl --user daemon-reload
 ```
 
 It also writes `~/.tarfa/devices.json` with token enrolment off, so only a `tarfa pair` code adds
 a phone. With Tailscale on the machine, `--tailscale serve` (tailnet only) or `--tailscale funnel`
 (public, the phone needs no VPN) also publishes the phone port and records its address for
-`tarfa pair` (step 8). `pnpm tarfa setup --help` explains the flags and the Tailscale admin settings. The tmux drop-in,
-skills and `install-cli.sh` lines above are still yours to run.
+`tarfa pair` (step 8). `tarfa setup --help` explains the flags and the Tailscale admin settings.
+The `tarfa-spawn` and `tarfa-orchestrate` skills live in the repository, not the package: link them
+from a clone (`ln -sfn <clone>/.claude/skills/tarfa-spawn ~/.claude/skills/tarfa-spawn`, same for
+`tarfa-orchestrate`) if you want sessions to launch further workspaces.
+
+Check: `curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8787/hooks` prints
+`401` (running, and refusing an unauthenticated hook).
+
+**From a clone, for development.** A source install runs the agent from a checkout:
+`git clone <your fork> tarfa && cd tarfa && mise trust && mise install && mise exec -- pnpm install`,
+then `pnpm tarfa setup …` with the same flags (it keeps `deploy/agent.env` and runs
+`deploy/run-agent.sh`), and `deploy/install-cli.sh` for `tarfa` on PATH. A machine already running
+from a clone moves to the package with `tarfa setup --adopt` (`docs/DEPLOY.md`).
 
 **Status hooks** tell your phone whether a session is working or waiting for you. They go into
 `~/.claude/settings.json`, and into `~/.codex/hooks.json` when `~/.codex` exists, which Codex
@@ -228,14 +222,14 @@ certificates in the admin console, and let your user run `tailscale serve` witho
 
 ```bash
 cd ~/workspace/perch
-pnpm tarfa setup --machine-id <name> --project-roots /home/<user>/workspace \
+tarfa setup --machine-id <name> --project-roots /home/<user>/workspace \
   --default-path /home/<user>/workspace --tailscale serve --pair
 ```
 
 `--tailscale serve` publishes the phone port on your tailnet only: the phone needs Tailscale
 connected. `--tailscale funnel` publishes it on the internet too (the phone needs no VPN; the
 policy file must give the node the `funnel` attribute), at about 0.2 MB/s, which is fine for
-terminals and slow for large previews. `pnpm tarfa setup --help` has the details. `--pair` prints
+terminals and slow for large previews. `tarfa setup --help` has the details. `--pair` prints
 a QR code and a link; check the agent with `journalctl --user -u tarfa-agent | grep 'phones on'`.
 
 On your phone, open the app's origin and install it (iPhone: Share → Add to Home Screen; Android:
@@ -247,11 +241,11 @@ install from the browser menu). Then pair:
 - **Android:** open the link anywhere; it goes straight into the installed app. Chrome asks once
   whether the app may reach your local network (a tailnet address): allow it.
 
-A code works once, for 10 minutes; `pnpm tarfa pair` makes another. `tarfa setup` leaves token
+A code works once, for 10 minutes; `tarfa pair` makes another. `tarfa setup` leaves token
 enrolment off, so only a `tarfa pair` code adds a phone:
 
 ```bash
-pnpm tarfa devices                 # your phones; revoke a lost one by id or key
+tarfa devices                 # your phones; revoke a lost one by id or key
 ```
 
 Check: the machine shows on your phone, a new `bash` workspace opens, and `echo hi` answers.
@@ -259,14 +253,14 @@ Check: the machine shows on your phone, a new `bash` workspace opens, and `echo 
 ## 9. Updating
 
 ```bash
-cd ~/workspace/perch
-git pull --ff-only && pnpm install --frozen-lockfile && systemctl --user restart tarfa-agent
+tarfa update            # newest release; `--version <v>` pins one, `--force` re-applies the current
 ```
 
-Workspaces survive the restart (the agent runs from source, so there is nothing to build). If you
-serve your own app, redeploy it from step 7 too when the wire format changes, together with the
-agent. Run
-`install-hooks` again when the hook script changes, and trust the Codex hooks again.
+`tarfa update` installs the release with mise, then runs the new version's `tarfa apply`, which
+refreshes the launcher and unit if they differ, reinstalls the hooks, restarts the agent and checks
+the phone port. Workspaces survive the restart. It never updates Claude Code or Codex. If you serve
+your own app, redeploy it from step 7 only after every agent your phones use runs a release at least
+as new as the app expects, and trust the Codex hooks again when the hook script changes.
 
 ## 10. Optional: reaching the machine yourself
 
@@ -366,7 +360,7 @@ pcm.!default {
   playback.pcm "plughw:Loopback,0,<n>"
   capture.pcm "plughw:Loopback,1,<n>"
 }
-# And in its deploy/agent.env, the playback side of the same <n>, then restart its agent:
+# And in its ~/.tarfa/agent.env, the playback side of the same <n>, then restart its agent:
 TARFA_VOICE_DEVICE=plughw:Loopback,0,<n>
 ```
 
@@ -461,12 +455,12 @@ reads no profile, so set the two variables it lacks:
 sudo -u <user> -H bash -s <<'EOF'
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 export PATH=$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH
-cd ~/workspace/perch && git pull --ff-only
+tarfa update
 EOF
 ```
 
-**Steps 3 to 6, 8 and 9 again, as that user** (step 7, if you serve your own app, is done once per Cloudflare account). The new user needs its own clone (a private fork needs git
-credentials of its own). In `deploy/agent.env`, three values differ:
+**Steps 3 to 6, 8 and 9 again, as that user** (step 7, if you serve your own app, is done once per Cloudflare account). The new user installs the package itself (mise, step 3, and `tarfa setup`).
+In its `~/.tarfa/agent.env`, three values differ:
 
 - **`TARFA_PORT` must differ from every other agent's on the machine** (and step 6's check
   `curl`s that port). Each agent listens on `127.0.0.1:<port>` for its hooks, and with the port
