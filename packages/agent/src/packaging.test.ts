@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -87,6 +87,7 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
         'dist/serve.js',
         'templates/tarfa-agent.service',
         'templates/app.tarfa.agent.plist',
+        'templates/tarfa-cli-wrapper.sh',
         'src/hooks/tarfa-hook.sh',
         'src/hooks/tarfa-guard.sh',
       ]) {
@@ -149,6 +150,50 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
       expect(dry.stdout).toContain(join(home, '.tarfa', 'bin', 'tarfa-agent'));
       expect(dry.stdout).toContain(join(home, '.tarfa', 'agent.env'));
       expect(await snapshot(home)).toEqual(homeBefore);
+
+      // The wrapper setup installs runs the installed package under an explicit node, from any folder,
+      // laid out as mise's npm backend lays it out (<install>/bin/tarfa).
+      const miseStub = join(home, '.local', 'bin', 'mise');
+      await mkdir(dirname(miseStub), { recursive: true });
+      await writeFile(
+        miseStub,
+        `#!/bin/sh\nif [ "$1" = "--cd" ] && [ "$3" = "where" ]; then case "$4" in npm:@tarfa/cli) echo "${prefix}" ;; node) echo "${dirname(nodeDir)}" ;; esac; exit 0; fi\nexit 1\n`,
+        { mode: 0o755 },
+      );
+      const wrapper = join(pkgDir, 'templates', 'tarfa-cli-wrapper.sh');
+      const elsewhere = join(scratch, 'elsewhere');
+      await mkdir(elsewhere);
+      const wrapped = await exec('sh', [wrapper, '--version'], { cwd: elsewhere, env: { HOME: home, PATH: '/usr/bin:/bin' } });
+      expect(wrapped.stdout.trim()).toBe(expected);
+      expect((await exec(process.execPath, [bin, '--version'], { env: cleanEnv })).stdout.trim()).toBe(expected);
+
+      // An unreachable registry is one line and changes nothing.
+      const closedPort = await freePort();
+      const updateBefore = await snapshot(home);
+      const failedUpdate = await exec(bin, ['update'], { env: { ...cleanEnv, TARFA_NPM_REGISTRY: `http://127.0.0.1:${closedPort}` } }).then(
+        () => ({ code: 0, stderr: '' }),
+        (err: { code: number; stderr: string }) => ({ code: err.code, stderr: err.stderr }),
+      );
+      expect(failedUpdate.code).not.toBe(0);
+      expect(failedUpdate.stderr.trim().split('\n')).toHaveLength(1);
+      expect(failedUpdate.stderr).toMatch(/npm registry.*nothing changed/);
+      expect(await snapshot(home)).toEqual(updateBefore);
+
+      // Adopting a clone, on a scratch unit that names a scratch clone: described, nothing written.
+      const adoptHome = join(scratch, 'adopt-home');
+      const clone = join(scratch, 'clone');
+      const stubBin = join(scratch, 'stubbin');
+      await Promise.all([join(adoptHome, '.config', 'systemd', 'user'), join(clone, 'deploy'), stubBin].map((d) => mkdir(d, { recursive: true })));
+      await writeFile(join(clone, 'deploy', 'run-agent.sh'), '#!/usr/bin/env bash\n');
+      await writeFile(join(clone, 'deploy', 'agent.env'), `TARFA_TOKEN=t\nTARFA_MACHINE_ID=adopt-test\nTARFA_PROJECT_ROOTS=${adoptHome}\nTARFA_PORT=${await freePort()}\nTARFA_PHONE_PORT=${await freePort()}\n`, { mode: 0o600 });
+      await symlink(clone, join(clone, 'deploy', 'agent-live'));
+      await writeFile(join(adoptHome, '.config', 'systemd', 'user', 'tarfa-agent.service'), `[Service]\nExecStart=/usr/bin/env bash ${clone}/deploy/run-agent.sh\nKillMode=process\n`);
+      for (const tool of ['systemctl', 'loginctl']) await writeFile(join(stubBin, tool), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      const adoptEnv = { HOME: adoptHome, PATH: `${stubBin}:${nodeDir}:/usr/bin:/bin`, XDG_RUNTIME_DIR: cleanEnv.XDG_RUNTIME_DIR };
+      const adoptBefore = [await snapshot(adoptHome), await snapshot(clone)];
+      const adopted = await exec(bin, ['setup', '--adopt', '--dry-run'], { env: adoptEnv });
+      for (const wanted of ['copy ', 'remove the link', 'keeping the old definition', 'wrapper']) expect(adopted.stdout).toContain(wanted);
+      expect([await snapshot(adoptHome), await snapshot(clone)]).toEqual(adoptBefore);
 
       const before = await snapshot(pkgDir);
       server = spawn(bin, ['serve'], { env: serveEnv, stdio: ['ignore', 'pipe', 'pipe'] });

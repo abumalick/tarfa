@@ -18,6 +18,7 @@ function fakes(over: Partial<ApplyEffects> = {}, state: { launcher: string; unit
       state.unit = 'new-unit';
       return changed;
     },
+    writeCliWrapper: async () => (calls.push('cli'), { changed: false, notes: [] }),
     installHooks: async () => (calls.push('hooks'), { changed: false, codex: false }),
     markLog: async () => (calls.push('mark'), 7),
     restart: async () => (calls.push('restart'), 'systemctl --user restart tarfa-agent'),
@@ -35,10 +36,11 @@ describe('runApply', () => {
     const { effects, calls } = fakes();
     const result = await runApply(effects, OPTIONS);
     expect(result.ok).toBe(true);
-    expect(calls).toEqual(['launcher', 'unit', 'hooks', 'mark', 'restart', 'listener', 'log since 7']);
+    expect(calls).toEqual(['launcher', 'unit', 'cli', 'hooks', 'mark', 'restart', 'listener', 'log since 7']);
     expect(result.lines).toEqual([
       'ok: launcher written',
       'ok: service definition written, daemon reloaded',
+      'ok: tarfa command wrapper already current',
       'ok: hooks already current',
       'ok: restarted (systemctl --user restart tarfa-agent)',
       'ok: the phone port answers on 127.0.0.1:8797',

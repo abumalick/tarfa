@@ -7,6 +7,8 @@ export interface ApplyEffects {
   // Each returns whether it changed anything; they leave what was there if they fail.
   writeLauncher(): Promise<boolean>;
   writeUnit(): Promise<boolean>;
+  // The `tarfa` wrapper and the `perch` link in ~/.local/bin; `notes` are what it left alone.
+  writeCliWrapper(): Promise<{ changed: boolean; notes: string[] }>;
   // `codex`: Codex's hooks were written too, and need trusting again.
   installHooks(): Promise<{ changed: boolean; codex: boolean }>;
   // Taken just before the restart; `agentLog` returns only what the agent printed after it.
@@ -51,6 +53,13 @@ export async function runApply(effects: ApplyEffects, options: ApplyOptions): Pr
     lines.push((await effects.writeUnit()) ? 'ok: service definition written, daemon reloaded' : 'ok: service definition already current');
   } catch (err) {
     return fail('service definition', message(err));
+  }
+  try {
+    const cli = await effects.writeCliWrapper();
+    lines.push(cli.changed ? 'ok: tarfa command wrapper written' : 'ok: tarfa command wrapper already current');
+    lines.push(...cli.notes);
+  } catch (err) {
+    return fail('tarfa command wrapper', message(err));
   }
   try {
     const hooks = await effects.installHooks();

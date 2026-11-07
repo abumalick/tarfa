@@ -10,7 +10,11 @@ export interface SetupEffects {
   createKey(): Promise<void>;
   writeRoster(mode: EnrolmentMode): Promise<void>;
   writeLauncher(path: string, text: string): Promise<void>;
-  installUnit(text: string): Promise<string[]>;
+  copyEnv(from: string, to: string): Promise<void>;
+  removeAgentLive(path: string): Promise<void>;
+  installUnit(text: string, backup: boolean): Promise<string[]>;
+  writeCliWrapper(path: string, text: string): Promise<void>;
+  linkPerch(path: string): Promise<void>;
   stopLegacyService(): Promise<string[]>;
   moveState(): Promise<void>;
   removeLegacyService(): Promise<string[]>;
@@ -83,8 +87,20 @@ async function apply(step: SetupStep, effects: SetupEffects): Promise<string | n
     case 'write-launcher':
       await effects.writeLauncher(step.path, step.text);
       return `wrote the launcher ${step.path}`;
+    case 'copy-env':
+      await effects.copyEnv(step.from, step.to);
+      return `copied ${step.from} to ${step.to} (0600; the original is untouched)`;
+    case 'remove-agent-live':
+      await effects.removeAgentLive(step.path);
+      return `removed the link ${step.path}`;
     case 'install-unit':
-      return `installed the agent service: ${(await effects.installUnit(step.text)).join('; ')}`;
+      return `installed the agent service: ${(await effects.installUnit(step.text, step.backup === true)).join('; ')}`;
+    case 'write-cli-wrapper':
+      await effects.writeCliWrapper(step.path, step.text);
+      return `wrote the \`tarfa\` wrapper ${step.path}`;
+    case 'link-perch':
+      await effects.linkPerch(step.path);
+      return `linked ${step.path} to tarfa`;
     case 'install-hooks':
       await effects.installHooks();
       return 'installed the hooks';

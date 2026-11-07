@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { cp, readFile, rm, stat } from 'node:fs/promises';
+import { cp, copyFile, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ServiceInstallPort } from '../ports/service-install-port';
@@ -41,6 +41,13 @@ async function readOrNull(path: string): Promise<string | null> {
 // The agent's service as docs/DEPLOY.md installs it, from the package's templates/ (with
 // AGENT_COMMAND, AGENT_ARGUMENTS and LOG_DIR to fill in, see service-unit.ts): a
 // systemd user unit kept running without a login session by linger, or a launchd agent.
+async function backupFile(path: string): Promise<string | null> {
+  if (!(await exists(path))) return null;
+  const copy = `${path}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  await copyFile(path, copy);
+  return copy;
+}
+
 export function serviceInstall(options: {
   templates?: string;
   home: string;
@@ -59,6 +66,7 @@ export function serviceInstall(options: {
       kind: 'launchd',
       template: () => readFile(join(templates, 'app.tarfa.agent.plist'), 'utf8'),
       installed: () => readOrNull(plist),
+      backup: () => backupFile(plist),
       enabled: () => run('launchctl', ['print', `${domain}/app.tarfa.agent`]).then(() => true, () => false),
       async install(text) {
         await atomicWrite(plist, text, 0o644);
@@ -88,6 +96,7 @@ export function serviceInstall(options: {
     kind: 'systemd',
     template: () => readFile(join(templates, 'tarfa-agent.service'), 'utf8'),
     installed: () => readOrNull(unit),
+    backup: () => backupFile(unit),
     async enabled() {
       const enabled = await run('systemctl', ['--user', 'is-enabled', 'tarfa-agent']).then(
         () => true,

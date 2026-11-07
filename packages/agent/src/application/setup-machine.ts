@@ -6,6 +6,7 @@ import { isMachineUrl, isPairingPath, MAX_ADDRESSES } from '@tarfa/secure-channe
 import { parseEnvFile, setEnvValue } from './agent-env';
 import { renameLegacyEnvLines, withLegacyEnv } from './legacy-env';
 import type { EnrolmentMode } from './device-roster';
+import { planCli, type CliState } from './cli-wrapper';
 import { renderService, unitKeepsWorkspaces, unitRunsCheckout, unitRunsLauncher, type ServiceTarget } from './service-unit';
 
 export type TailscaleMode = 'serve' | 'funnel' | 'none';
@@ -24,6 +25,7 @@ export interface SetupFlags {
   pair: boolean;
   dryRun: boolean;
   tokenEnrolment?: 'on' | 'off';
+  adopt?: boolean;
 }
 
 // The fields of `tailscale status --json` setup reads. Every one may be missing.
@@ -56,6 +58,8 @@ export interface SetupState {
   // The unit (systemd) or plist (launchd) template, the one installed, and
   // whether it is enabled to start at boot (with linger, under systemd).
   service: { kind: 'systemd' | 'launchd'; template: string; installed: string | null; enabled: boolean };
+  // Where agent.env is (or will be) and what it holds; for an adoption, what it will hold once copied.
+  envPath: string;
   envText: string | null;
   // Used only when agent.env holds no TARFA_TOKEN.
   newToken: string;
@@ -72,17 +76,32 @@ export interface SetupState {
   // Null when Tailscale is not installed or its daemon does not answer.
   tailscale: TailscaleStatus | null;
   serve: ServeConfig | null;
+  // The CLI entries in ~/.local/bin; null for a source install, which writes none.
+  cli: CliState | null;
+  // Set when the installed unit runs a clone's deploy/run-agent.sh and this runs from the package.
+  adoption: Adoption | null;
+}
+
+export interface Adoption {
+  // The clone the unit runs, and whether ~/.tarfa/agent.env still has to be copied from it.
+  repo: string;
+  copyEnv: boolean;
+  agentLive: { path: string; kind: 'absent' | 'link' | 'other' };
 }
 
 export type SetupStep =
   | { kind: 'stop-legacy-service' }
   | { kind: 'move-state' }
   | { kind: 'remove-legacy-service' }
+  | { kind: 'copy-env'; from: string; to: string }
   | { kind: 'write-env'; text: string; changes: string[] }
   | { kind: 'create-key' }
   | { kind: 'write-roster'; mode: EnrolmentMode }
   | { kind: 'write-launcher'; path: string; text: string }
-  | { kind: 'install-unit'; text: string }
+  | { kind: 'remove-agent-live'; path: string }
+  | { kind: 'install-unit'; text: string; backup?: true }
+  | { kind: 'write-cli-wrapper'; path: string; text: string }
+  | { kind: 'link-perch'; path: string }
   | { kind: 'install-hooks' }
   | { kind: 'tailscale-serve'; port: number; path: string; target: string; funnel: boolean }
   | { kind: 'restart' }
@@ -114,6 +133,10 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
     return {
       error: 'both ~/.perch and ~/.tarfa hold state (or ~/.perch links elsewhere): the agent will not merge them, so setup stops before touching the service. Keep the one that holds the agent key, move the other away, then run tarfa setup again',
     };
+  }
+
+  if (state.adoption?.agentLive.kind === 'other') {
+    return { error: `${state.adoption.agentLive.path} is not a link, and setup only ever removes a link there: move it away, then run tarfa setup again` };
   }
 
   const target = `http://127.0.0.1:${flags.phonePort}`;
@@ -158,6 +181,10 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
   // share one hooks port and one state directory.
   if (state.legacyService) steps.push({ kind: 'stop-legacy-service' });
   if (state.stateDir === 'legacy') steps.push({ kind: 'move-state' });
+  // The first write under ~/.tarfa after the move, so every later step reads the copy.
+  const adoption = state.adoption;
+  if (adoption?.copyEnv) steps.push({ kind: 'copy-env', from: `${adoption.repo}/deploy/agent.env`, to: state.envPath });
+  else if (adoption) checks.push(`adopting ${adoption.repo}: ${state.envPath} already exists, so it is kept and the clone's deploy/agent.env is not copied again`);
   const env = planEnv(flags, state, addresses);
   if (env) steps.push(env);
   if (!state.hasKey) steps.push({ kind: 'create-key' });
@@ -182,7 +209,11 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
   }
   const runsTarget = serviceTarget.kind === 'launcher' ? adopted : unitRunsCheckout(unitKind, installed, serviceTarget.repo);
   const current = runsTarget && installed !== null && unitKeepsWorkspaces(unitKind, installed);
-  if (!state.service.enabled || !current) steps.push({ kind: 'install-unit', text: renderService(state.service.template, serviceTarget) });
+  // Before the unit stops naming the clone: a rerun after a failure here still knows the clone.
+  if (adoption?.agentLive.kind === 'link') steps.push({ kind: 'remove-agent-live', path: adoption.agentLive.path });
+  if (!state.service.enabled || !current) {
+    steps.push({ kind: 'install-unit', text: renderService(state.service.template, serviceTarget), ...(adoption ? { backup: true as const } : {}) });
+  }
   // The old agent is stopped: start the new one before anything that can fail, so a failed hooks
   // or serve step never leaves the machine with no agent (and a phone with no way back in).
   if (state.legacyService) steps.push({ kind: 'restart' }, { kind: 'check-listener', port: flags.phonePort });
@@ -190,6 +221,13 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
   if (serveStep) steps.push(serveStep);
   if (state.legacyService) steps.push({ kind: 'remove-legacy-service' });
   else if (steps.length > 0) steps.push({ kind: 'restart' }, { kind: 'check-listener', port: flags.phonePort });
+  // After the restart, and never a reason for one: the wrapper does not touch the running agent.
+  if (state.cli) {
+    const cli = planCli(state.cli);
+    checks.push(...cli.notes);
+    if (cli.writeWrapper !== null) steps.push({ kind: 'write-cli-wrapper', path: state.cli.wrapper.path, text: cli.writeWrapper });
+    if (cli.linkPerch) steps.push({ kind: 'link-perch', path: state.cli.perch.path });
+  }
   if (operatorStep) steps.push(operatorStep);
   if (flags.pair) steps.push({ kind: 'pair' });
   return { steps, checks };
@@ -289,6 +327,14 @@ function serveNeeds(
 
 export function describeStep(step: SetupStep, envPath: string): string {
   switch (step.kind) {
+    case 'copy-env':
+      return `copy ${step.from} to ${step.to} (0600; the original stays where it is)`;
+    case 'remove-agent-live':
+      return `remove the link ${step.path}, which would point a later serve:agent at the clone`;
+    case 'write-cli-wrapper':
+      return `write the \`tarfa\` wrapper (${step.path})`;
+    case 'link-perch':
+      return `link ${step.path} to tarfa`;
     case 'write-env':
       return `update ${envPath} (backed up first): ${step.changes.join(', ')}`;
     case 'stop-legacy-service':
@@ -304,7 +350,7 @@ export function describeStep(step: SetupStep, envPath: string): string {
     case 'write-launcher':
       return `write the launcher the service runs (${step.path})`;
     case 'install-unit':
-      return 'install and enable the agent service (starts at boot)';
+      return `install and enable the agent service (starts at boot)${step.backup ? ', keeping the old definition beside it' : ''}`;
     case 'install-hooks':
       return 'install the Claude Code (and Codex) hooks';
     case 'tailscale-serve':
@@ -321,7 +367,7 @@ export function describeStep(step: SetupStep, envPath: string): string {
 }
 
 const VALUE_FLAGS = new Set(['--machine-id', '--project-roots', '--default-path', '--phone-port', '--slug', '--tailscale', '--tailscale-port', '--address', '--pwa', '--token-enrolment']);
-const BOOLEAN_FLAGS = new Set(['--pair', '--dry-run']);
+const BOOLEAN_FLAGS = new Set(['--pair', '--dry-run', '--adopt']);
 
 function portNumber(text: string): number | null {
   if (!/^\d{1,5}$/.test(text)) return null;
@@ -393,6 +439,7 @@ export function parseSetupFlags(argv: string[]): SetupFlags | { error: string } 
     ...(pwa !== undefined ? { pwa } : {}),
     pair: set.has('--pair'),
     dryRun: set.has('--dry-run'),
+    adopt: set.has('--adopt'),
     ...(tokenEnrolment !== undefined ? { tokenEnrolment } : {}),
   };
 }

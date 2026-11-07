@@ -61,6 +61,7 @@ function fresh(over: Partial<SetupState> = {}): SetupState {
     repo: REPO,
     launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: null },
     service: { kind: 'systemd', template: TEMPLATE, installed: null, enabled: false },
+    envPath: '/home/u/.tarfa/agent.env',
     envText: null,
     newToken: 'generated-token',
     hasKey: false,
@@ -72,6 +73,8 @@ function fresh(over: Partial<SetupState> = {}): SetupState {
     hooksPortOwner: 'free',
     tailscale: TAILSCALE,
     serve: {},
+    cli: null,
+    adoption: null,
     ...over,
   };
 }
@@ -586,6 +589,7 @@ describe('parseSetupFlags', () => {
       pwa: 'https://self.example',
       pair: true,
       dryRun: true,
+      adopt: false,
       tokenEnrolment: 'on',
     });
   });
@@ -632,5 +636,110 @@ describe('describeStep', () => {
   it('never shows a generated token', () => {
     const env = plan(flags(), fresh()).find((s) => s.kind === 'write-env')!;
     expect(describeStep(env, '/repo/deploy/agent.env')).not.toContain('generated-token');
+  });
+});
+
+describe('planSetup: the CLI wrapper and adopting a clone', () => {
+  const BIN = '/home/u/.local/bin';
+  const WRAPPER = '#!/bin/sh\n# tarfa-cli-wrapper (managed by tarfa)\n';
+  const cli = (over: Partial<NonNullable<SetupState['cli']>> = {}, tarfa: NonNullable<SetupState['cli']>['wrapper']['entry'] = { kind: 'absent' }, perch: NonNullable<SetupState['cli']>['perch']['entry'] = { kind: 'absent' }): SetupState['cli'] => ({
+    bin: BIN,
+    onPath: true,
+    wrapper: { path: `${BIN}/tarfa`, template: WRAPPER, entry: tarfa },
+    perch: { path: `${BIN}/perch`, entry: perch },
+    ...over,
+  });
+  const converged = (over: Partial<SetupState> = {}) =>
+    fresh({
+      install: 'package',
+      repo: null,
+      envText: applied(flags(), fresh({ install: 'package', repo: null, serve: SERVED })).envText,
+      hasKey: true,
+      roster: 'off',
+      hooksCurrent: true,
+      phonePortOwner: 'ours',
+      hooksPortOwner: 'ours',
+      serve: SERVED,
+      launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: LAUNCHER_TEXT },
+      service: { kind: 'systemd', template: TEMPLATE, installed: LAUNCHER_UNIT, enabled: true },
+      cli: cli({}, { kind: 'file', text: WRAPPER }, { kind: 'link', target: `${BIN}/tarfa` }),
+      ...over,
+    });
+  const kinds = (f: SetupFlags, s: SetupState) => plan(f, s).map((step) => step.kind);
+
+  it('writes the wrapper and the perch link for a package install, after the restart', () => {
+    const steps = plan(flags(), converged({ cli: cli() }));
+    expect(steps).toEqual([
+      { kind: 'write-cli-wrapper', path: `${BIN}/tarfa`, text: WRAPPER },
+      { kind: 'link-perch', path: `${BIN}/perch` },
+    ]);
+  });
+
+  it('never restarts the agent for a wrapper alone, and plans nothing once it is current', () => {
+    expect(kinds(flags(), converged({ cli: cli({}, { kind: 'file', text: '# tarfa-cli-wrapper (managed by tarfa)\nold\n' }, { kind: 'link', target: `${BIN}/tarfa` }) }))).toEqual(['write-cli-wrapper']);
+    expect(plan(flags(), converged())).toEqual([]);
+  });
+
+  it('plans none of it for a source install', () => {
+    expect(kinds(flags(), converged({ install: 'clone', repo: REPO, cli: null }))).toEqual([]);
+  });
+
+  it('puts a foreign tarfa and a missing PATH entry in the checks, not in steps', () => {
+    const result = planSetup(flags(), converged({ cli: cli({ onPath: false }, { kind: 'file', text: '#!/bin/sh\nmine\n' }, { kind: 'link', target: `${BIN}/tarfa` }) }));
+    if ('error' in result) throw new Error(result.error);
+    expect(result.steps).toEqual([]);
+    expect(result.checks.filter((c) => !c.startsWith('tailscale'))).toEqual([expect.stringContaining("is not Tarfa's wrapper")]);
+  });
+
+  describe('adoption', () => {
+    const CLONE = '/home/u/workspace/perch';
+    const adoption = (over: Partial<NonNullable<SetupState['adoption']>> = {}): SetupState['adoption'] => ({
+      repo: CLONE,
+      copyEnv: true,
+      agentLive: { path: `${CLONE}/deploy/agent-live`, kind: 'link' },
+      ...over,
+    });
+    const adopting = (over: Partial<SetupState> = {}) =>
+      converged({
+        launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: null },
+        service: { kind: 'systemd', template: TEMPLATE, installed: renderService(TEMPLATE, { kind: 'clone', repo: CLONE }), enabled: true },
+        cli: cli({}, { kind: 'link', target: `${CLONE}/deploy/tarfa-cli.sh` }, { kind: 'link', target: `${BIN}/tarfa` }),
+        adoption: adoption(),
+        ...over,
+      });
+
+    it('copies the env first, then launcher, agent-live, unit, restart, and the wrapper last', () => {
+      expect(kinds(flags(), adopting())).toEqual(['copy-env', 'write-launcher', 'remove-agent-live', 'install-unit', 'restart', 'check-listener', 'write-cli-wrapper']);
+      const steps = plan(flags(), adopting());
+      expect(steps[0]).toEqual({ kind: 'copy-env', from: `${CLONE}/deploy/agent.env`, to: '/home/u/.tarfa/agent.env' });
+      expect(steps.find((s) => s.kind === 'install-unit')).toEqual({ kind: 'install-unit', text: LAUNCHER_UNIT, backup: true });
+    });
+
+    it('moves ~/.perch before the copy, so the agent\'s own move never meets two directories', () => {
+      expect(kinds(flags(), adopting({ stateDir: 'legacy', legacyService: true })).slice(0, 3)).toEqual(['stop-legacy-service', 'move-state', 'copy-env']);
+    });
+
+    it('keeps an env already in ~/.tarfa, says so, and still finishes the rest', () => {
+      const result = planSetup(flags(), adopting({ adoption: adoption({ copyEnv: false }) }));
+      if ('error' in result) throw new Error(result.error);
+      expect(result.steps.map((s) => s.kind)).not.toContain('copy-env');
+      expect(result.checks.filter((c) => !c.startsWith('tailscale'))).toEqual([expect.stringContaining('already exists, so it is kept')]);
+    });
+
+    it('removes agent-live only when it is a link, and refuses when it is anything else', () => {
+      expect(kinds(flags(), adopting({ adoption: adoption({ agentLive: { path: `${CLONE}/deploy/agent-live`, kind: 'absent' } }) }))).not.toContain('remove-agent-live');
+      expect(errorOf(flags(), adopting({ adoption: adoption({ agentLive: { path: `${CLONE}/deploy/agent-live`, kind: 'other' } }) }))).toContain('is not a link');
+    });
+
+    it('is a no-op once adopted', () => {
+      expect(plan(flags(), converged())).toEqual([]);
+    });
+
+    it('describes each new step', () => {
+      const text = plan(flags(), adopting()).map((s) => describeStep(s, '/home/u/.tarfa/agent.env'));
+      expect(text.some((l) => l.includes('copy ') && l.includes('the original stays'))).toBe(true);
+      expect(text.some((l) => l.includes('keeping the old definition'))).toBe(true);
+      expect(text.some((l) => l.includes('wrapper'))).toBe(true);
+    });
   });
 });

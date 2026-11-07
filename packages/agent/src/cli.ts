@@ -25,7 +25,12 @@ import { hooksFiles } from './infrastructure/hooks-files';
 import { parseSetupFlags, planSetup, type PortOwner, type SetupState } from './application/setup-machine';
 import { runSetup } from './application/run-setup';
 import { runApply } from './application/apply-agent';
-import { renderService } from './application/service-unit';
+import { runUpdate, type UpdateEffects } from './application/update-agent';
+import { findMise, miseCli } from './infrastructure/mise-cli';
+import { npmRegistry } from './infrastructure/npm-registry';
+import { cloneOfUnit, renderService, unitRunsLauncher } from './application/service-unit';
+import { planCli, type CliState } from './application/cli-wrapper';
+import { copyEnvOnce, linkKind, linkPerch, readCliEntry, removeLink } from './infrastructure/cli-files';
 import { atomicWrite } from './infrastructure/atomic-write';
 import { agentLog, type AgentLog } from './infrastructure/agent-log';
 import { serviceInstall } from './infrastructure/service-install';
@@ -82,6 +87,7 @@ export interface CliIo {
   codex?: CodexSpawnPort;
   // Whether a command resolves through the login shell, as tmux will run it.
   resolveCommand?: (name: string) => Promise<boolean>;
+  update?: Partial<UpdateEffects>;
   // What `setup` reads and changes outside agent.env and ~/.tarfa.
   setup?: {
     service?: ServiceInstallPort;
@@ -97,6 +103,19 @@ export interface CliIo {
 
 const HOOKS_DIR = joinPath(packageRoot(), 'src', 'hooks');
 const LAUNCHER_TEMPLATE = joinPath(packageRoot(), 'templates', 'tarfa-agent.sh');
+const CLI_WRAPPER_TEMPLATE = joinPath(packageRoot(), 'templates', 'tarfa-cli-wrapper.sh');
+
+async function cliState(home: string, env: NodeJS.ProcessEnv): Promise<CliState> {
+  const bin = joinPath(home, '.local', 'bin');
+  const wrapperPath = joinPath(bin, 'tarfa');
+  const perchPath = joinPath(bin, 'perch');
+  return {
+    bin,
+    onPath: (env.PATH ?? '').split(':').includes(bin),
+    wrapper: { path: wrapperPath, template: await readFile(CLI_WRAPPER_TEMPLATE, 'utf8'), entry: await readCliEntry(wrapperPath) },
+    perch: { path: perchPath, entry: await readCliEntry(perchPath) },
+  };
+}
 const CODEX_NEXT_STEP = 'open Codex and trust the Tarfa hooks in /hooks; repeat after any hook change';
 
 export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: string, io: CliIo = {}): Promise<string> {
@@ -104,6 +123,7 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
   if (argv[0] === '--version' || argv[0] === '-v') return packageVersion();
   if (argv[0] === 'setup') return setup(argv.slice(1), env, home, io);
   if (argv[0] === 'apply') return apply(argv.slice(1), env, home, io);
+  if (argv[0] === 'update') return update(argv.slice(1), env, home, io);
   if (argv[0] === 'connect' || argv[0] === 'relay-key' || (argv[0] === 'pair' && argv.includes('--relay'))) {
     throw new UsageError(RELAYS_GONE);
   }
@@ -577,26 +597,64 @@ Example:
 
 async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: CliIo): Promise<string> {
   if (argv.includes('--help') || argv.includes('-h')) return SETUP_USAGE;
-  const flags = parseSetupFlags(argv);
-  if ('error' in flags) throw new UsageError(`${flags.error}\n\n${SETUP_USAGE.split('\n')[0]}\n(tarfa setup --help for every option)`);
-
   const kind = io.setup?.installKind ?? installKind();
-  const envPath = await locateAgentEnv(env, home, kind);
-  const repo = await mainCheckout(kind);
+  const adoptRequested = argv.includes('--adopt');
+  if (adoptRequested && kind === 'clone') {
+    throw new UsageError('tarfa setup --adopt runs from the installed package: run `mise use -g npm:@tarfa/cli@<v>`, then `tarfa setup --adopt`');
+  }
   const launcherPath = joinPath(home, '.tarfa', 'bin', 'tarfa-agent');
-  const envText = await readFile(envPath, 'utf8').catch((err: NodeJS.ErrnoException) => {
-    if (err.code === 'ENOENT') return null;
-    throw err;
-  });
-  const config = loadConfig({ ...withLegacyEnv(parseEnvFile(envText ?? '')), TARFA_MACHINE_ID: flags.machineId }, home);
   const fx = io.setup ?? {};
   const service = fx.service ?? serviceInstall({ home, user: userInfo().username, uid: process.getuid?.() ?? 0 });
+  const installedUnit = await service.installed();
+  const cloneRepo = kind === 'package' ? cloneOfUnit(service.kind, installedUnit) : null;
+  if (adoptRequested && cloneRepo === null) {
+    if (installedUnit === null) throw new Error('--adopt: no agent service is installed, so there is nothing to adopt: run tarfa setup with its flags (tarfa setup --help)');
+    if (!unitRunsLauncher(service.kind, installedUnit, launcherPath)) {
+      throw new Error("--adopt: the installed service runs neither a clone's deploy/run-agent.sh nor the launcher, so there is nothing to adopt");
+    }
+  }
+
+  const stateEnvPath = joinPath(home, '.tarfa', 'agent.env');
+  const envPath = cloneRepo !== null ? stateEnvPath : await locateAgentEnv(env, home, kind);
+  const readText = (path: string) =>
+    readFile(path, 'utf8').catch((err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return null;
+      throw err;
+    });
+  const copyEnv = cloneRepo !== null && (await readText(stateEnvPath)) === null;
+  let envText: string | null;
+  if (cloneRepo !== null && copyEnv) {
+    envText = await readText(joinPath(cloneRepo, 'deploy', 'agent.env'));
+    if (envText === null) throw new Error(`the service runs ${cloneRepo}/deploy/run-agent.sh, which has no deploy/agent.env to adopt: restore it, or run tarfa setup with its flags`);
+  } else {
+    envText = await readText(envPath);
+  }
+
+  // An adoption takes what the machine already runs for every flag it is not given.
+  const given = adoptRequested ? withLegacyEnv(parseEnvFile(envText ?? '')) : {};
+  const filled = (name: string, value: string | undefined) => (value !== undefined && !argv.includes(name) ? [name, value] : []);
+  const flags = parseSetupFlags(
+    adoptRequested
+      ? [
+          ...argv,
+          ...filled('--machine-id', given.TARFA_MACHINE_ID),
+          ...filled('--project-roots', given.TARFA_PROJECT_ROOTS?.split(':').join(',')),
+          ...filled('--phone-port', given.TARFA_PHONE_PORT),
+          ...filled('--default-path', given.TARFA_DEFAULT_PATH),
+        ]
+      : argv,
+  );
+  if ('error' in flags) throw new UsageError(`${flags.error}\n\n${SETUP_USAGE.split('\n')[0]}\n(tarfa setup --help for every option)`);
+
+  const repo = await mainCheckout(kind);
+  const config = loadConfig({ ...withLegacyEnv(parseEnvFile(envText ?? '')), TARFA_MACHINE_ID: flags.machineId }, home);
   const tailscale = fx.tailscale ?? tailscaleCli();
   const owner = fx.portOwner ?? portOwner;
   const hooks = hooksFiles(home, HOOKS_DIR, config.port);
   const devices = new FileDeviceStore(config.devicesPath);
   const hasRoster = await readFile(config.devicesPath).then(() => true, () => false);
 
+  const agentLivePath = cloneRepo === null ? '' : joinPath(cloneRepo, 'deploy', 'agent-live');
   const state: SetupState = {
     install: kind,
     repo,
@@ -605,7 +663,8 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
       template: await readFile(LAUNCHER_TEMPLATE, 'utf8'),
       installed: await readFile(launcherPath, 'utf8').catch(() => null),
     },
-    service: { kind: service.kind, template: await service.template(), installed: await service.installed(), enabled: await service.enabled() },
+    service: { kind: service.kind, template: await service.template(), installed: installedUnit, enabled: await service.enabled() },
+    envPath,
     envText,
     newToken: randomBytes(32).toString('hex'),
     hasKey: await readFile(config.agentKeyPath).then(() => true, () => false),
@@ -618,6 +677,8 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
     tailscale: flags.tailscale === 'none' ? null : await tailscale.status(),
     // Under --tailscale none, read only to word the operator's line: unreadable means the serve form.
     serve: flags.tailscale === 'none' && !flags.slug ? null : await tailscale.serveStatus(),
+    cli: kind === 'package' ? await cliState(home, env) : null,
+    adoption: cloneRepo === null ? null : { repo: cloneRepo, copyEnv, agentLive: { path: agentLivePath, kind: await linkKind(agentLivePath) } },
   };
   const plan = planSetup(flags, state);
   if ('error' in plan) throw new Error(plan.error);
@@ -636,7 +697,15 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
         await devices.update((roster) => withEnrolmentMode(roster, mode));
       },
       writeLauncher: (path, text) => atomicWrite(path, text, 0o755),
-      installUnit: (text) => service.install(text),
+      copyEnv: (from, to) => copyEnvOnce(from, to),
+      removeAgentLive: (path) => removeLink(path),
+      installUnit: async (text, backup) => {
+        const kept = backup ? await service.backup() : null;
+        const ran = await service.install(text);
+        return kept === null ? ran : [`kept the old service definition at ${kept} (a hand-added Environment= or other line is in that text; drop-ins stay in place)`, ...ran];
+      },
+      writeCliWrapper: (path, text) => atomicWrite(path, text, 0o755),
+      linkPerch: (path) => linkPerch(path),
       stopLegacyService: () => service.stopLegacy(),
       moveState: async () => {
         await migrateStateDir(home);
@@ -655,6 +724,40 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   );
   if (!result.ok) throw new Error(result.lines.join('\n'));
   return result.lines.join('\n');
+}
+
+export const UPDATE_USAGE = `usage: tarfa update [--version <x.y.z>] [--force]
+
+Installs the newest @tarfa/cli (or --version, which may be older: a rollback) with mise, then runs
+that version's \`tarfa apply\`. Refuses from a source install (git pull there). Does nothing when that
+version is already installed, unless --force. Never updates Claude Code or Codex.
+TARFA_NPM_REGISTRY names another registry to ask for the newest version.`;
+
+async function update(argv: string[], env: NodeJS.ProcessEnv, home: string, io: CliIo): Promise<string> {
+  if (argv.includes('--help') || argv.includes('-h')) return UPDATE_USAGE;
+  let version: string | undefined;
+  let force = false;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--force') force = true;
+    else if (argv[i] === '--version' && argv[i + 1] !== undefined) version = argv[++i];
+    else throw new UsageError(UPDATE_USAGE);
+  }
+  const mise = miseCli(home);
+  const registry = npmRegistry({ ...(io.fetch ? { fetch: io.fetch } : {}), ...(env.TARFA_NPM_REGISTRY ? { registry: env.TARFA_NPM_REGISTRY } : {}) });
+  const effects: UpdateEffects = {
+    installKind: () => io.setup?.installKind ?? installKind(),
+    currentVersion: () => packageVersion(),
+    findMise: () => findMise(home, env.PATH),
+    latest: () => registry.latest(),
+    install: mise.install,
+    locate: mise.locate,
+    apply: mise.apply,
+    log: (line) => void process.stdout.write(`${line}\n`),
+    ...io.update,
+  };
+  const result = await runUpdate(effects, { ...(version !== undefined ? { version } : {}), force });
+  if (result.exitCode !== 0) throw Object.assign(new Error(result.message), { exitCode: result.exitCode });
+  return result.message;
 }
 
 export const APPLY_USAGE = `usage: tarfa apply
@@ -701,6 +804,13 @@ async function apply(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
         if ((await service.installed()) === wanted) return false;
         await service.install(wanted);
         return true;
+      },
+      writeCliWrapper: async () => {
+        const cli = await cliState(home, env);
+        const plan = planCli(cli);
+        if (plan.writeWrapper !== null) await atomicWrite(cli.wrapper.path, plan.writeWrapper, 0o755);
+        if (plan.linkPerch) await linkPerch(cli.perch.path);
+        return { changed: plan.writeWrapper !== null || plan.linkPerch, notes: plan.notes };
       },
       installHooks: async () => {
         if (await hooks.current()) return { changed: false, codex: false };
@@ -801,6 +911,6 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
         });
   program.catch((err: unknown) => {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-    process.exitCode = err instanceof UsageError ? err.exitCode : 1;
+    process.exitCode = (err as { exitCode?: number }).exitCode ?? 1;
   });
 }

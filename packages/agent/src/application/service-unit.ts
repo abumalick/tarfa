@@ -46,3 +46,24 @@ export function unitRunsCheckout(kind: 'systemd' | 'launchd', installed: string 
   const workingDirectory = /^WorkingDirectory=(.*)$/m.exec(installed)?.[1]?.trim();
   return workingDirectory === repo && (words.includes('deploy/run-agent.sh') || words.includes('./deploy/run-agent.sh'));
 }
+
+// The checkout a unit runs deploy/run-agent.sh from, in every form unitRunsCheckout accepts; null
+// when it runs something else (the launcher) or nothing is installed.
+export function cloneOfUnit(kind: 'systemd' | 'launchd', installed: string | null): string | null {
+  if (installed === null) return null;
+  const script = /^(\/.+)\/deploy\/run-agent\.sh$/;
+  if (kind === 'launchd') {
+    for (const [, word] of installed.matchAll(/<string>([^<]*)<\/string>/g)) {
+      const repo = script.exec(word!)?.[1];
+      if (repo) return repo;
+    }
+    return null;
+  }
+  const words = execStartWords(installed);
+  for (const word of words) {
+    const repo = script.exec(word)?.[1];
+    if (repo) return repo;
+  }
+  const workingDirectory = /^WorkingDirectory=(.*)$/m.exec(installed)?.[1]?.trim();
+  return workingDirectory && workingDirectory.startsWith('/') && (words.includes('deploy/run-agent.sh') || words.includes('./deploy/run-agent.sh')) ? workingDirectory : null;
+}

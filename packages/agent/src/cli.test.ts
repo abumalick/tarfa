@@ -336,6 +336,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
             unit = text;
             return ['enabled'];
           },
+          backup: async () => (calls.push('backup-unit'), unit === null ? null : '/unit.bak-1'),
           legacyInstalled: async () => legacy,
           stopLegacy: async () => (calls.push('stop-legacy'), ['stopped']),
           removeLegacy: async () => (calls.push('remove-legacy'), (legacy = false), ['removed']),
@@ -359,7 +360,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
         checkListener: async () => (calls.push('check'), true),
       },
     };
-    return { repo, home, env: kind === 'package' ? {} : { TARFA_AGENT_ENV: envPath }, envPath, calls, io, unit: () => unit };
+    return { repo, home, env: kind === 'package' ? {} : { TARFA_AGENT_ENV: envPath }, envPath, calls, io, unit: () => unit, setUnit: (text: string | null) => { unit = text; } };
   }
   const FLAGS = ['--machine-id', 'dev', '--project-roots', '/home/u/workspace', '--tailscale', 'funnel', '--slug', 'abu'];
 
@@ -451,11 +452,18 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       expect(m.unit()).toContain(`ExecStart=${LAUNCHER(m.home)}`);
       expect(m.calls).toEqual(['install-unit roster=present launcher=present', 'serve 10000/abu http://127.0.0.1:8797 funnel=true', 'restart', 'check']);
 
+      expect(await readFile(join(m.home, '.local', 'bin', 'tarfa'), 'utf8')).toBe(await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'tarfa-cli-wrapper.sh'), 'utf8'));
+      expect((await stat(join(m.home, '.local', 'bin', 'tarfa'))).mode & 0o777).toBe(0o755);
+      expect(await readlink(join(m.home, '.local', 'bin', 'perch'))).toBe('tarfa');
+
       m.calls.length = 0;
       const env = await readFile(m.envPath, 'utf8');
+      const wrapper = await stat(join(m.home, '.local', 'bin', 'tarfa'));
       expect(await run(['setup', ...FLAGS], m.env, m.home, m.io)).toMatch(/already set up/);
       expect(m.calls).toEqual(['check']);
       expect(await readFile(m.envPath, 'utf8')).toBe(env);
+      expect((await stat(join(m.home, '.local', 'bin', 'tarfa'))).mtimeMs).toBe(wrapper.mtimeMs);
+      await expect(stat(join(m.home, '.tarfa', 'agent-live'))).rejects.toThrow();
     });
 
     it('moves ~/.perch before writing under ~/.tarfa, so the agent\'s own move never meets two directories', async () => {
@@ -527,10 +535,11 @@ describe('tarfa setup (fake service and Tailscale)', () => {
 
     it('reports one ok line per step, changing nothing when launcher and unit are current', async () => {
       const { m, withLog } = await converged();
-      const out = await run(['apply'], {}, m.home, withLog('tarfa agent: phones on 127.0.0.1:8797\n'));
+      const out = await run(['apply'], { PATH: join(m.home, '.local', 'bin') }, m.home, withLog('tarfa agent: phones on 127.0.0.1:8797\n'));
       expect(out.split('\n')).toEqual([
         'ok: launcher already current',
         'ok: service definition already current',
+        'ok: tarfa command wrapper already current',
         'ok: hooks already current',
         'ok: restarted (restarted)',
         'ok: the phone port answers on 127.0.0.1:8797',
@@ -571,6 +580,51 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       await expect(run(['apply'], {}, m.home, m.io)).rejects.toThrow(/failed: check: no device roster.*tarfa setup/);
       await expect(stat(LAUNCHER(m.home))).rejects.toThrow();
     });
+  });
+});
+
+describe('tarfa update', () => {
+  const calls: string[] = [];
+  const package_: CliIo = {
+    setup: { installKind: 'package' },
+    update: {
+      currentVersion: () => '0.1.0',
+      findMise: () => '/mise',
+      install: async (_m, v) => void calls.push(`install ${v}`),
+      locate: async () => ({ node: '/n', cli: '/c' }),
+      apply: async () => 0,
+      log: () => undefined,
+    },
+  };
+
+  it('refuses from a source install with exactly one line, exit 2, before any network', async () => {
+    const fetched: string[] = [];
+    const io: CliIo = { ...package_, setup: { installKind: 'clone' }, fetch: (async (url: string) => (fetched.push(url), new Response('{}'))) as unknown as typeof fetch };
+    await expect(run(['update'], {}, '/h', io)).rejects.toMatchObject({ exitCode: 2, message: 'this is a source install; git pull' });
+    expect(fetched).toEqual([]);
+  });
+
+  it('says so when the newest is already installed, and only --force goes on', async () => {
+    const fetchFn = (async () => new Response(JSON.stringify({ 'dist-tags': { latest: '0.1.0' } }))) as unknown as typeof fetch;
+    calls.length = 0;
+    expect(await run(['update'], {}, '/h', { ...package_, fetch: fetchFn })).toContain('already on 0.1.0');
+    expect(calls).toEqual([]);
+    expect(await run(['update', '--force'], {}, '/h', { ...package_, fetch: fetchFn })).toBe('updated 0.1.0 to 0.1.0');
+    expect(calls).toEqual(['install 0.1.0']);
+  });
+
+  it('fails in one line, non-zero, when the registry cannot be reached', async () => {
+    const down = (async () => { throw new TypeError('fetch failed'); }) as unknown as typeof fetch;
+    calls.length = 0;
+    await expect(run(['update'], {}, '/h', { ...package_, fetch: down })).rejects.toThrow(/npm registry.*nothing changed/);
+    expect(calls).toEqual([]);
+  });
+
+  it('takes --version, and refuses anything else', async () => {
+    calls.length = 0;
+    expect(await run(['update', '--version', '0.0.9'], {}, '/h', package_)).toBe('updated 0.1.0 to 0.0.9');
+    await expect(run(['update', '--version', '1.0.0; id'], {}, '/h', package_)).rejects.toMatchObject({ exitCode: 2 });
+    await expect(run(['update', '--bogus'], {}, '/h', package_)).rejects.toMatchObject({ exitCode: 2 });
   });
 });
 

@@ -103,7 +103,11 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   skips its own `deploy/agent.env` when `TARFA_AGENT_ENV` is set; `serve:agent` writes
   `agent-source` instead of flipping `agent-live` on such a machine). `tarfa apply` (package
   installs only) rewrites the launcher and unit if they differ, reinstalls the hooks, restarts and
-  checks the phone port and the log's `phones on` since the restart. `run-agent.sh` self-locates `mise` (services don't inherit an interactive
+  checks the phone port and the log's `phones on` since the restart. `tarfa update [--version v] [--force]`
+  (package installs only; from a clone it prints `this is a source install; git pull`, exit 2) asks the
+  registry for the newest version, runs `mise --cd $HOME use -g npm:@tarfa/cli@<v>`, then runs the
+  **new** version's `apply` through `mise where` (never the PATH or a shim, since `update` runs from
+  repo folders); it never touches Claude Code or Codex. `run-agent.sh` self-locates `mise` (services don't inherit an interactive
   PATH). Run `mise trust` once per machine or the unit crash-loops.
 - **An agent is reached on its phone port once that is published.** It binds `127.0.0.1`
   whatever `TARFA_HOST` says (a non-loopback value is ignored with a warning). The hooks port
@@ -130,7 +134,20 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   no third candidate and never runs `git`), for setup and every other command, so a checkout's CLI
   on an adopted machine reads the file the service reads; **nothing is written under `~/.tarfa`
   before `move-state`** (`~/.tarfa/agent.env`, the launcher), or the agent's own startup move
-  would find both directories and refuse; **hooks count as installed regardless of key order and entry order**
+  would find both directories and refuse; **a package install writes `~/.local/bin/tarfa` as a wrapper script**
+  (`templates/tarfa-cli-wrapper.sh`, not a mise shim: a shim run from a folder with an untrusted
+  `mise.toml` dies, and from a trusted one runs Tarfa under that project's node; the wrapper looks
+  the install and node up from `$HOME` and never changes directory) and `perch` as a link to it, by
+  `setup`, adoption and `apply`, replacing only nothing, a link into a clone's `deploy/` or an earlier
+  copy of itself, anything else left alone with one warning, never a reason to restart;
+  **adoption** (`--adopt`, or a package-run `setup` that finds a unit running a clone's
+  `deploy/run-agent.sh`; refused from a clone) is the same plan: copy the clone's `deploy/agent.env`
+  to `~/.tarfa/agent.env` 0600 (kept if already there, the original untouched; after `move-state`),
+  launcher, remove the clone's `deploy/agent-live` **only if it is a symlink** (before the unit is
+  rewritten, so a rerun after a failure still knows the clone), unit (old text kept as
+  `<unit>.bak-<time>`), restart, wrapper; the agent key, roster and parked/live state are never
+  touched, so no phone pairs again, and `--adopt` takes machine id, roots, phone port and default
+  path from that env unless given; **hooks count as installed regardless of key order and entry order**
   (Claude Code rewrites `settings.json` with sorted keys); **an existing `TARFA_PWA_ORIGIN` is
   kept unless `--pwa` is given**; **a phone or hooks port held by anything but this user's
   agent is refused** (another Linux user's processes are invisible to `ss`/`lsof`); and **an
