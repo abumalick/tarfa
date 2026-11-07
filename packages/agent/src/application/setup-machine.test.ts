@@ -431,6 +431,17 @@ describe('planSetup', () => {
 });
 
 describe('planSetup, the launcher and the package install', () => {
+  const pkgConverged = (): Partial<SetupState> => ({
+    envText: applied(flags(), pkg({ serve: SERVED })).envText,
+    hasKey: true,
+    roster: 'off',
+    hooksCurrent: true,
+    phonePortOwner: 'ours',
+    hooksPortOwner: 'ours',
+    serve: SERVED,
+    launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: LAUNCHER_TEXT },
+    service: { kind: 'systemd', template: TEMPLATE, installed: LAUNCHER_UNIT, enabled: true },
+  });
   const pkg = (over: Partial<SetupState> = {}) => fresh({ install: 'package', repo: null, ...over });
   const kinds = (f: SetupFlags, s: SetupState) => plan(f, s).map((step) => step.kind);
 
@@ -477,6 +488,33 @@ describe('planSetup, the launcher and the package install', () => {
     });
     expect(kinds(flags(), adopted)).not.toContain('install-unit');
     expect(kinds(flags(), adopted)).not.toContain('write-launcher');
+  });
+
+  it('reinstalls a launcher unit that lacks KillMode=process for the launcher, never for the checkout', () => {
+    const noKill = `[Service]\nExecStart=${LAUNCHER}\n`;
+    const adoptedNoKill = fresh({
+      service: { kind: 'systemd', template: TEMPLATE, installed: noKill, enabled: true },
+      launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: LAUNCHER_TEXT },
+    });
+    expect(plan(flags(), adoptedNoKill)).toContainEqual({ kind: 'install-unit', text: LAUNCHER_UNIT });
+  });
+
+  it('never replaces a live launcher from a checkout, but repairs a missing one', () => {
+    const converged = (installed: string | null) =>
+      fresh({
+        ...pkgConverged(),
+        install: 'clone',
+        repo: REPO,
+        launcher: { path: LAUNCHER, template: 'this branch\'s launcher\n', installed },
+      });
+    expect(plan(flags(), converged(LAUNCHER_TEXT))).toEqual([]);
+    expect(plan(flags(), converged(null)).map((s) => s.kind)).toEqual(['write-launcher', 'restart', 'check-listener']);
+  });
+
+  it('compares the launcher text only for a package install', () => {
+    const stale = { ...pkgConverged(), launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: 'older\n' } };
+    expect(plan(flags(), fresh({ ...stale, install: 'package', repo: null })).map((s) => s.kind)).toEqual(['write-launcher', 'restart', 'check-listener']);
+    expect(plan(flags(), fresh({ ...stale, install: 'clone' }))).toEqual([]);
   });
 
   it('adopts a package install onto a unit that still runs a checkout, and requires KillMode=process of the launcher unit', () => {

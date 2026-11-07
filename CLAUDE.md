@@ -123,7 +123,9 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   rewrites a working unit; **a package install always runs the launcher** (`write-launcher`,
   then a unit whose ExecStart is its absolute path), while a source checkout keeps running
   `run-agent.sh` until its unit already runs the launcher, and is never pointed back at the
-  checkout; **`agent.env` is found in one pinned order** (`resolveAgentEnvPath`):
+  checkout (a unit that names the launcher but lacks `KillMode=process` is reinstalled for the
+  launcher); **only a package install replaces the launcher file**, a checkout writes it only when
+  it is missing, so a feature branch never changes what the live service runs; **`agent.env` is found in one pinned order** (`resolveAgentEnvPath`):
   `TARFA_AGENT_ENV`, `~/.tarfa/agent.env`, then `<checkout>/deploy/agent.env` (a package install has
   no third candidate and never runs `git`), for setup and every other command, so a checkout's CLI
   on an adopted machine reads the file the service reads; **nothing is written under `~/.tarfa`

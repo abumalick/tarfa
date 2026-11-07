@@ -18,6 +18,9 @@ REPO="$(cd "${HERE}/.." && pwd)"
 mkdir -p "${REPO}/.tmp"
 SB="$(mktemp -d "${REPO}/.tmp/wt-remove-test.XXXXXX")"
 trap 'rm -rf "${SB}"' EXIT
+# serve-agent.sh reads ~/.config/systemd, ~/Library and ~/.tarfa/agent-source: never the real ones.
+export HOME="${SB}/home"
+mkdir -p "${HOME}"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 serves_main() { [ -f "$1/main.txt" ]; }
@@ -121,6 +124,18 @@ ln -sfn "${SB}/.worktrees/foo" "${AGENT_LIVE}"
 [ ! -e "${SB}/.worktrees/foo" ] || fail "worktree was not removed (agent-deploy case)"
 agent_serves_main || fail "agent was not restored to main before removal"
 echo "ok: removing the agent-deployed worktree restores main first"
+
+# --- 5b. a unit that runs the launcher: heal acts on agent-source, never on agent-live ----
+mkdir -p "${HOME}/.config/systemd/user" "${HOME}/.tarfa"
+printf '[Service]\nExecStart=%s/.tarfa/bin/tarfa-agent\nKillMode=process\n' "${HOME}" > "${HOME}/.config/systemd/user/tarfa-agent.service"
+printf '%s\n' "${SB}/gone" > "${HOME}/.tarfa/agent-source"
+ln -sfn "${SB}/gone" "${AGENT_LIVE}"
+"${SERVE_AGENT}" --heal >/dev/null
+[ ! -e "${HOME}/.tarfa/agent-source" ] || fail "agent heal kept an agent-source naming a missing path"
+[ "$(readlink "${AGENT_LIVE}")" = "${SB}/gone" ] || fail "agent heal touched agent-live on a launcher machine"
+rm -f "${HOME}/.config/systemd/user/tarfa-agent.service"
+ln -sfn "${SB}/packages/pwa/dist" "${AGENT_LIVE}"
+echo "ok: on a launcher machine heal clears agent-source and leaves agent-live alone"
 
 # --- 8. run from a worktree: every script acts on main's symlinks ----------
 # `pnpm serve:*` inside a worktree runs that worktree's copy of the script; it must still flip

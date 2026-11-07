@@ -6,7 +6,7 @@ import { isMachineUrl, isPairingPath, MAX_ADDRESSES } from '@tarfa/secure-channe
 import { parseEnvFile, setEnvValue } from './agent-env';
 import { renameLegacyEnvLines, withLegacyEnv } from './legacy-env';
 import type { EnrolmentMode } from './device-roster';
-import { renderService, unitRunsCheckout, unitRunsLauncher, type ServiceTarget } from './service-unit';
+import { renderService, unitKeepsWorkspaces, unitRunsCheckout, unitRunsLauncher, type ServiceTarget } from './service-unit';
 
 export type TailscaleMode = 'serve' | 'funnel' | 'none';
 
@@ -174,10 +174,14 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
   const { kind: unitKind, installed } = state.service;
   const adopted = unitRunsLauncher(unitKind, installed, state.launcher.path);
   const serviceTarget: ServiceTarget = state.install === 'package' || adopted ? { kind: 'launcher', path: state.launcher.path } : { kind: 'clone', repo: state.repo ?? '' };
-  if (serviceTarget.kind === 'launcher' && state.launcher.installed !== state.launcher.template) {
+  // The installed package owns the launcher: a checkout, whichever branch it is on, only repairs a
+  // missing one and never replaces what the live service runs.
+  const launcherStale = state.install === 'package' ? state.launcher.installed !== state.launcher.template : state.launcher.installed === null;
+  if (serviceTarget.kind === 'launcher' && launcherStale) {
     steps.push({ kind: 'write-launcher', path: state.launcher.path, text: state.launcher.template });
   }
-  const current = serviceTarget.kind === 'launcher' ? adopted : unitRunsCheckout(unitKind, installed, serviceTarget.repo);
+  const runsTarget = serviceTarget.kind === 'launcher' ? adopted : unitRunsCheckout(unitKind, installed, serviceTarget.repo);
+  const current = runsTarget && installed !== null && unitKeepsWorkspaces(unitKind, installed);
   if (!state.service.enabled || !current) steps.push({ kind: 'install-unit', text: renderService(state.service.template, serviceTarget) });
   // The old agent is stopped: start the new one before anything that can fail, so a failed hooks
   // or serve step never leaves the machine with no agent (and a phone with no way back in).
