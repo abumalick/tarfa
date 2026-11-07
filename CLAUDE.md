@@ -111,7 +111,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   (`packages/agent/templates/app.tarfa.agent.plist`), **systemd user unit + linger** on Ubuntu. Both invoke
   `deploy/run-agent.sh` (a source install) or the launcher `~/.tarfa/bin/tarfa-agent` (a package
   install: it sources `~/.tarfa/agent.env`, exports `TARFA_AGENT_ENV`, runs the checkout named by
-  `~/.tarfa/agent-source` when that still exists, else `tarfa serve` through mise; `run-agent.sh`
+  `~/.tarfa/agent-source` when that still exists, else the installed package's `tarfa serve` run with the node `mise where` names (never `mise exec`, which installs every missing global tool first; `mise exec` only when `where` answers nothing), with mise's shims first on PATH; `run-agent.sh`
   skips its own `deploy/agent.env` when `TARFA_AGENT_ENV` is set; `serve:agent` writes
   `agent-source` instead of flipping `agent-live` on such a machine). `tarfa apply` (package
   installs only) rewrites the launcher and unit if they differ, reinstalls the hooks, restarts and

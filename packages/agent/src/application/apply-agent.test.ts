@@ -16,7 +16,7 @@ function fakes(over: Partial<ApplyEffects> = {}, state: { launcher: string; unit
       calls.push('unit');
       const changed = state.unit !== 'new-unit';
       state.unit = 'new-unit';
-      return changed;
+      return { changed, kept: null };
     },
     writeCliWrapper: async () => (calls.push('cli'), { changed: false, notes: [] }),
     installHooks: async () => (calls.push('hooks'), { changed: false, codex: false }),

@@ -113,6 +113,8 @@ writes `~/.tarfa/agent-source`, which the launcher follows while it still points
 `deploy/agent.env`; `run-agent.sh` skips its own `deploy/agent.env` when the launcher has set
 `TARFA_AGENT_ENV`. A worktree branched before that skip will not start under the launcher (its
 `run-agent.sh` would source a `deploy/agent.env` that is not there): merge main into it first.
+The worktree also needs `mise trust` (run it there once): `run-agent.sh` calls `mise exec`, and a service
+cannot answer a trust prompt, so without it the service restart-loops until `pnpm serve:agent-restore`.
 
 On a source install, `run-agent.sh` runs the agent from a `deploy/agent-live` symlink (gitignored)
 when it resolves, else from main; secrets are sourced from main's `deploy/agent.env`, so the

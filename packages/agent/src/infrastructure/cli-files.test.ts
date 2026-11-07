@@ -2,7 +2,7 @@ import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, sy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { copyEnvOnce, linkKind, linkPerch, readCliEntry, removeLink } from './cli-files';
+import { copyEnvOnce, firstOnPath, linkKind, linkPerch, readCliEntry, removeLink } from './cli-files';
 
 const dirs: string[] = [];
 async function scratch() {
@@ -86,5 +86,20 @@ describe('linkKind and removeLink', () => {
     await rm(path);
     await mkdir(path);
     await expect(removeLink(path)).rejects.toThrow(/not a link/);
+  });
+});
+
+describe('firstOnPath', () => {
+  it('finds the first executable file in PATH order, resolving links, and skips directories and non-executables', async () => {
+    const dir = await scratch();
+    const [a, b, c] = [join(dir, 'a'), join(dir, 'b'), join(dir, 'c')];
+    await Promise.all([a, b, c].map((d) => mkdir(d)));
+    await mkdir(join(a, 'tarfa'));
+    await writeFile(join(b, 'tarfa'), 'not executable');
+    await writeFile(join(c, 'real'), '#!/bin/sh\n', { mode: 0o755 });
+    await symlink(join(c, 'real'), join(c, 'tarfa'));
+    expect(await firstOnPath('tarfa', `${a}:${b}:${c}:${a}`)).toEqual({ path: join(c, 'tarfa'), real: join(c, 'real') });
+    expect(await firstOnPath('tarfa', `${a}:${b}`)).toBeNull();
+    expect(await firstOnPath('tarfa', '')).toBeNull();
   });
 });

@@ -32,6 +32,15 @@ new_home() {
   chmod 600 "${home}/.tarfa/agent.env"
   cat > "${home}/.local/bin/mise" <<'STUB'
 #!/bin/sh
+case "$*" in
+  *" where "*)
+    for last in "$@"; do :; done
+    case "$last" in
+      node) cat "$(dirname "$0")/../../where-node" 2>/dev/null || exit 1 ;;
+      *) cat "$(dirname "$0")/../../where-cli" 2>/dev/null || exit 1 ;;
+    esac
+    exit 0 ;;
+esac
 echo "mise $* | env=${TARFA_AGENT_ENV:-} | token=${TARFA_TOKEN:-} | pwd=$(pwd -P)"
 STUB
   chmod +x "${home}/.local/bin/mise"
@@ -66,6 +75,39 @@ mise exec -- tarfa serve | env=${HOME1}/.tarfa/agent.env | token=from-state-env 
 
 : > "${HOME1}/.tarfa/agent-source"
 check "an empty agent-source is no checkout" "mise exec -- tarfa serve | env=${HOME1}/.tarfa/agent.env | token=from-state-env | pwd=${HOME1_REAL}" "$(launch "${HOME1}" | tail -1)"
+
+# A stub mise that answers `where`, so the launcher can run the package with node directly.
+HOME5="$(new_home h5)"
+mkdir -p "${HOME5}/cli/bin" "${HOME5}/node/bin"
+touch "${HOME5}/cli/bin/tarfa"
+printf '%s\n' "${HOME5}/cli" > "${HOME5}/where-cli"
+printf '%s\n' "${HOME5}/node" > "${HOME5}/where-node"
+printf '#!/bin/sh\necho "node $* | env=${TARFA_AGENT_ENV:-} | path=$PATH | pwd=$(pwd -P)"\n' > "${HOME5}/node/bin/node"
+chmod +x "${HOME5}/node/bin/node"
+HOME5_REAL="$(cd "${HOME5}" && pwd -P)"
+check "runs the installed package with its node, no mise exec, shims first on PATH, from \$HOME" \
+  "node ${HOME5}/cli/bin/tarfa serve | env=${HOME5}/.tarfa/agent.env | path=${HOME5}/.local/share/mise/shims:/usr/bin:/bin | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
+out="$(cd "${SANDBOX}" && env -i HOME="${HOME5}" MISE_DATA_DIR="${HOME5}/data" PATH=/usr/bin:/bin sh "${LAUNCHER}" 2>&1)"
+check "puts MISE_DATA_DIR's shims on PATH when it is set" \
+  "node ${HOME5}/cli/bin/tarfa serve | env=${HOME5}/.tarfa/agent.env | path=${HOME5}/data/shims:/usr/bin:/bin | pwd=${HOME5_REAL}" "${out}"
+rm "${HOME5}/where-node"
+check "falls back to mise exec when where names no node" \
+  "mise exec -- tarfa serve | env=${HOME5}/.tarfa/agent.env | token=from-state-env | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
+printf '%s\n' "${HOME5}/node" > "${HOME5}/where-node"
+rm "${HOME5}/cli/bin/tarfa"
+check "falls back to mise exec when the install has no bin/tarfa" \
+  "mise exec -- tarfa serve | env=${HOME5}/.tarfa/agent.env | token=from-state-env | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
+
+HOME6="$(new_home h6)"
+mkdir -p "${HOME6}/other/bin" "${HOME6}/cli/bin" "${HOME6}/node/bin"
+touch "${HOME6}/cli/bin/tarfa"
+printf '%s\n' "${HOME6}/cli" > "${HOME6}/where-cli"
+printf '%s\n' "${HOME6}/node" > "${HOME6}/where-node"
+printf '#!/bin/sh\necho "node $* | home=$HOME"\n' > "${HOME6}/node/bin/node"
+chmod +x "${HOME6}/node/bin/node"
+printf 'TARFA_TOKEN=x\nHOME=%s/other\n' "${HOME6}" > "${HOME6}/.tarfa/agent.env"
+check "a HOME= line in agent.env does not move the lookups (it reaches the agent as written)" \
+  "node ${HOME6}/cli/bin/tarfa serve | home=${HOME6}/other" "$(launch "${HOME6}")"
 
 HOME2="$(new_home h2)"
 rm "${HOME2}/.local/bin/mise"

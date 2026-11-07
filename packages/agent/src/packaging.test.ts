@@ -66,8 +66,12 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
     };
     let server: ReturnType<typeof spawn> | undefined;
     try {
-      const { stdout: packed } = await exec('pnpm', ['pack', '--pack-destination', tarballs], { cwd: AGENT_DIR, env: noGitVars(process.env) });
-      const tarball = join(tarballs, packed.trim().split('\n').pop()!.split('/').pop()!);
+      // The release workflow names the tarball it stages, so what is tested is what is published.
+      let tarball = process.env.TARFA_PACK_TARBALL;
+      if (!tarball) {
+        const { stdout: packed } = await exec('pnpm', ['pack', '--pack-destination', tarballs], { cwd: AGENT_DIR, env: noGitVars(process.env) });
+        tarball = join(tarballs, packed.trim().split('\n').pop()!.split('/').pop()!);
+      }
 
       const listing = (await exec('tar', ['-tzf', tarball])).stdout.trim().split('\n');
       const manifestText = (await exec('tar', ['-xzOf', tarball, 'package/package.json'])).stdout;

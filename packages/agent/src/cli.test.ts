@@ -729,6 +729,36 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       expect(out).toContain('ok: service definition written, daemon reloaded');
       expect(await readFile(join(m.home, '.tarfa', 'bin', 'tarfa-agent'), 'utf8')).not.toContain('old');
       expect(m.calls.at(-3)).toMatch(/^install-unit/);
+      expect(m.calls.at(-4)).toBe('backup-unit');
+      expect(out).toContain('(the previous text is kept at /unit.bak-1)');
+    });
+
+    it('re-enables a text-current unit that is disabled, without a backup, and still restarts', async () => {
+      const { m, withLog } = await converged();
+      const io = withLog('phones on\n');
+      io.setup!.service = { ...io.setup!.service!, enabled: async () => false };
+      const out = await run(['apply'], {}, m.home, io);
+      expect(out).toContain('ok: service definition written, daemon reloaded\n');
+      expect(out).toContain('ok: restarted');
+      expect(m.calls).toEqual(['install-unit roster=present launcher=present', 'restart', 'check']);
+    });
+
+    it('warns when another tarfa comes first on PATH, and still succeeds', async () => {
+      const { m, withLog } = await converged();
+      const other = join(m.home, 'proj', 'node_modules', '.bin');
+      await mkdir(other, { recursive: true });
+      await writeFile(join(other, 'tarfa'), '#!/bin/sh\n', { mode: 0o755 });
+      const out = await run(['apply'], { PATH: `${other}:${join(m.home, '.local', 'bin')}` }, m.home, withLog('phones on\n'));
+      expect(out).toContain(`warning: \`tarfa\` on your PATH is ${join(other, 'tarfa')}`);
+      expect(out).toContain('ok: tarfa command wrapper already current');
+    });
+
+    it('setup refuses a TARFA_AGENT_ENV other than ~/.tarfa/agent.env, which the launcher always reads', async () => {
+      const m = await machine(null, { kind: 'package' });
+      await expect(run(['setup', ...FLAGS], { TARFA_AGENT_ENV: '/elsewhere/agent.env' }, m.home, m.io)).rejects.toThrow(/TARFA_AGENT_ENV names \/elsewhere\/agent\.env.*unset TARFA_AGENT_ENV/);
+      expect(m.calls).toEqual([]);
+      await run(['setup', ...FLAGS], { TARFA_AGENT_ENV: join(m.home, '.tarfa', '..', '.tarfa', 'agent.env') }, m.home, m.io);
+      expect(m.calls).toContain('restart');
     });
 
     it('stops at a failed restart, names the step, exits non-zero', async () => {

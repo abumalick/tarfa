@@ -221,7 +221,6 @@ certificates in the admin console, and let your user run `tailscale serve` witho
 (`sudo tailscale set --operator=$USER`). Then:
 
 ```bash
-cd ~/workspace/perch
 tarfa setup --machine-id <name> --project-roots /home/<user>/workspace \
   --default-path /home/<user>/workspace --tailscale serve --pair
 ```

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { cp, copyFile, readFile, rm, stat } from 'node:fs/promises';
+import { chmod, cp, copyFile, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ServiceInstallPort } from '../ports/service-install-port';
@@ -45,6 +45,7 @@ async function backupFile(path: string): Promise<string | null> {
   if (!(await exists(path))) return null;
   const copy = `${path}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`;
   await copyFile(path, copy);
+  await chmod(copy, (await stat(path)).mode & 0o777);
   return copy;
 }
 

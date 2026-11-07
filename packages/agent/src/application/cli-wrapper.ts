@@ -11,7 +11,10 @@ export interface CliState {
   // ~/.local/bin, and whether it is on the running PATH.
   bin: string;
   onPath: boolean;
-  wrapper: { path: string; template: string; entry: CliEntry };
+  // The first `tarfa` on the running PATH: its path as found and where it resolves; null when none.
+  winner: { path: string; real: string } | null;
+  // `real` is where the wrapper's own path resolves once written.
+  wrapper: { path: string; real: string; template: string; entry: CliEntry };
   perch: { path: string; entry: CliEntry };
 }
 
@@ -40,9 +43,13 @@ export function planCli(cli: CliState): CliPlan {
 
   let linkPerch = false;
   const old = perch.entry;
-  if (old.kind === 'absent' || (old.kind === 'link' && CLONE_LINK.test(old.target))) linkPerch = true;
+  if (old.kind === 'absent' || (old.kind === 'link' && CLONE_LINK.test(old.target))) linkPerch = ours;
   else if (!(old.kind === 'link' && old.target === wrapper.path)) notes.push(`warning: ${perch.path} is not a link to tarfa, so it is left alone`);
 
+  const winner = cli.winner;
+  if (ours && winner !== null && winner.path !== wrapper.path && winner.real !== wrapper.real) {
+    notes.push(`warning: \`tarfa\` on your PATH is ${winner.path}, not ${wrapper.path}, so it may run under a project's node: put ${cli.bin} first on PATH`);
+  }
   if (!cli.onPath && ours) notes.push(`note: ${cli.bin} is not on PATH; add it to use \`tarfa\``);
   return { writeWrapper, linkPerch, notes };
 }

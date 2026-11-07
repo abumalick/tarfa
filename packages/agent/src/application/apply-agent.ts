@@ -4,9 +4,10 @@
 export interface ApplyEffects {
   // Why apply cannot run here (not set up, state not moved), or null.
   blocker(): Promise<string | null>;
-  // Each returns whether it changed anything; they leave what was there if they fail.
+  // Each reports whether it changed anything; they leave what was there if they fail.
   writeLauncher(): Promise<boolean>;
-  writeUnit(): Promise<boolean>;
+  // `kept` is where the hand-edited text it replaced was copied, if it differed.
+  writeUnit(): Promise<{ changed: boolean; kept: string | null }>;
   // The `tarfa` wrapper and the `perch` link in ~/.local/bin; `notes` are what it left alone.
   writeCliWrapper(): Promise<{ changed: boolean; notes: string[] }>;
   // `codex`: Codex's hooks were written too, and need trusting again.
@@ -50,7 +51,12 @@ export async function runApply(effects: ApplyEffects, options: ApplyOptions): Pr
     return fail('launcher', message(err));
   }
   try {
-    lines.push((await effects.writeUnit()) ? 'ok: service definition written, daemon reloaded' : 'ok: service definition already current');
+    const unit = await effects.writeUnit();
+    lines.push(
+      unit.changed
+        ? `ok: service definition written, daemon reloaded${unit.kept === null ? '' : ` (the previous text is kept at ${unit.kept})`}`
+        : 'ok: service definition already current',
+    );
   } catch (err) {
     return fail('service definition', message(err));
   }

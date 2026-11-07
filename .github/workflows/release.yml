@@ -40,7 +40,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tarball"
           pnpm --filter @tarfa/cli pack --pack-destination "$RUNNER_TEMP/tarball"
-          TARFA_PACK_TEST=1 pnpm --filter @tarfa/cli exec vitest run src/packaging.test.ts
+          TARFA_PACK_TARBALL=$(ls "$RUNNER_TEMP"/tarball/*.tgz) TARFA_PACK_TEST=1 pnpm --filter @tarfa/cli exec vitest run src/packaging.test.ts
 
       # Node 24's bundled npm has no `stage`. The version waits for 2FA approval on npmjs.com.
       - name: Stage the release

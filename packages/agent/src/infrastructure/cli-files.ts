@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
-import { chmod, copyFile, lstat, mkdir, readFile, readlink, rename, rm, symlink, unlink } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { access, chmod, copyFile, lstat, mkdir, readFile, readlink, realpath, rename, rm, stat, symlink, unlink } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import type { CliEntry } from '../application/cli-wrapper';
 
 const MAX_WRAPPER_BYTES = 64 * 1024;
@@ -54,4 +54,14 @@ export async function removeLink(path: string): Promise<void> {
   const kind = await linkKind(path);
   if (kind === 'other') throw new Error(`${path} is not a link: not removing it`);
   if (kind === 'link') await unlink(path);
+}
+
+// The first executable file called `name` on a PATH value, as the shell would find it.
+export async function firstOnPath(name: string, pathVar: string): Promise<{ path: string; real: string } | null> {
+  for (const dir of pathVar.split(':')) {
+    const candidate = join(dir === '' ? '.' : dir, name);
+    const ok = await access(candidate, constants.X_OK).then(() => stat(candidate).then((s) => s.isFile()), () => false);
+    if (ok) return { path: candidate, real: await realpath(candidate) };
+  }
+  return null;
 }

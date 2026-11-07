@@ -25,6 +25,18 @@ describe('release workflow', () => {
     expect(code).toMatch(/npm stage publish "\$RUNNER_TEMP"\/tarball\/\*\.tgz --access public --provenance/);
   });
 
+  it('tests the very tarball it stages', () => {
+    expect(code).toMatch(/pnpm --filter @tarfa\/cli pack --pack-destination "\$RUNNER_TEMP\/tarball"\n\s+TARFA_PACK_TARBALL=\$\(ls "\$RUNNER_TEMP"\/tarball\/\*\.tgz\) TARFA_PACK_TEST=1 /);
+    expect(code.match(/pack --pack-destination/g)).toHaveLength(1);
+    expect(code).toMatch(/npm stage publish "\$RUNNER_TEMP"\/tarball\/\*\.tgz/);
+  });
+
+  it('refuses a tag that is not the package version or not on main, from a full clone', () => {
+    expect(code).toMatch(/fetch-depth: 0/);
+    expect(code).toMatch(/"\$GITHUB_REF_NAME" != "v\$version"/);
+    expect(code).toMatch(/git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
+  });
+
   it('pins npm to a version that has `stage`', () => {
     expect(code).toMatch(/npm install -g npm@\d+\.\d+\.\d+\n/);
   });

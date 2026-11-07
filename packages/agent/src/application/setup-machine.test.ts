@@ -645,7 +645,8 @@ describe('planSetup: the CLI wrapper and adopting a clone', () => {
   const cli = (over: Partial<NonNullable<SetupState['cli']>> = {}, tarfa: NonNullable<SetupState['cli']>['wrapper']['entry'] = { kind: 'absent' }, perch: NonNullable<SetupState['cli']>['perch']['entry'] = { kind: 'absent' }): SetupState['cli'] => ({
     bin: BIN,
     onPath: true,
-    wrapper: { path: `${BIN}/tarfa`, template: WRAPPER, entry: tarfa },
+    winner: { path: `${BIN}/tarfa`, real: `${BIN}/tarfa` },
+    wrapper: { path: `${BIN}/tarfa`, real: `${BIN}/tarfa`, template: WRAPPER, entry: tarfa },
     perch: { path: `${BIN}/perch`, entry: perch },
     ...over,
   });

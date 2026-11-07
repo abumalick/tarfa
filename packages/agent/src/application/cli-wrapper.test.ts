@@ -4,8 +4,8 @@ import { planCli, WRAPPER_MARKER, type CliEntry, type CliState } from './cli-wra
 const BIN = '/home/u/.local/bin';
 const TEMPLATE = `#!/bin/sh\n# ${WRAPPER_MARKER}\nexec node\n`;
 
-function state(tarfa: CliEntry, perch: CliEntry, onPath = true): CliState {
-  return { bin: BIN, onPath, wrapper: { path: `${BIN}/tarfa`, template: TEMPLATE, entry: tarfa }, perch: { path: `${BIN}/perch`, entry: perch } };
+function state(tarfa: CliEntry, perch: CliEntry, onPath = true, winner: CliState['winner'] = { path: `${BIN}/tarfa`, real: `${BIN}/tarfa` }): CliState {
+  return { bin: BIN, onPath, winner, wrapper: { path: `${BIN}/tarfa`, real: `${BIN}/tarfa`, template: TEMPLATE, entry: tarfa }, perch: { path: `${BIN}/perch`, entry: perch } };
 }
 const LINKED: CliEntry = { kind: 'link', target: `${BIN}/tarfa` };
 
@@ -32,6 +32,23 @@ describe('planCli', () => {
     expect(plan.notes).toEqual([expect.stringContaining(`${BIN}/tarfa is not Tarfa's wrapper`), expect.stringContaining(`${BIN}/perch is not a link to tarfa`)]);
     expect(planCli(state({ kind: 'other' }, { kind: 'other' })).notes).toHaveLength(2);
     expect(planCli(state({ kind: 'link', target: '/usr/bin/mise' }, LINKED)).writeWrapper).toBeNull();
+  });
+
+  it('does not link perch to a tarfa that is not ours, absent or left from a clone', () => {
+    const foreign: CliEntry = { kind: 'file', text: '#!/bin/sh\necho mine\n' };
+    const clone: CliEntry = { kind: 'link', target: '/home/u/workspace/perch/deploy/perch-cli.sh' };
+    expect(planCli(state(foreign, { kind: 'absent' })).linkPerch).toBe(false);
+    expect(planCli(state(foreign, clone)).linkPerch).toBe(false);
+  });
+
+  it('warns once when another tarfa comes first on PATH, and not when the wrapper, or a link to it, does', () => {
+    const other = { path: '/proj/node_modules/.bin/tarfa', real: '/proj/node_modules/@tarfa/cli/bin/tarfa' };
+    const ours: CliEntry = { kind: 'file', text: TEMPLATE };
+    expect(planCli(state(ours, LINKED, true, other)).notes).toEqual([expect.stringMatching(/warning: .*\/proj\/node_modules\/\.bin\/tarfa.*may run under a project's node/)]);
+    expect(planCli(state(ours, LINKED, true, null)).notes).toEqual([]);
+    expect(planCli(state(ours, LINKED, true, { path: '/alias/tarfa', real: `${BIN}/tarfa` })).notes).toEqual([]);
+    expect(planCli(state({ kind: 'absent' }, { kind: 'absent' }, true, { path: `${BIN}/tarfa`, real: '/clone/deploy/tarfa-cli.sh' })).notes).toEqual([]);
+    expect(planCli(state({ kind: 'file', text: '#!/bin/sh\nmine\n' }, LINKED, true, other)).notes).toEqual([expect.stringContaining('is not Tarfa')]);
   });
 
   it('says in one line that ~/.local/bin is off PATH, only when it matters', () => {

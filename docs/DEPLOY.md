@@ -81,7 +81,21 @@ It refuses from a clone and when no service is installed. In order, it: moves `~
 kept as `<unit>.bak-<time>`); restarts the agent; and writes the `tarfa` wrapper over a link into the
 clone. Every flag you do not give (machine id, roots, phone port, default path) is read from the
 copied env. The agent key, roster and parked and live state are never touched. A package-run
-`tarfa setup` that finds such a unit adopts it the same way.
+`tarfa setup` that finds such a unit adopts it the same way. Afterwards, `command -v tarfa` inside a
+workspace pane must print `~/.local/bin/tarfa` (the wrapper); another path means a project's `tarfa` comes
+first on PATH (setup and `tarfa apply` warn about it).
+
+**Before adopting a Mac**, check that node-pty's prebuild loads and its helper is executable (the
+paths are the layout the packaging test installs; adjust if `mise where` shows another):
+```sh
+"$(mise where node)/bin/node" -e "require('$(mise where npm:@tarfa/cli)/lib/node_modules/@tarfa/cli/node_modules/node-pty')"
+ls -l "$(mise where npm:@tarfa/cli)/lib/node_modules/@tarfa/cli/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper"
+```
+**Rolling back an adoption.** The original `deploy/agent.env` was kept, so the clone runs as before.
+Linux: copy the unit's `~/.config/systemd/user/tarfa-agent.service.bak-<time>` back over it, then
+`systemctl --user daemon-reload` and `systemctl --user restart tarfa-agent`. macOS: copy
+`~/Library/LaunchAgents/app.tarfa.agent.plist.bak-<time>` back, then
+`launchctl bootout gui/$UID/app.tarfa.agent` and `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/app.tarfa.agent.plist`.
 
 ### A machine set up as Perch
 Install the package (above) and run `tarfa setup --adopt`, or, from a clone (`git pull`,
@@ -344,6 +358,8 @@ deploys tarfa.app, and `tarfa update` never touches Claude Code or Codex.
    its `npm stage` right does not extend to `npm publish`). It does not run `pnpm test:scripts`:
    those scripts exercise this repository's local deploy tooling (worktrees, `pwa-deploy.sh`, the
    leak-word list) and the pre-push gate has already run them.
+   The on-main check is a guard against mistakes, not a security boundary (anyone able to push a tag
+   can edit the workflow); the 2FA approval in the next step is the real gate.
 4. **The maintainer approves with 2FA; nothing is live before that.** `npm stage list @tarfa/cli`,
    then `npm stage approve <stage-id>` (or the Staged Packages tab on npmjs.com).
 5. `tarfa update` on each machine.
@@ -358,9 +374,9 @@ prebuilds; move it to the stable release once one ships.
 
 ## 8. Troubleshooting
 - **`/hooks` 401 from the local hook:** the agent hasn't written `~/.tarfa/token` yet (start the agent first) or the hook ran before startup. The file holds a hooks-only secret the agent replaces at each start, not `TARFA_TOKEN`.
-- **node-pty `posix_spawnp failed` on Ubuntu:** in a package install, an installer stripped the prebuild's execute bit: reinstall with `tarfa update --force`, and check `spawn-helper` under the install's `node_modules/node-pty/prebuilds/linux-*/` is `+x`. In a source install, re-run `pnpm install` (the root postinstall chmods it).
+- **node-pty `posix_spawnp failed` on Ubuntu:** in a package install, an installer stripped the prebuild's execute bit: reinstall with `mise install --force npm:@tarfa/cli@<version>` then `tarfa apply` (`tarfa update --force` only re-selects an installed version and reinstalls nothing), and check `spawn-helper` under the install's `node_modules/node-pty/prebuilds/linux-*/` is `+x`. In a source install, re-run `pnpm install` (the root postinstall chmods it).
 - **The phone does not connect:** the entry's message in Settings names the refusal (an agent refusal: revoked, not enrolled, a spent or expired pairing code, the wrong agent key). Check the agent logs `phones on 127.0.0.1:<port>`, that the publishing entry points at that port (`tailscale serve status`), and that the phone reaches the address (a tailnet address needs the phone's Tailscale connected; a Funnel one does not).
 - **An old direct entry in Settings** ("no longer supported"): delete it and pair the machine again.
-- **PWA loads but no workspaces:** watch the agent log (`journalctl --user -u tarfa-agent -f` / `tail -f deploy/agent.log`) for `phone:` lines.
+- **PWA loads but no workspaces:** watch the agent log (`journalctl --user -u tarfa-agent -f` on Linux, `tail -f ~/.tarfa/agent.log` on macOS where the plist writes it; a source install: `tail -f deploy/agent.log`) for `phone:` lines.
 - **Port already in use:** change `TARFA_PORT` in `agent.env`, then re-run `install-hooks` (step 4), which bakes the port into the hook command.
 - **`mise` or `node` not found from the service:** the launcher resolves both from `$HOME` (the global node 24 of `mise use -g`), so check `mise which node` as the service's user, and that `~/.local/bin/mise` (or the mise on the unit's PATH) exists.

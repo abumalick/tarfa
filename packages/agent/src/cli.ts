@@ -30,7 +30,7 @@ import { findMise, miseCli } from './infrastructure/mise-cli';
 import { npmRegistry } from './infrastructure/npm-registry';
 import { cloneOfUnit, renderService, unitRunsLauncher } from './application/service-unit';
 import { planCli, type CliState } from './application/cli-wrapper';
-import { copyEnvOnce, linkKind, linkPerch, readCliEntry, removeLink } from './infrastructure/cli-files';
+import { copyEnvOnce, firstOnPath, linkKind, linkPerch, readCliEntry, removeLink } from './infrastructure/cli-files';
 import { atomicWrite } from './infrastructure/atomic-write';
 import { agentLog, type AgentLog } from './infrastructure/agent-log';
 import { serviceInstall } from './infrastructure/service-install';
@@ -112,7 +112,8 @@ async function cliState(home: string, env: NodeJS.ProcessEnv): Promise<CliState>
   return {
     bin,
     onPath: (env.PATH ?? '').split(':').includes(bin),
-    wrapper: { path: wrapperPath, template: await readFile(CLI_WRAPPER_TEMPLATE, 'utf8'), entry: await readCliEntry(wrapperPath) },
+    winner: await firstOnPath('tarfa', env.PATH ?? ''),
+    wrapper: { path: wrapperPath, real: joinPath(await realpath(bin).catch(() => bin), 'tarfa'), template: await readFile(CLI_WRAPPER_TEMPLATE, 'utf8'), entry: await readCliEntry(wrapperPath) },
     perch: { path: perchPath, entry: await readCliEntry(perchPath) },
   };
 }
@@ -663,6 +664,10 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
     throw new UsageError('tarfa setup --adopt runs from the installed package: run `mise use -g npm:@tarfa/cli@<v>`, then `tarfa setup --adopt`');
   }
   const launcherPath = joinPath(home, '.tarfa', 'bin', 'tarfa-agent');
+  const packageEnv = joinPath(home, '.tarfa', 'agent.env');
+  if (kind === 'package' && env.TARFA_AGENT_ENV && resolvePath(env.TARFA_AGENT_ENV) !== packageEnv) {
+    throw new Error(`TARFA_AGENT_ENV names ${env.TARFA_AGENT_ENV}, but the service launcher always reads ${packageEnv}: unset TARFA_AGENT_ENV, then run tarfa setup again`);
+  }
   const fx = io.setup ?? {};
   const service = fx.service ?? serviceInstall({ home, user: userInfo().username, uid: process.getuid?.() ?? 0 });
   const installedUnit = await service.installed();
@@ -862,11 +867,13 @@ async function apply(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
       },
       writeUnit: async () => {
         // Without a reachable user manager nothing below could be told from "not installed".
-        await service.enabled();
+        const enabled = await service.enabled();
         const wanted = renderService(await service.template(), { kind: 'launcher', path: launcherPath });
-        if ((await service.installed()) === wanted) return false;
+        const installed = await service.installed();
+        if (enabled && installed === wanted) return { changed: false, kept: null };
+        const kept = installed !== null && installed !== wanted ? await service.backup() : null;
         await service.install(wanted);
-        return true;
+        return { changed: true, kept };
       },
       writeCliWrapper: async () => {
         const cli = await cliState(home, env);

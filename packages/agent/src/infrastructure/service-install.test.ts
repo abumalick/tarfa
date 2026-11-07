@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -143,6 +143,9 @@ describe('serviceInstall', () => {
       expect(await readFile(copy!, 'utf8')).toBe('old text\n');
       expect(await readFile(file, 'utf8')).toBe('old text\n');
     }
+    const unit = join(home, '.config', 'systemd', 'user', 'tarfa-agent.service');
+    await chmod(unit, 0o600);
+    expect((await stat((await serviceInstall({ templates, home, user: 'u', uid: 1000, platform: 'linux', run }).backup())!)).mode & 0o777).toBe(0o600);
     const legacy = join(home, '.config', 'systemd', 'user', 'perch-agent.service');
     const linux = serviceInstall({ templates, home, user: 'u', uid: 1000, platform: 'linux', run });
     expect(await linux.legacyText()).toBeNull();
