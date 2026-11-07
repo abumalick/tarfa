@@ -183,7 +183,8 @@ export function attentionDecision(input: {
           messagedLast: isPeerMessage(input.claude) ? 'set' : 'clear',
         };
       }
-      return { reason: 'tool', status: 'working', deferral: 'keep' };
+      // Another tool starting means the turn went on past any message it sent.
+      return { reason: 'tool', status: 'working', deferral: 'keep', messagedLast: 'clear' };
     default:
       return { reason: 'unknown-event', status: null, deferral: 'keep' };
   }

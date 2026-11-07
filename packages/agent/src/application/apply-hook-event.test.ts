@@ -349,4 +349,17 @@ describe('applyHookEvent', () => {
       expect(entries[0]?.reason).toBe('tarfa-send');
     });
   });
+
+  // A child that sends a progress note and starts a long test is not waiting on its orchestrator.
+  it('keeps the send mark through the send\'s own PostToolUse, and drops it when the next tool starts', () => {
+    const f = fakeStore();
+    const marks = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    const hook = (event: string) => applyHookEvent(marks, { sessionName: 'perch-aa', event, claude: { tool_name: 'Bash' } });
+    hook('PreToolUse');
+    markSent(marks, 'perch-aa');
+    hook('PostToolUse');
+    expect(marks.messagedLast.has('perch-aa')).toBe(true);
+    hook('PreToolUse');
+    expect(marks.messagedLast.has('perch-aa')).toBe(false);
+  });
 });

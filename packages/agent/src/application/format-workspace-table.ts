@@ -20,9 +20,13 @@ function shorten(text: string): string {
   return text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX - 1)}…` : text;
 }
 
-// A child waiting on its orchestrator stays `working`; the table names what it waits for.
+// A child waiting on its orchestrator stays `working`; the CLI names what it waits for.
+export function workspaceState(w: Workspace): string {
+  return w.waitingOn === 'parent' ? 'needs-orchestrator' : w.status;
+}
+
 function statusCell(w: Workspace): string {
-  const status = w.waitingOn === 'parent' ? 'needs-orchestrator' : w.status;
+  const status = workspaceState(w);
   return w.urgent ? `${status} (urgent)` : status;
 }
 
