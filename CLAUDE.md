@@ -25,8 +25,9 @@ the phone's device key, and streams its terminals. No agent listens off loopback
 - `packages/agent` (`@tarfa/cli`) — per-machine agent. tmux via `node:child_process`,
   terminal streaming via `node-pty`, a loopback phone port phones connect to directly (served
   through `NoiseClientConnection`), and a `node:http` server on
-  `127.0.0.1` with three bearer-token-guarded routes: `POST /hooks` (Claude Code hooks report
-  attention here), `POST /unpark` (`tarfa unpark`) and `POST /message` (`tarfa send`).
+  `127.0.0.1` with four bearer-token-guarded routes: `POST /hooks` (Claude Code hooks report
+  attention here), `POST /unpark` (`tarfa unpark`), `POST /close` (`tarfa close`) and
+  `POST /message` (`tarfa send`).
   Domain/application in `application/` + `ports/`, adapters in `infrastructure/`, wiring in
   `server/`.
 - `packages/secure-channel` (`@tarfa/secure-channel`) — the Noise IK session both ends run, its
@@ -91,7 +92,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   PATH). Run `mise trust` once per machine or the unit crash-loops.
 - **An agent is reached on its phone port once that is published.** It binds `127.0.0.1`
   whatever `TARFA_HOST` says (a non-loopback value is ignored with a warning). The hooks port
-  (`TARFA_PORT`) serves only `POST /hooks`, `POST /unpark` and `POST /message`, and is never
+  (`TARFA_PORT`) serves only `POST /hooks`, `POST /unpark`, `POST /close` and `POST /message`, and is never
   published with `tailscale serve`. `tarfa setup` sets a machine up; `tarfa pair` pairs a phone
   ("Device keys, enrolment and pairing").
 - **`tarfa setup` sets a machine up without prompting** (`application/setup-machine.ts` plans
@@ -347,7 +348,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   `WsServer` tracks each live workspace's last-known snapshot (`lastWorkspaces`, the same map
   that already drives rename/disappearance detection); whenever one stops existing it appends
   one JSON line — id, name, project path, machine id, created/closed timestamps, a reason
-  (`closed-by-user` for an explicit PWA close, `exited` for a shell exit/crash/manual
+  (`closed-by-user` for an explicit close from the PWA or `tarfa close`, `exited` for a shell exit/crash/manual
   `tmux kill-session`), and the last known attention status — to a gitignored
   `~/.tarfa/workspace-log.jsonl` (`FileWorkspaceLogStore`). An explicit close snapshots via
   `WsServer.forgetWorkspace(id)` *before* killing the tmux session (tmux can't answer
@@ -443,8 +444,8 @@ See `docs/DEPLOY.md` for the full runbook. In short:
 - **The `tarfa` CLI and the orchestrator → child link.** `deploy/install-cli.sh` links
   `deploy/tarfa-cli.sh` to `~/.local/bin/tarfa` (and, for one release, `~/.local/bin/perch` to
   `tarfa`) on each machine, so any session in any repo can
-  run `tarfa spawn [--child]`, `tarfa ls [--mine|--role|--path]`, `tarfa peek <id>`, `tarfa unpark <id>...`
-  and `tarfa rename [<id>] <title>`. `rename` sets `✳ <title>` locked, as unpark does, so Claude
+  run `tarfa spawn [--child]`, `tarfa ls [--mine|--role|--path]`, `tarfa peek <id>`, `tarfa wait <id>...`,
+  `tarfa unpark <id>...`, `tarfa close <id>...` and `tarfa rename [<id>] <title>`. `rename` sets `✳ <title>` locked, as unpark does, so Claude
   stops renaming that workspace; without an id it renames the caller's own. The first three read tmux and the `~/.tarfa` stores directly (read-only, no agent.env needed)
   and skip the GitHub lookup, so `ls` answers in a fraction of a second; `unpark` asks the
   running agent (parking section). **Orchestration is explicit:** a plain
@@ -457,6 +458,29 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   `needs-orchestrator`. The PWA nests one level of children under a listed, unparked parent on
   the same machine (`core/nest-workspaces.ts`), folded by default; a group ranks by its most
   urgent member, and Next walks children of folded parents too.
+  **`tarfa close <id>...` is the phone's close** (`POST /close`, the hooks secret;
+  `application/retire-workspace.ts` is shared with the phone's path, so the two cannot drift): the
+  snapshot, the kill, the `closed-by-user` log line, the state drop, the reply, then the scope reap.
+  The agent refuses an id that names no workspace, and the CLI the caller's own workspace (the kill
+  would take the command with it). **It is deliberately not limited to the
+  caller's children:** one Linux user can `tmux kill-session` anything anyway, the phone and
+  `unpark` take any id, and a limit would stop the owner closing from a plain shell.
+  **`tarfa wait <id>... [--timeout <s, at least 10>]` blocks until one stops working** and prints `<id> <state>`
+  per stopped workspace, polling the same read-only stores as `ls` every 2 s, hidden folders
+  included (a hidden child is not gone). Exit 0 a stop, 124 the timeout, 2 usage, 1 otherwise.
+  Things not to "simplify" (`application/wait-tracker.ts`): **a stop already there when the wait
+  began is reported after 10 s, not ignored.** Waiting for a change instead would hang for good on
+  a child that hit a permission prompt before the wait started, which is what the wait is for; the
+  10 s covers the old state lingering after a `tarfa send` (measured: at most 6.7 s for a recipient
+  able to take the message, while a longer one is blocked on a prompt and is reporting truly).
+  **A stop seen after working must last two polls:** a queued message's prompt lands 0.1 s after
+  the `Stop` of the turn it waited behind. **`needs-orchestrator` always takes the 10 s:** the mark
+  stands from the send until the next tool starts, while the model may be thinking on. **`idle` under 60 s old counts as starting**, since a
+  workspace with no status entry reads `idle` until its first hook; past that it is reported, so a
+  child stuck before its first hook cannot hang the wait. **`gone` and `parked` report at once.**
+  **tmux listing no session at all on the first look is an error, not `gone`:** tmux says
+  `error connecting to` for a socket a Codex sandbox blocks too, which `isNoServer` reads as no
+  server, and every child would read as gone.
 - **Cross-agent messaging (`tarfa send`).** `tarfa send <id> "<message>"` (or stdin) lets one
   workspace message another on the same machine, for Claude, Codex and Pi; how it works and the
   authority text each CLI needs are in `docs/MESSAGING.md`. Things not to "simplify":
@@ -708,8 +732,8 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     answered without taking `pairing.json`'s lock, so made-up ones cannot keep `tarfa pair` out.
   - **The hooks have their own secret, kept off every command line.** `POST /hooks` takes a
     random secret the agent writes to `~/.tarfa/token` at each start (the path installed hooks
-    already read), never `TARFA_TOKEN`, which enrols phones. `POST /unpark` and `POST /message`
-    take the same secret, which `tarfa unpark` reads from that file into a header in-process.
+    already read), never `TARFA_TOKEN`, which enrols phones. `POST /unpark`, `POST /close` and
+    `POST /message` take the same secret, which the CLI reads from that file into a header in-process.
     `tarfa-hook.sh` gives curl the header through a file (process substitution) and the body on
     stdin, built with the `printf` builtin: any local user can read a process's argv.
     `tarfa-hook.test.sh` asserts neither reaches it.
@@ -1173,8 +1197,9 @@ So the PWA is on a public origin, tarfa.app, and what follows from that:
   session waiting on another Claude session's reply (a spawned child on its orchestrator, an
   orchestrator on its children; see the `tarfa-orchestrate` skill), not on the user. The fact
   is a second marker (`messagedLast`), set by a main-loop `PostToolUse` of
-  `SendMessage`, cleared by any other main-loop `PostToolUse` and by `UserPromptSubmit` (the
-  reply arrives as one). It must stay separate from the deferral `Set`, because tool calls keep
+  `SendMessage`, cleared by the next main-loop tool call starting or finishing and by
+  `UserPromptSubmit` (the reply arrives as one). Without the `PreToolUse` clear, a child that sent a
+  progress note and started a long test read "Needs orchestrator" for the whole test. It must stay separate from the deferral `Set`, because tool calls keep
   the deferral but change this. Unlike the other two marks it is **durable**, an entry field in
   `status.json` (pruned with its entry), because it is what derives a child's
   `waitingOn: 'parent'` ("Needs orchestrator"), which the PWA and `tarfa ls` both show. Accepted

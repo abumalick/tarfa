@@ -154,7 +154,7 @@ with `tailscale serve --https=8442 off` (`sudo` on Linux).
 ### The phone port
 The agent logs `tarfa agent: phones on 127.0.0.1:<port>` at startup. The port takes a WebSocket
 upgrade on any path (`tailscale serve --set-path` strips its prefix) and answers anything else
-404, so `/hooks`, `/unpark` and `/message` are never one proxy away from the network. It is meant to sit behind
+404, so `/hooks`, `/unpark`, `/close` and `/message` are never one proxy away from the network. It is meant to sit behind
 `tailscale serve` or Funnel; the only port to publish is `TARFA_PHONE_PORT`, never `TARFA_PORT`.
 A phone there goes through the agent's device roster, revocation and pairing codes. Its bounds:
 8 unauthenticated sockets per client
@@ -218,7 +218,7 @@ use them:
 - `tarfa spawn [--title <title>] [--child] [--model <model>] <projectPath>`, with the brief on stdin:
   starts a workspace running Claude Code on the brief and prints its id (also its Claude session
   name). `--child` makes the caller's own workspace its orchestrator. The child records the
-  parent's workspace id, cannot ask the user or enter plan mode, and reports back with SendMessage.
+  parent's workspace id, cannot ask the user or enter plan mode, and reports back with `tarfa send`.
 - `tarfa ls [--json] [--mine] [--parent <workspace id>] [--role orchestrator|child|normal] [--path <dir>]`:
   every workspace, parked ones included, with its messaging name, stored status, time in that
   status, role, parent, title and folder. The role comes from the `--child` links: a workspace with
@@ -228,10 +228,20 @@ use them:
   means "this project", worktrees included). Filters combine.
 - `tarfa peek <workspace id> [-n <lines>]`: its status line and the last 40 (or N) non-blank lines
   of its pane.
+- `tarfa wait <workspace id>... [--timeout <seconds, at least 10>]`: blocks until a named child stops working
+  and prints `<id> <state>` for each one stopped (`needs-orchestrator`, `needs-feedback`, `idle`,
+  `finished`, `parked`, `gone`). Exit 0 for a stop, 124 for the timeout, 2 for bad arguments, 1 for
+  anything else. It gives a state left over from before a `tarfa send` or `tarfa spawn` time to
+  change, so a stop it finds already there takes about 10 s to report. It reads the reported status:
+  a Codex child whose hooks are untrusted on a stock tmux, or a Pi child without the Tarfa extension,
+  reads `idle` while it works. A workspace that is not a child and ended its turn on `tarfa send`
+  stays `working`, so name a `--timeout` for those.
 
-`tarfa unpark <workspace id>...` reopens parked workspaces, one line per id, exactly as opening
-one on the phone does. It asks the running agent over its loopback listener (`TARFA_PORT` from
-`deploy/agent.env`, the hooks secret in `~/.tarfa/token`), so it needs the agent running.
+`tarfa unpark <workspace id>...` reopens parked workspaces and `tarfa close <workspace id>...`
+closes workspaces, parked ones included, one line per id, exactly as doing it on the phone does.
+A close also stops the pane's systemd scope and logs `closed-by-user`, which a raw
+`tmux kill-session` does not. Both ask the running agent over its loopback listener (`TARFA_PORT`
+from `deploy/agent.env`, the hooks secret in `~/.tarfa/token`), so they need the agent running.
 
 ## 5. The PWA: tarfa.app, and the tailnet staging copy
 Tarfa is a static-assets Worker (`packages/pwa/wrangler.jsonc`) in the maintainer's Cloudflare

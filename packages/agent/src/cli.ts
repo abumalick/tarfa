@@ -7,6 +7,7 @@ import { loadConfig, withLegacyEnv, type AgentConfig } from './infrastructure/co
 import { migrateStateDir, stateDirLayout } from './infrastructure/state-dir';
 import { systemClock, systemPathResolver } from './infrastructure/system';
 import { ShortWorkspaceIds } from './application/short-workspace-ids';
+import { WAIT_POLL_MS, WAIT_SETTLE_MS, WaitTracker } from './application/wait-tracker';
 import { renameWorkspace } from './application/rename-workspace';
 import { TmuxAdapter } from './infrastructure/tmux-adapter';
 import { FsProjectLister } from './infrastructure/fs-project-lister';
@@ -17,7 +18,6 @@ import { FileClaudeSessionsStore } from './infrastructure/file-claude-sessions-s
 import { fsIsDirectory } from './infrastructure/fs-directory-checker';
 import { createWorkspace } from './application/create-workspace';
 import { listWorkspaces } from './application/list-workspaces';
-import { closeWorkspace } from './application/close-workspace';
 import { getRecentPaths } from './application/get-recent-paths';
 import { browseDir } from './application/browse-dir';
 import { isHiddenPath } from './application/is-hidden-path';
@@ -98,7 +98,7 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
     throw new UsageError(RELAYS_GONE);
   }
   if (argv[0] === 'pair') return pair(argv.slice(1), env, home);
-  if (argv[0] === 'ls' || argv[0] === 'spawn' || argv[0] === 'peek' || argv[0] === 'unpark' || argv[0] === 'rename' || argv[0] === 'send') {
+  if (argv[0] === 'ls' || argv[0] === 'spawn' || argv[0] === 'peek' || argv[0] === 'unpark' || argv[0] === 'rename' || argv[0] === 'send' || argv[0] === 'close' || argv[0] === 'wait') {
     return orchestration(argv[0], argv.slice(1), env, home, io);
   }
   const config = loadConfig({ ...env, ...(await agentEnvValues(env)) }, home);
@@ -144,12 +144,6 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
       );
       return JSON.stringify(ws, null, 2);
     }
-    case 'close': {
-      const id = rest[0];
-      if (!id) throw new Error('usage: tarfa close <workspaceId>');
-      await closeWorkspace({ tmux }, id);
-      return JSON.stringify({ closed: id });
-    }
     case 'recent': {
       const hidden = await hiddenFolders.list();
       return JSON.stringify(await getRecentPaths({ recent, hidden }), null, 2);
@@ -187,10 +181,12 @@ const PEEK_USAGE = 'usage: tarfa peek <workspace id> [-n <lines>]';
 const UNPARK_USAGE = 'usage: tarfa unpark <workspace id>...';
 const RENAME_USAGE = 'usage: tarfa rename [<workspace id>] <title>   (without an id: the workspace this runs in)';
 const SEND_USAGE = 'usage: tarfa send <workspace id> "<message>"   (or the message on stdin)';
+const CLOSE_USAGE = 'usage: tarfa close <workspace id>...';
+const WAIT_USAGE = 'usage: tarfa wait <workspace id>... [--timeout <seconds, at least 10>]';
 
 // `ls`, `spawn` and `peek` serve sessions in any repo, so none of them needs deploy/agent.env:
 // it only lends the machine id, and the store paths come from $HOME.
-async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rename' | 'send', argv: string[], env: NodeJS.ProcessEnv, home: string, io: CliIo): Promise<string> {
+async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rename' | 'send' | 'close' | 'wait', argv: string[], env: NodeJS.ProcessEnv, home: string, io: CliIo): Promise<string> {
   const values = await agentEnvValues(env).catch(() => ({}) as Record<string, string>);
   const config = loadConfig({ TARFA_MACHINE_ID: hostname().split('.')[0], ...env, ...values }, home);
   const tmux = io.tmux ?? new TmuxAdapter();
@@ -201,10 +197,9 @@ async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rena
     if (at !== -1) args.splice(at, 1);
     return at !== -1;
   };
-  const list = async () => {
-    const hidden = await new FileHiddenFoldersStore(config.hiddenFoldersPath).list();
+  const listAll = () => {
     const status = readOnlyStatus(config.statusStorePath);
-    const workspaces = await listWorkspaces({
+    return listWorkspaces({
       tmux,
       machineId: config.machineId,
       sessionPrefix: config.sessionPrefix,
@@ -213,6 +208,10 @@ async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rena
       claudeSessions,
       messagedLast: { has: (id) => status.getMessagedLast(id) },
     });
+  };
+  const list = async () => {
+    const hidden = await new FileHiddenFoldersStore(config.hiddenFoldersPath).list();
+    const workspaces = await listAll();
     const shown = workspaces.filter((w) => !isHiddenPath(w.projectPath, hidden));
     return shown.map((w) => ({ ...w, role: workspaceRole(w, shown) }));
   };
@@ -356,6 +355,51 @@ async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rena
       const done = `${id}: renamed to "${title.trim()}"`;
       return locked ? done : `${done} (this tmux cannot lock a title, so Claude may rename it again)`;
     }
+    case 'close': {
+      if (args.length === 0 || args.some((id) => id.startsWith('-'))) throw new UsageError(CLOSE_USAGE);
+      const self = await callerWorkspace(env, tmux, config.sessionPrefix).catch(() => undefined);
+      if (self !== undefined && args.includes(self)) {
+        throw new Error(`${self} is this workspace: a close would kill this command; close it from another workspace or the phone`);
+      }
+      const post = agentPost(config.port, config.stateDir, io.fetch ?? fetch);
+      const lines: string[] = [];
+      let failed = false;
+      for (const id of args) {
+        const { status, json } = await post('/close', { id });
+        if (status !== 200 || typeof json.result !== 'string') {
+          const why = status === 404 ? ' (it predates tarfa close: restart it)' : json.error ? ` (${json.error})` : '';
+          throw new Error([...lines, `${id}: the agent answered ${status}${why}`].join('\n'));
+        }
+        failed ||= json.result !== 'closed';
+        lines.push(`${id}: ${json.result === 'closed' ? 'closed' : 'no such workspace (see tarfa ls)'}`);
+      }
+      if (failed) throw new Error(lines.join('\n'));
+      return lines.join('\n');
+    }
+    case 'wait': {
+      const timeoutArg = takeOption(args, '--timeout', WAIT_USAGE, UsageError);
+      const timeout = timeoutArg === undefined ? undefined : Number(timeoutArg);
+      if (args.length === 0 || args.some((id) => id.startsWith('-')) || (timeout !== undefined && !(timeout * 1000 >= WAIT_SETTLE_MS))) {
+        throw new UsageError(WAIT_USAGE);
+      }
+      const now = io.now ?? Date.now;
+      const sleep = io.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+      const startedAt = now();
+      const tracker = new WaitTracker(args, startedAt);
+      for (let first = true; ; first = false) {
+        const workspaces = await listAll();
+        // tmux reports a socket it may not open as it does no server, so a sandbox would read as
+        // every child gone. Whoever waits normally runs in a session of that same server.
+        if (first && workspaces.every((w) => w.status === 'parked') && (await tmux.listSessions(config.sessionPrefix)).length === 0) {
+          throw new Error('tmux lists no session at all: no server is running, or a sandbox blocks its socket (run this outside the sandbox)');
+        }
+        const reports = tracker.observe(workspaces, now());
+        if (reports.length > 0) return reports.map((r) => `${r.id} ${r.state}`).join('\n');
+        const left = timeout === undefined ? WAIT_POLL_MS : startedAt + timeout * 1000 - now();
+        if (left <= 0) throw new WaitTimeout(`timed out after ${timeout}s, no stop to report: ${args.join(' ')}`);
+        await sleep(Math.min(left, WAIT_POLL_MS));
+      }
+    }
   }
 }
 
@@ -365,7 +409,7 @@ const UNPARK_WORDS: Record<string, string> = {
   'missing-directory': 'its project directory no longer exists',
 };
 
-// `unpark` and `send` go through the running agent, the one process that writes status.json (it
+// `unpark`, `close` and `send` go through the running agent, the one process that writes status.json (it
 // holds it in memory, so a write from here would be overwritten) and parked.json, and the one
 // that tells the phones. It authenticates with the hooks secret the agent writes at each start.
 function agentPost(port: number, stateDir: string, fetchFn: typeof fetch) {
@@ -449,11 +493,11 @@ async function readStdin(ttyError: string): Promise<string> {
 const RELAYS_GONE = 'relays are gone: tarfa setup sets a machine up for phones, and tarfa pair pairs one';
 const PAIR_USAGE = 'usage: tarfa pair [--pwa <PWA origin>] [--ttl <minutes, 1-10, default 10>]';
 
-function takeOption(args: string[], name: string, usage: string): string | undefined {
+function takeOption(args: string[], name: string, usage: string, Failure: new (message: string) => Error = Error): string | undefined {
   const at = args.indexOf(name);
   if (at === -1) return undefined;
   const value = args[at + 1];
-  if (!value || value.startsWith('--')) throw new Error(usage);
+  if (!value || value.startsWith('--')) throw new Failure(usage);
   args.splice(at, 2);
   return value;
 }
@@ -516,6 +560,11 @@ async function pair(argv: string[], env: NodeJS.ProcessEnv, home: string): Promi
     { phoneUrls: config.phoneAddresses, pwaOrigin: origin },
   );
   return pairingInstructions(link, minutes);
+}
+
+// The exit code `timeout(1)` uses, so a script can tell it from a stop (0) or a failure (1, 2).
+export class WaitTimeout extends Error {
+  readonly exitCode = 124;
 }
 
 export class UsageError extends Error {
@@ -721,6 +770,6 @@ if (isEntrypoint) {
     })
     .catch((err: unknown) => {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-      process.exitCode = err instanceof UsageError ? err.exitCode : 1;
+      process.exitCode = err instanceof UsageError || err instanceof WaitTimeout ? err.exitCode : 1;
     });
 }

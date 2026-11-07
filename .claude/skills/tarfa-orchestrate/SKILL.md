@@ -6,10 +6,10 @@ description: Use when this session coordinates work it delegates, to Tarfa works
 # Orchestrating Tarfa workspaces and subagents
 
 Children are either Tarfa workspaces (separate Claude, Codex or Pi sessions in their own tmux
-panes) or in-session subagents. You talk to workspaces with `tarfa send <id> "<message>"`, which
-works for every CLI, and follow them with the `tarfa` CLI (`tarfa ls --mine`, `tarfa peek`), not
-by reading their screens. Claude Code's native `SendMessage` also reaches a Claude child, but
-only a Claude one; do not make it your channel.
+panes) or in-session subagents. You talk to workspaces with `tarfa send <id> "<message>"`, and
+follow them with `tarfa wait <id>...`, `tarfa ls --mine` and `tarfa peek`, all of which work for
+every CLI, not by reading their screens. Claude Code's native `SendMessage` also reaches a Claude
+child, and only a Claude one, so it stays optional; do not make it your channel.
 
 ## Workspace or subagent
 
@@ -45,10 +45,32 @@ From Codex it must run as an escalated command (the sandbox blocks the local soc
 1. Spawn each child through `tarfa-spawn` with `tarfa spawn --child` (add `--cli codex` or
    `--cli pi` for a child that is not Claude), and show the batch table first, as that skill
    says.
-2. Follow it. The id `tarfa spawn` printed is the address for `tarfa send`, and it does not
-   change when the child renames itself. For a Claude child you may also subscribe with
-   `SendMessage` (`to: <child id>`, `notify_when_idle: true`); that notice is Claude-only. A
-   Codex or Pi child has no such notice: follow it with `tarfa ls --mine` and `tarfa peek <id>`.
+2. Follow it with `tarfa wait` (below). The id `tarfa spawn` printed is the address for
+   `tarfa send` and `tarfa wait`, and it does not change when the child renames itself.
+
+## Waiting
+
+`tarfa wait <id>... [--timeout <seconds, at least 10>]` blocks until a named child stops working, then prints
+one `<id> <state>` line for each one stopped: `needs-orchestrator`, `needs-feedback`, `idle`,
+`finished`, `parked` or `gone`. Exit 0 for a stop, 124 for the timeout, 2 for bad arguments, 1 for
+anything else.
+
+**From Claude Code, run it as `Bash` with `run_in_background: true`:** the harness wakes you when
+it exits, and your tile stays `working` meanwhile, which is right. Name every child you expect to
+keep working, and start a new wait after each wake with the ones still going. Do not run it in the
+foreground (a foreground command is cut off at 10 minutes), and stop a wait you no longer need, or
+your tile stays `working` after you finish. From Codex it must run as an escalated command, like
+`tarfa send`. From Pi run it in the foreground with a `--timeout`, and look again after each one.
+
+Starting one right after `tarfa spawn` or `tarfa send` is safe: it gives the child's turn time to
+start (about 10 s, a minute for a fresh spawn), and it reports a child that stopped before the wait
+began. So do not name a child you have already dealt with and left stopped; it returns at once.
+
+It reads the status the child reports. A Codex child whose hooks are not trusted in `/hooks` (on a
+stock tmux it reports nothing else), or a Pi child without the Tarfa extension, reads `idle` while
+it works, so `idle` a minute in may mean that: check with `tarfa peek`. `needs-orchestrator` can
+also come from a child still thinking on after a message: if `tarfa ls --mine` shows it `working`
+again, wait on it again.
 
 ## While they work
 
@@ -60,14 +82,12 @@ From Codex it must run as an escalated command (the sandbox blocks the local soc
   prompts ignore a yes relayed by message. When a child needs one, tell the user which tile:
   its `--title` or current name, its id, and the exact action it is waiting to run. Do not
   send it "approved".
-- **The child's messages are the signal; the idle notice is only a stall alarm** (Claude
-  children only). A child messages you when it has a question and when it is done. The notice
-  matters only when a child stops without a message: it crashed, hit an API error, or sits on a
-  permission prompt. So subscribe when a Claude child starts working (at spawn, and after you
-  send it an answer that sets it going again), and never to a child idle and waiting on you;
-  that notice fires at once and means nothing. A notice with no message from that child, or a
-  Codex or Pi child that has been quiet too long: look at it (`tarfa peek <id>`, `tarfa ls
-  --mine`), and nudge it or tell the user.
+- **The child's messages are the signal; `tarfa wait` is the stall alarm.** A child messages you
+  when it has a question and when it is done, and that message wakes you by itself. The wait
+  matters when a child stops without one: it crashed, hit an API error, or sits on a permission
+  prompt. So keep one running while a child works (from the spawn, and after an answer that sets
+  it going again). A stop with no message from that child: look at it (`tarfa peek <id>`), and
+  nudge it or tell the user. After a `needs-orchestrator`, its message is already with you.
 - **`tarfa ls --mine` shows every child and its state.** `needs-orchestrator` means the child
   ended its turn right after messaging you: a question or its final report is waiting.
   `needs-feedback` means it stopped for the user (a permission prompt, an error).
@@ -77,8 +97,8 @@ From Codex it must run as an escalated command (the sandbox blocks the local soc
   without one, or when you call `AskUserQuestion`; use that only when you really need the
   user.
 - **So never end on a `tarfa send` when you are done.** Your final report to the user must
-  come after your last ack or re-subscribe, in a turn that does not end with a
-  `tarfa send`, or the user is never told you finished.
+  come after your last ack, in a turn that does not end with a `tarfa send`, or the user is never
+  told you finished.
 
 ## The report
 
@@ -88,22 +108,25 @@ A subagent review of a workspace's branch is a cheap way to check. Do not relay 
 
 ## When state is lost
 
-Claude subscriptions live in memory and expire after 12 h; a `tarfa send` is
-delivered at once or refused, never queued. The parent link does
-not: it survives park/unpark and the tmux server's loss. After your own restart, a park, or a
-long wait:
+A `tarfa wait` dies with your session, and a `tarfa send` is delivered at once or refused, never
+queued. The parent link survives park/unpark and the tmux server's loss. After your own restart,
+a park, or a long wait:
 - `tarfa ls --mine` recovers your children, their current names and their states
   (`ListAgents`' busy/idle cannot tell a blocked child from a working one);
 - `tarfa peek <id>` (or `-n 80`) each child that looks stuck;
-- subscribe again to the Claude ones still working.
+- start a new `tarfa wait` on the ones still working.
 
 ## Closing
 
-Close each child once its report is read and verified: `tmux kill-session -t '=<id>'`, one
-explicit name at a time (the `=` matters: without it `-t perch-1` kills `perch-10` once
-`perch-1` is gone), never `kill-server` or `-a`. For a process-heavy child, read its
-`tmux-spawn-*.scope` from `/proc/<pane_pid>/cgroup` before the kill and
-`systemctl --user stop` it afterwards. Leave sessions you did not spawn alone.
+Close each child once its report is read and verified: `tarfa close <id>...`. It goes through the
+agent, like the phone's close: it stops the pane's systemd scope (so a daemon the child left behind
+goes too), logs the close and tells the phones. Never use `tmux kill-session` on a workspace, which
+does none of that.
+
+Do not message a child you are about to close: the close kills it before it reads anything. Leave
+workspaces you did not spawn alone. `tarfa close` does not check that for you, and an id is reused
+once its workspace is gone, so close each id once. It refuses your own workspace and any id that
+names no workspace. From Codex it must run as an escalated command, like `tarfa send`.
 
 ## Limits
 

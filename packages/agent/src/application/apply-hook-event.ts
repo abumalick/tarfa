@@ -90,7 +90,8 @@ interface Marks {
 // would clear it; `sentDuringTool` makes that one PostToolUse leave the mark alone. Under Codex it
 // also covers a `write_stdin` poll: one that sees an earlier command exit fires that command's
 // PostToolUse with no PreToolUse of its own, and nothing in the payload says it is a poll. So
-// there the mark holds until the next PreToolUse, the start of a call made after the send.
+// there the mark holds until the next PreToolUse, the start of a call made after the send, and
+// that call ends it.
 export function markSent(marks: Pick<Marks, 'sentDuringTool' | 'messagedLast'>, id: string): void {
   marks.sentDuringTool.add(id);
   marks.messagedLast.add(id);
@@ -154,6 +155,7 @@ export function applyHookEvent(
   if (startsCodexCall || (decision.reason === 'tarfa-send' && input.agent !== 'codex')) {
     deps.sentDuringTool.delete(input.sessionName);
   }
+  if (startsCodexCall) deps.messagedLast.delete(input.sessionName);
   if (decision.messagedLast === 'set') {
     deps.messagedLast.add(input.sessionName);
     deps.sentDuringTool.delete(input.sessionName);

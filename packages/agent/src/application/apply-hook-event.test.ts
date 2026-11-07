@@ -356,14 +356,12 @@ describe('applyHookEvent', () => {
         expect(deps.deferred.has('perch-aa')).toBe(true);
       });
 
-      it('a later tool call clears the mark, once it has started', () => {
+      it('a later tool call clears the mark as soon as it starts', () => {
         const deps = setup();
         applyHookEvent(deps, codexPost);
         applyHookEvent(deps, codexPre);
-        expect(deps.messagedLast.has('perch-aa')).toBe(true);
-        expect(deps.sentDuringTool.has('perch-aa')).toBe(false);
-        applyHookEvent(deps, codexPost);
         expect(deps.messagedLast.has('perch-aa')).toBe(false);
+        expect(deps.sentDuringTool.has('perch-aa')).toBe(false);
       });
 
       it('a subagent\'s PreToolUse does not count as the later call', () => {
@@ -386,5 +384,27 @@ describe('applyHookEvent', () => {
       await Promise.resolve();
       expect(entries[0]?.reason).toBe('tarfa-send');
     });
+  });
+
+  // Pi posts its hooks from a queue, so the send's own PreToolUse may land after the send.
+  it('keeps the send mark against a PreToolUse landing while the send is pending', () => {
+    const f = fakeStore();
+    const marks = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    markSent(marks, 'perch-aa');
+    applyHookEvent(marks, { sessionName: 'perch-aa', event: 'PreToolUse', claude: { tool_name: 'bash' } });
+    expect(marks.messagedLast.has('perch-aa')).toBe(true);
+  });
+
+  // A child that sends a progress note and starts a long test is not waiting on its orchestrator.
+  it('keeps the send mark through the send\'s own PostToolUse, and drops it when the next tool starts', () => {
+    const f = fakeStore();
+    const marks = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    const hook = (event: string) => applyHookEvent(marks, { sessionName: 'perch-aa', event, claude: { tool_name: 'Bash' } });
+    hook('PreToolUse');
+    markSent(marks, 'perch-aa');
+    hook('PostToolUse');
+    expect(marks.messagedLast.has('perch-aa')).toBe(true);
+    hook('PreToolUse');
+    expect(marks.messagedLast.has('perch-aa')).toBe(false);
   });
 });
