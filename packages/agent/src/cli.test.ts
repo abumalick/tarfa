@@ -534,6 +534,15 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       expect(parseEnvFile(live)).toMatchObject({ TARFA_PHONE_ADDRESSES: 'wss://node.example.ts.net:443/v' });
     });
 
+    it('reads an empty value in agent.env as unset', async () => {
+      const m = await machine(null, { kind: 'package' });
+      await run(['setup', ...FLAGS], m.env, m.home, m.io);
+      await writeFile(m.envPath, `${await readFile(m.envPath, 'utf8')}TARFA_DEFAULT_PATH=\n`, { mode: 0o600 });
+      m.calls.length = 0;
+      await run(['setup'], m.env, m.home, m.io);
+      expect(parseEnvFile(await readFile(m.envPath, 'utf8'))).toMatchObject({ TARFA_PHONE_PORT: '8797', TARFA_MACHINE_ID: 'dev' });
+    });
+
     it('still lets a flag win over agent.env on a rerun', async () => {
       const m = await machine(null, { kind: 'package' });
       await run(['setup', ...FLAGS], m.env, m.home, m.io);

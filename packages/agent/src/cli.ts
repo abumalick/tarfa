@@ -702,7 +702,7 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   // adoption copies), so a bare rerun plans nothing. How the port is published is not in agent.env:
   // --tailscale defaults to none, which changes nothing, and TARFA_PHONE_ADDRESSES is kept.
   const given = withLegacyEnv(parseEnvFile(envText ?? ''));
-  const filled = (name: string, value: string | undefined) => (value !== undefined && !argv.includes(name) ? [name, value] : []);
+  const filled = (name: string, value: string | undefined) => (value !== undefined && value !== '' && !argv.includes(name) ? [name, value] : []);
   const flags = parseSetupFlags([
     ...argv,
     ...filled('--machine-id', given.TARFA_MACHINE_ID),

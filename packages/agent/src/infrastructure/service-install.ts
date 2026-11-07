@@ -101,6 +101,10 @@ export function serviceInstall(options: {
           }
         }
         const reason = failure instanceof Error ? failure.message : String(failure);
+        // A bootout that failed, or a label launchd held past the wait, leaves the old agent running.
+        if (await loaded('app.tarfa.agent')) {
+          throw new Error(`the agent already loaded keeps running its old definition: ${reason} (${BOOTSTRAP_TRIES} tries). The new ${plist} is in place: run \`launchctl bootout ${domain}/app.tarfa.agent\`, wait until \`launchctl print ${domain}/app.tarfa.agent\` fails, then \`launchctl bootstrap ${domain} ${plist}\``);
+        }
         throw new Error(`no agent is loaded: ${reason} (${BOOTSTRAP_TRIES} tries). The new ${plist} is in place: load it with \`launchctl bootstrap ${domain} ${plist}\`, then run tarfa setup again`);
       },
       legacyInstalled: async () => (await readOrNull(legacyPlist)) !== null,

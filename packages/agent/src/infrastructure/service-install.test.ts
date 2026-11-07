@@ -173,6 +173,12 @@ describe('serviceInstall', () => {
     expect(await readFile(plist, 'utf8')).toBe('plist /r\n');
   });
 
+  it('says the old agent still runs when launchd never let go of its label', async () => {
+    const { templates, home } = await dirs();
+    const service = serviceInstall({ templates, home, user: 'u', uid: 501, platform: 'darwin', sleep: async () => undefined, run: launchctl([], { lingers: 1_000, failures: 99 }) });
+    await expect(service.install('plist /r\n')).rejects.toThrow(/the agent already loaded keeps running its old definition: .*run `launchctl bootout gui\/501\/app\.tarfa\.agent`/);
+  });
+
   it('stops waiting for a label that never goes, and lets the bootstrap report', async () => {
     const { templates, home } = await dirs();
     const ran: string[] = [];
