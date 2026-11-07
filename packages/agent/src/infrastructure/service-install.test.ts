@@ -122,4 +122,24 @@ describe('serviceInstall', () => {
     expect(await readFile(plist, 'utf8')).toBe('plist /r\n');
     expect(ran).toEqual(['launchctl bootout gui/501/app.tarfa.agent', `launchctl bootstrap gui/501 ${plist}`]);
   });
+
+  it('keeps a copy of the installed unit or plist beside it, and reads the legacy one', async () => {
+    const { templates, home } = await dirs();
+    const run = async () => '';
+    for (const [platform, file] of [['linux', join(home, '.config', 'systemd', 'user', 'tarfa-agent.service')], ['darwin', join(home, 'Library', 'LaunchAgents', 'app.tarfa.agent.plist')]] as const) {
+      const service = serviceInstall({ templates, home, user: 'u', uid: 1000, platform, run });
+      expect(await service.backup()).toBeNull();
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, 'old text\n');
+      const copy = await service.backup();
+      expect(copy).toMatch(new RegExp(`${file.replace(/[.]/g, '\\.')}\\.bak-`));
+      expect(await readFile(copy!, 'utf8')).toBe('old text\n');
+      expect(await readFile(file, 'utf8')).toBe('old text\n');
+    }
+    const legacy = join(home, '.config', 'systemd', 'user', 'perch-agent.service');
+    const linux = serviceInstall({ templates, home, user: 'u', uid: 1000, platform: 'linux', run });
+    expect(await linux.legacyText()).toBeNull();
+    await writeFile(legacy, 'legacy text\n');
+    expect(await linux.legacyText()).toBe('legacy text\n');
+  });
 });

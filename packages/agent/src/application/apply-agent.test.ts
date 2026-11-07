@@ -36,16 +36,25 @@ describe('runApply', () => {
     const { effects, calls } = fakes();
     const result = await runApply(effects, OPTIONS);
     expect(result.ok).toBe(true);
-    expect(calls).toEqual(['launcher', 'unit', 'cli', 'hooks', 'mark', 'restart', 'listener', 'log since 7']);
+    expect(calls).toEqual(['launcher', 'unit', 'hooks', 'mark', 'restart', 'listener', 'log since 7', 'cli']);
     expect(result.lines).toEqual([
       'ok: launcher written',
       'ok: service definition written, daemon reloaded',
-      'ok: tarfa command wrapper already current',
       'ok: hooks already current',
       'ok: restarted (systemctl --user restart tarfa-agent)',
       'ok: the phone port answers on 127.0.0.1:8797',
       'ok: the log shows phones on',
+      'ok: tarfa command wrapper already current',
     ]);
+  });
+
+  it('restarts and checks the agent before it touches ~/.local/bin, so a wrapper failure cannot stop a restart', async () => {
+    const { effects, calls } = fakes({ writeCliWrapper: async () => { throw new Error('EACCES'); } });
+    const result = await runApply(effects, OPTIONS);
+    expect(result.ok).toBe(false);
+    expect(result.lines.at(-1)).toBe('failed: tarfa command wrapper: EACCES');
+    expect(calls).toContain('restart');
+    expect(result.lines).toContain('ok: the log shows phones on');
   });
 
   it('says what was already current', async () => {

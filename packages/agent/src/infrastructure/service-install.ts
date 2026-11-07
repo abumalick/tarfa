@@ -76,6 +76,7 @@ export function serviceInstall(options: {
         return [`wrote ${plist}`, `launchctl bootstrap ${domain}`];
       },
       legacyInstalled: async () => (await readOrNull(legacyPlist)) !== null,
+      legacyText: () => readOrNull(legacyPlist),
       async stopLegacy() {
         await run('launchctl', ['bootout', `${domain}/${LEGACY_LABEL}`]).catch(() => undefined);
         return [`launchctl bootout ${domain}/${LEGACY_LABEL}`];
@@ -126,6 +127,7 @@ export function serviceInstall(options: {
       return [`wrote ${unit}`, ...(copied ? [`copied ${legacyDropIns} to ${dropIns}`] : []), ...ran.map(([command, args]) => `${command} ${args.join(' ')}`)];
     },
     legacyInstalled: async () => (await readOrNull(legacyUnit)) !== null,
+    legacyText: () => readOrNull(legacyUnit),
     // KillMode=process: stopping it stops the agent alone, never tmux.
     async stopLegacy() {
       const ran: Array<[string, string[]]> = [

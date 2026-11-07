@@ -110,6 +110,24 @@ describe('runSetup', () => {
     expect(result.lines.join('\n')).toMatch(/already set up/);
   });
 
+  it('still asks the agent when the plan leaves it alone, and fails when it does not answer', async () => {
+    const wrapperOnly: SetupStep[] = [{ kind: 'write-cli-wrapper', path: '/home/u/.local/bin/tarfa', text: '#!/bin/sh\n' }];
+    const up = fakes();
+    const ok = await runSetup({ steps: wrapperOnly, checks: [] }, up.effects, { dryRun: false, phonePort: 8797 });
+    expect(ok.ok).toBe(true);
+    expect(up.calls).toEqual(['write-cli-wrapper', 'check-listener']);
+    const down = fakes({ at: 'check-listener' });
+    const bad = await runSetup({ steps: wrapperOnly, checks: [] }, down.effects, { dryRun: false, phonePort: 8797 });
+    expect(bad.ok).toBe(false);
+    expect(bad.lines.at(-1)).toMatch(/8797/);
+  });
+
+  it('does not ask twice when the plan already checks the listener', async () => {
+    const { effects, calls } = fakes();
+    await runSetup({ steps: [{ kind: 'restart' }, { kind: 'check-listener', port: 8797 }], checks: [] }, effects, { dryRun: false, phonePort: 8797 });
+    expect(calls.filter((c) => c === 'check-listener')).toHaveLength(1);
+  });
+
   it('fails a rerun that changes nothing when the phone port does not answer', async () => {
     const { effects } = fakes({ at: 'check-listener' });
     const result = await runSetup({ steps: [], checks: [] }, effects, { dryRun: false, phonePort: 8797 });

@@ -55,13 +55,6 @@ export async function runApply(effects: ApplyEffects, options: ApplyOptions): Pr
     return fail('service definition', message(err));
   }
   try {
-    const cli = await effects.writeCliWrapper();
-    lines.push(cli.changed ? 'ok: tarfa command wrapper written' : 'ok: tarfa command wrapper already current');
-    lines.push(...cli.notes);
-  } catch (err) {
-    return fail('tarfa command wrapper', message(err));
-  }
-  try {
     const hooks = await effects.installHooks();
     lines.push(hooks.changed ? 'ok: hooks installed' : 'ok: hooks already current');
     if (hooks.changed && hooks.codex) lines.push(`note: ${options.codexNote}`);
@@ -95,5 +88,13 @@ export async function runApply(effects: ApplyEffects, options: ApplyOptions): Pr
   }
   if (!log.includes('phones on')) return fail('log', NO_PHONE_PORT.exec(log)?.[0] ?? 'the agent log has no "phones on" line since the restart');
   lines.push('ok: the log shows phones on');
+  // Last, so an I/O failure on ~/.local/bin can never stop the restart a new launcher or unit needs.
+  try {
+    const cli = await effects.writeCliWrapper();
+    lines.push(cli.changed ? 'ok: tarfa command wrapper written' : 'ok: tarfa command wrapper already current');
+    lines.push(...cli.notes);
+  } catch (err) {
+    return fail('tarfa command wrapper', message(err));
+  }
   return { ok: true, lines };
 }

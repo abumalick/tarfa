@@ -219,15 +219,17 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
   if (state.legacyService) steps.push({ kind: 'restart' }, { kind: 'check-listener', port: flags.phonePort });
   if (!state.hooksCurrent) steps.push({ kind: 'install-hooks' });
   if (serveStep) steps.push(serveStep);
-  if (state.legacyService) steps.push({ kind: 'remove-legacy-service' });
-  else if (steps.length > 0) steps.push({ kind: 'restart' }, { kind: 'check-listener', port: flags.phonePort });
-  // After the restart, and never a reason for one: the wrapper does not touch the running agent.
+  // Whether anything above changes what the running agent runs or reads; the wrapper does not, so it
+  // is never a reason for a restart, but it is planned before one so a restart is the last word.
+  const agentChanged = steps.length > 0;
   if (state.cli) {
     const cli = planCli(state.cli);
     checks.push(...cli.notes);
     if (cli.writeWrapper !== null) steps.push({ kind: 'write-cli-wrapper', path: state.cli.wrapper.path, text: cli.writeWrapper });
     if (cli.linkPerch) steps.push({ kind: 'link-perch', path: state.cli.perch.path });
   }
+  if (state.legacyService) steps.push({ kind: 'remove-legacy-service' });
+  else if (agentChanged) steps.push({ kind: 'restart' }, { kind: 'check-listener', port: flags.phonePort });
   if (operatorStep) steps.push(operatorStep);
   if (flags.pair) steps.push({ kind: 'pair' });
   return { steps, checks };

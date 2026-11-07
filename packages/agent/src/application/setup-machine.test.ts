@@ -667,7 +667,7 @@ describe('planSetup: the CLI wrapper and adopting a clone', () => {
     });
   const kinds = (f: SetupFlags, s: SetupState) => plan(f, s).map((step) => step.kind);
 
-  it('writes the wrapper and the perch link for a package install, after the restart', () => {
+  it('writes the wrapper and the perch link for a package install', () => {
     const steps = plan(flags(), converged({ cli: cli() }));
     expect(steps).toEqual([
       { kind: 'write-cli-wrapper', path: `${BIN}/tarfa`, text: WRAPPER },
@@ -678,6 +678,11 @@ describe('planSetup: the CLI wrapper and adopting a clone', () => {
   it('never restarts the agent for a wrapper alone, and plans nothing once it is current', () => {
     expect(kinds(flags(), converged({ cli: cli({}, { kind: 'file', text: '# tarfa-cli-wrapper (managed by tarfa)\nold\n' }, { kind: 'link', target: `${BIN}/tarfa` }) }))).toEqual(['write-cli-wrapper']);
     expect(plan(flags(), converged())).toEqual([]);
+  });
+
+  it('plans the wrapper before the restart a changed launcher needs', () => {
+    const stale = converged({ launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: 'old\n' }, cli: cli() });
+    expect(kinds(flags(), stale)).toEqual(['write-launcher', 'write-cli-wrapper', 'link-perch', 'restart', 'check-listener']);
   });
 
   it('plans none of it for a source install', () => {
@@ -708,8 +713,8 @@ describe('planSetup: the CLI wrapper and adopting a clone', () => {
         ...over,
       });
 
-    it('copies the env first, then launcher, agent-live, unit, restart, and the wrapper last', () => {
-      expect(kinds(flags(), adopting())).toEqual(['copy-env', 'write-launcher', 'remove-agent-live', 'install-unit', 'restart', 'check-listener', 'write-cli-wrapper']);
+    it('copies the env first, then launcher, agent-live, unit, the wrapper, and the restart last', () => {
+      expect(kinds(flags(), adopting())).toEqual(['copy-env', 'write-launcher', 'remove-agent-live', 'install-unit', 'write-cli-wrapper', 'restart', 'check-listener']);
       const steps = plan(flags(), adopting());
       expect(steps[0]).toEqual({ kind: 'copy-env', from: `${CLONE}/deploy/agent.env`, to: '/home/u/.tarfa/agent.env' });
       expect(steps.find((s) => s.kind === 'install-unit')).toEqual({ kind: 'install-unit', text: LAUNCHER_UNIT, backup: true });

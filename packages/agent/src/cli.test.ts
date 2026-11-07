@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { chmod, mkdtemp, mkdir, readFile, readlink, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, mkdir, readFile, readlink, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,7 @@ import { enrolDevice, enrolmentMode, withEnrolmentMode } from './application/dev
 import { loadOrCreateAgentKeys } from './infrastructure/agent-key-file';
 import type { Workspace } from '@tarfa/contracts';
 import type { TmuxPort, TmuxSessionInfo } from './ports/tmux-port';
+import { renderService } from './application/service-unit';
 import { run, UsageError, type CliIo } from './cli';
 
 const exec = promisify(execFile);
@@ -305,6 +306,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
   async function machine(envText: string | null = null, opts: { legacy?: boolean; kind?: 'package' | 'clone' } = {}) {
     const kind = opts.kind ?? 'clone';
     let legacy = opts.legacy ?? false;
+    let legacyUnit: string | null = null;
     const root = await mkdtemp(join(tmpdir(), 'tarfa-setup-'));
     tmpDirs.push(root);
     const repo = join(root, 'repo');
@@ -338,8 +340,9 @@ describe('tarfa setup (fake service and Tailscale)', () => {
           },
           backup: async () => (calls.push('backup-unit'), unit === null ? null : '/unit.bak-1'),
           legacyInstalled: async () => legacy,
+          legacyText: async () => legacyUnit,
           stopLegacy: async () => (calls.push('stop-legacy'), ['stopped']),
-          removeLegacy: async () => (calls.push('remove-legacy'), (legacy = false), ['removed']),
+          removeLegacy: async () => (calls.push('remove-legacy'), (legacy = false), (legacyUnit = null), ['removed']),
         },
         tailscale: {
           status: async () => ({
@@ -360,7 +363,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
         checkListener: async () => (calls.push('check'), true),
       },
     };
-    return { repo, home, env: kind === 'package' ? {} : { TARFA_AGENT_ENV: envPath }, envPath, calls, io, unit: () => unit, setUnit: (text: string | null) => { unit = text; } };
+    return { repo, home, env: kind === 'package' ? {} : { TARFA_AGENT_ENV: envPath }, envPath, calls, io, unit: () => unit, setUnit: (text: string | null) => { unit = text; }, setLegacyUnit: (text: string) => { legacyUnit = text; legacy = true; } };
   }
   const FLAGS = ['--machine-id', 'dev', '--project-roots', '/home/u/workspace', '--tailscale', 'funnel', '--slug', 'abu'];
 
@@ -463,7 +466,6 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       expect(m.calls).toEqual(['check']);
       expect(await readFile(m.envPath, 'utf8')).toBe(env);
       expect((await stat(join(m.home, '.local', 'bin', 'tarfa'))).mtimeMs).toBe(wrapper.mtimeMs);
-      await expect(stat(join(m.home, '.tarfa', 'agent-live'))).rejects.toThrow();
     });
 
     it('moves ~/.perch before writing under ~/.tarfa, so the agent\'s own move never meets two directories', async () => {
@@ -515,6 +517,174 @@ describe('tarfa setup (fake service and Tailscale)', () => {
     });
   });
 
+  describe('adopting a clone install', () => {
+    const CLONE_ENV = [
+      'TARFA_TOKEN=clone-token',
+      'TARFA_MACHINE_ID=dev',
+      'TARFA_PROJECT_ROOTS=/home/u/workspace:/home/u/other',
+      'TARFA_PORT=8791',
+      'TARFA_PHONE_PORT=8797',
+      "TARFA_PWA_ORIGIN='https://tarfa.app'",
+      '',
+    ].join('\n');
+    const bin = (home: string, name: string) => join(home, '.local', 'bin', name);
+
+    // A machine whose unit runs <repo>/deploy/run-agent.sh, with the state an adoption must not touch.
+    async function cloneMachine(cloneEnv = CLONE_ENV) {
+      const m = await machine(null, { kind: 'package' });
+      const deploy = join(m.repo, 'deploy');
+      await writeFile(join(deploy, 'agent.env'), cloneEnv, { mode: 0o600 });
+      await chmod(join(deploy, 'agent.env'), 0o600);
+      await mkdir(join(m.repo, 'worktree'));
+      await symlink(join(m.repo, 'worktree'), join(deploy, 'agent-live'));
+      await writeFile(join(deploy, 'tarfa-cli.sh'), '#!/bin/sh\n');
+      await mkdir(join(m.home, '.local', 'bin'), { recursive: true });
+      await symlink(join(deploy, 'tarfa-cli.sh'), bin(m.home, 'tarfa'));
+      await symlink('tarfa', bin(m.home, 'perch'));
+      const state = join(m.home, '.tarfa');
+      await mkdir(state, { mode: 0o700 });
+      await loadOrCreateAgentKeys(join(state, 'agent-key.json'));
+      await new FileDeviceStore(join(state, 'devices.json')).update((roster) => withEnrolmentMode(roster, 'off'));
+      await writeFile(join(state, 'parked.json'), '{"parked":[1]}');
+      await writeFile(join(state, 'live.json'), '{"live":[2]}');
+      const keep = ['agent-key.json', 'devices.json', 'parked.json', 'live.json'];
+      const read = async () => Promise.all(keep.map((name) => readFile(join(state, name), 'utf8')));
+      const kept = await read();
+      const template = await m.io.setup!.service!.template();
+      const cloneUnit = renderService(template, { kind: 'clone', repo: m.repo });
+      m.setUnit(cloneUnit);
+      return { m, deploy, kept, read, cloneUnit, unitBefore: m.unit() };
+    }
+
+    it('copies agent.env, repoints the unit, replaces the CLI links, drops agent-live, and keeps every phone paired', async () => {
+      const { m, deploy, kept, read, unitBefore } = await cloneMachine();
+      const out = await run(['setup', '--adopt'], m.env, m.home, m.io);
+      expect(out).toContain('copied');
+      expect(out).toContain('kept the old service definition');
+      expect(await readFile(join(m.home, '.tarfa', 'agent.env'), 'utf8')).toBe(CLONE_ENV);
+      expect((await stat(join(m.home, '.tarfa', 'agent.env'))).mode & 0o777).toBe(0o600);
+      expect(await readFile(join(deploy, 'agent.env'), 'utf8')).toBe(CLONE_ENV);
+      await expect(lstat(join(deploy, 'agent-live'))).rejects.toThrow();
+      expect((await stat(join(m.repo, 'worktree'))).isDirectory()).toBe(true);
+      expect(m.unit()).toContain(`ExecStart=${join(m.home, '.tarfa', 'bin', 'tarfa-agent')}`);
+      expect(m.unit()).not.toBe(unitBefore);
+      expect(m.calls).toEqual(['backup-unit', 'install-unit roster=present launcher=present', 'restart', 'check']);
+      expect((await lstat(bin(m.home, 'tarfa'))).isSymbolicLink()).toBe(false);
+      expect(await readFile(bin(m.home, 'tarfa'), 'utf8')).toContain('tarfa-cli-wrapper');
+      expect((await stat(bin(m.home, 'tarfa'))).mode & 0o777).toBe(0o755);
+      expect(await readlink(bin(m.home, 'perch'))).toBe('tarfa');
+      expect(await read()).toEqual(kept);
+      expect(await readFile(join(deploy, 'tarfa-cli.sh'), 'utf8')).toBe('#!/bin/sh\n');
+
+      m.calls.length = 0;
+      expect(await run(['setup', '--adopt'], m.env, m.home, m.io)).toMatch(/already set up/);
+      expect(m.calls).toEqual(['check']);
+    });
+
+    it('describes every step on a dry run and writes nothing', async () => {
+      const { m, deploy, unitBefore, kept, read } = await cloneMachine();
+      const out = await run(['setup', '--adopt', '--dry-run'], m.env, m.home, m.io);
+      for (const wanted of ['copy ', 'remove the link', 'keeping the old definition', 'wrapper']) expect(out).toContain(wanted);
+      expect(m.calls).toEqual([]);
+      await expect(stat(join(m.home, '.tarfa', 'agent.env'))).rejects.toThrow();
+      expect((await lstat(join(deploy, 'agent-live'))).isSymbolicLink()).toBe(true);
+      expect((await lstat(bin(m.home, 'tarfa'))).isSymbolicLink()).toBe(true);
+      expect(m.unit()).toBe(unitBefore);
+      expect(await read()).toEqual(kept);
+    });
+
+    it('adopts without --adopt when setup runs from the package and the unit runs a clone, taking the ports from the clone', async () => {
+      const env = CLONE_ENV.replace('TARFA_PHONE_PORT=8797', 'TARFA_PHONE_PORT=8798');
+      const { m } = await cloneMachine(env);
+      await run(['setup', '--machine-id', 'dev', '--project-roots', '/home/u/workspace,/home/u/other'], m.env, m.home, m.io);
+      expect(m.unit()).toContain('tarfa-agent');
+      expect(await readFile(join(m.home, '.tarfa', 'agent.env'), 'utf8')).toBe(env);
+    });
+
+    it('lets an explicit flag win over the clone\'s env', async () => {
+      const { m } = await cloneMachine();
+      await run(['setup', '--adopt', '--phone-port', '8799'], m.env, m.home, m.io);
+      expect(parseEnvFile(await readFile(join(m.home, '.tarfa', 'agent.env'), 'utf8')).TARFA_PHONE_PORT).toBe('8799');
+      expect(await readFile(join(m.repo, 'deploy', 'agent.env'), 'utf8')).toBe(CLONE_ENV);
+    });
+
+    it('adopts a machine still on the unit from before the rename, through the service swap', async () => {
+      const { m, cloneUnit, kept, read } = await cloneMachine();
+      m.setUnit(null);
+      m.setLegacyUnit(cloneUnit);
+      await run(['setup', '--adopt'], m.env, m.home, m.io);
+      expect(m.calls).toEqual(['stop-legacy', 'backup-unit', 'install-unit roster=present launcher=present', 'restart', 'check', 'remove-legacy']);
+      expect(await readFile(join(m.home, '.tarfa', 'agent.env'), 'utf8')).toBe(CLONE_ENV);
+      expect(m.unit()).toContain('tarfa-agent');
+      expect(await read()).toEqual(kept);
+    });
+
+    it('refuses from a clone, naming the install, non-zero, writing nothing', async () => {
+      const { m } = await cloneMachine();
+      const io: CliIo = { setup: { ...m.io.setup!, installKind: 'clone' } };
+      await expect(run(['setup', '--adopt'], m.env, m.home, io)).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining('mise use -g npm:@tarfa/cli@<v>') });
+      expect(m.calls).toEqual([]);
+      await expect(stat(join(m.home, '.tarfa', 'agent.env'))).rejects.toThrow();
+    });
+
+    it('refuses --adopt when nothing is installed, or the unit runs neither a clone nor the launcher', async () => {
+      const none = await machine(null, { kind: 'package' });
+      await expect(run(['setup', '--adopt'], none.env, none.home, none.io)).rejects.toThrow(/nothing to adopt.*tarfa setup/);
+      const { m } = await cloneMachine();
+      m.setUnit('[Service]\nExecStart=/usr/bin/other\nKillMode=process\n');
+      await expect(run(['setup', '--adopt'], m.env, m.home, m.io)).rejects.toThrow(/neither/);
+    });
+
+    it('refuses when the clone has no deploy/agent.env to copy', async () => {
+      const { m, deploy } = await cloneMachine();
+      await rm(join(deploy, 'agent.env'));
+      await expect(run(['setup', '--adopt'], m.env, m.home, m.io)).rejects.toThrow(/no deploy\/agent\.env to adopt/);
+      expect(m.calls).toEqual([]);
+    });
+
+    it('keeps an existing ~/.tarfa/agent.env from a partial earlier adoption, and says so', async () => {
+      const { m } = await cloneMachine();
+      await writeFile(join(m.home, '.tarfa', 'agent.env'), CLONE_ENV.replace('clone-token', 'already-here'), { mode: 0o600 });
+      const out = await run(['setup', '--adopt'], m.env, m.home, m.io);
+      expect(out).toContain('already exists, so it is kept');
+      expect(await readFile(join(m.home, '.tarfa', 'agent.env'), 'utf8')).toContain('already-here');
+    });
+
+    it('refuses, writing nothing, when deploy/agent-live is not a link', async () => {
+      const { m, deploy } = await cloneMachine();
+      await rm(join(deploy, 'agent-live'));
+      await mkdir(join(deploy, 'agent-live'));
+      await expect(run(['setup', '--adopt'], m.env, m.home, m.io)).rejects.toThrow(/not a link/);
+      expect(m.calls).toEqual([]);
+      await expect(stat(join(m.home, '.tarfa', 'agent.env'))).rejects.toThrow();
+      expect((await stat(join(deploy, 'agent-live'))).isDirectory()).toBe(true);
+    });
+
+    it('leaves a ~/.local/bin/tarfa that is neither a link into a clone nor the wrapper alone, with one warning', async () => {
+      const { m } = await cloneMachine();
+      await rm(bin(m.home, 'tarfa'));
+      await writeFile(bin(m.home, 'tarfa'), '#!/bin/sh\necho mine\n');
+      const out = await run(['setup', '--adopt'], m.env, m.home, m.io);
+      expect(out).toContain("is not Tarfa's wrapper");
+      expect(await readFile(bin(m.home, 'tarfa'), 'utf8')).toBe('#!/bin/sh\necho mine\n');
+    });
+
+    it('reports the failing step and exits non-zero, and a rerun completes it', async () => {
+      const { m, kept, read } = await cloneMachine();
+      const service = m.io.setup!.service!;
+      const install = service.install;
+      service.install = async () => {
+        throw new Error('systemctl broke');
+      };
+      await expect(run(['setup', '--adopt'], m.env, m.home, m.io)).rejects.toThrow(/failed: install and enable the agent service.*systemctl broke/);
+      expect(m.unit()).toContain('run-agent.sh');
+      service.install = install;
+      expect(await run(['setup', '--adopt'], m.env, m.home, m.io)).toContain('installed the agent service');
+      expect(m.unit()).toContain('tarfa-agent');
+      expect(await read()).toEqual(kept);
+    });
+  });
+
   describe('tarfa apply', () => {
     const LAUNCHER = (home: string) => join(home, '.tarfa', 'bin', 'tarfa-agent');
     const logs = (text: string) => ({ mark: async () => 0, since: async () => text });
@@ -539,11 +709,11 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       expect(out.split('\n')).toEqual([
         'ok: launcher already current',
         'ok: service definition already current',
-        'ok: tarfa command wrapper already current',
         'ok: hooks already current',
         'ok: restarted (restarted)',
         'ok: the phone port answers on 127.0.0.1:8797',
         'ok: the log shows phones on',
+        'ok: tarfa command wrapper already current',
       ]);
       expect(m.calls).toEqual(['restart', 'check']);
     });

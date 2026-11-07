@@ -575,6 +575,12 @@ it did not make (an agent key, a token, another tailscale serve entry).
                                 TARFA_PWA_ORIGIN is kept unless this is given)
   --token-enrolment on|off      let TARFA_TOKEN enrol phones (off by default on a new roster)
   --pair                        print a pairing link and QR code at the end
+  --adopt                       a machine whose service runs a clone's deploy/run-agent.sh: move it to
+                                the installed package (copies deploy/agent.env to ~/.tarfa/agent.env,
+                                keeps the original, repoints the service, replaces the ~/.local/bin links
+                                with a wrapper). Run from the package only; setup does it by itself when
+                                it finds such a service, and every flag you do not give is read from that
+                                env, so no phone pairs again
   --dry-run                     print the plan and the Tailscale checks; change nothing
 
 Tailscale, once per node:
@@ -592,6 +598,9 @@ on the port of that --address (or --tailscale-port), as \`tailscale funnel\` whe
 on Funnel. Setup refuses to give phones an address while token enrolment is on, until
 --token-enrolment says which way. Run as another user (sudo -u), set XDG_RUNTIME_DIR=/run/user/<uid>.
 
+Related: \`tarfa apply\` brings the service and hooks in line with the installed package and checks
+the agent came back; \`tarfa update\` installs a newer release with mise, then runs its apply.
+
 Example:
   tarfa setup --machine-id dev --project-roots ~/workspace --tailscale funnel --slug me --pair`;
 
@@ -606,10 +615,12 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   const fx = io.setup ?? {};
   const service = fx.service ?? serviceInstall({ home, user: userInfo().username, uid: process.getuid?.() ?? 0 });
   const installedUnit = await service.installed();
-  const cloneRepo = kind === 'package' ? cloneOfUnit(service.kind, installedUnit) : null;
+  // A machine still on the unit from before the rename is adopted through the same swap.
+  const runningUnit = installedUnit ?? (await service.legacyText());
+  const cloneRepo = kind === 'package' ? cloneOfUnit(service.kind, runningUnit) : null;
   if (adoptRequested && cloneRepo === null) {
-    if (installedUnit === null) throw new Error('--adopt: no agent service is installed, so there is nothing to adopt: run tarfa setup with its flags (tarfa setup --help)');
-    if (!unitRunsLauncher(service.kind, installedUnit, launcherPath)) {
+    if (runningUnit === null) throw new Error('--adopt: no agent service is installed, so there is nothing to adopt: run tarfa setup with its flags (tarfa setup --help)');
+    if (!unitRunsLauncher(service.kind, runningUnit, launcherPath)) {
       throw new Error("--adopt: the installed service runs neither a clone's deploy/run-agent.sh nor the launcher, so there is nothing to adopt");
     }
   }
@@ -631,10 +642,11 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   }
 
   // An adoption takes what the machine already runs for every flag it is not given.
-  const given = adoptRequested ? withLegacyEnv(parseEnvFile(envText ?? '')) : {};
+  const adopting = adoptRequested || cloneRepo !== null;
+  const given = adopting ? withLegacyEnv(parseEnvFile(envText ?? '')) : {};
   const filled = (name: string, value: string | undefined) => (value !== undefined && !argv.includes(name) ? [name, value] : []);
   const flags = parseSetupFlags(
-    adoptRequested
+    adopting
       ? [
           ...argv,
           ...filled('--machine-id', given.TARFA_MACHINE_ID),

@@ -15,6 +15,8 @@ export interface ServiceInstallPort {
   // unit or plist is installed, stopping it (tmux and the workspaces keep running), and removing
   // it once the new one runs. Each returns what it ran.
   legacyInstalled(): Promise<boolean>;
+  // The text of that unit or plist (null when not installed), to see what it runs.
+  legacyText(): Promise<string | null>;
   stopLegacy(): Promise<string[]>;
   removeLegacy(): Promise<string[]>;
 }

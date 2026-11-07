@@ -62,6 +62,12 @@ export async function runSetup(
       return { ok: false, lines };
     }
   }
+  // A plan that leaves the agent alone (a wrapper only, say) may be the rerun of a run that failed
+  // at the check, so the agent is still asked.
+  if (!plan.steps.some((step) => step.kind === 'check-listener') && !(await effects.checkListener(options.phonePort))) {
+    lines.push(`nothing answers a WebSocket upgrade on 127.0.0.1:${options.phonePort}: read the agent's log (journalctl --user -u tarfa-agent)`);
+    return { ok: false, lines };
+  }
   return { ok: true, lines };
 }
 
