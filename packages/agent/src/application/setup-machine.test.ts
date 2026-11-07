@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseEnvFile } from './agent-env';
+import { renderService } from './service-unit';
 import {
   describeStep,
   parseSetupFlags,
@@ -18,10 +19,15 @@ const TEMPLATE = [
   'Description=Tarfa agent',
   '',
   '[Service]',
-  'ExecStart=/usr/bin/env bash REPO_PATH/deploy/run-agent.sh',
+  'ExecStart=AGENT_COMMAND',
   'KillMode=process',
   '',
 ].join('\n');
+
+const LAUNCHER = '/home/u/.tarfa/bin/tarfa-agent';
+const LAUNCHER_TEXT = '#!/bin/sh\nexec tarfa serve\n';
+const CLONE_UNIT = renderService(TEMPLATE, { kind: 'clone', repo: REPO });
+const LAUNCHER_UNIT = renderService(TEMPLATE, { kind: 'launcher', path: LAUNCHER });
 
 // What `tailscale status --json` reports on a node with MagicDNS, HTTPS and Funnel on.
 const TAILSCALE: TailscaleStatus = {
@@ -51,7 +57,9 @@ function flags(over: Partial<SetupFlags> = {}): SetupFlags {
 
 function fresh(over: Partial<SetupState> = {}): SetupState {
   return {
+    install: 'clone',
     repo: REPO,
+    launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: null },
     service: { kind: 'systemd', template: TEMPLATE, installed: null, enabled: false },
     envText: null,
     newToken: 'generated-token',
@@ -94,6 +102,7 @@ function applied(f: SetupFlags, s: SetupState): SetupState {
     if (step.kind === 'write-env') next = { ...next, envText: step.text };
     if (step.kind === 'create-key') next = { ...next, hasKey: true };
     if (step.kind === 'write-roster') next = { ...next, roster: step.mode };
+    if (step.kind === 'write-launcher') next = { ...next, launcher: { ...next.launcher, installed: step.text } };
     if (step.kind === 'install-unit') next = { ...next, service: { ...next.service, installed: step.text, enabled: true } };
     if (step.kind === 'install-hooks') next = { ...next, hooksCurrent: true };
     if (step.kind === 'tailscale-serve') next = { ...next, serve: SERVED };
@@ -179,7 +188,7 @@ describe('planSetup', () => {
       'check-listener',
     ]);
     expect(steps.find((s) => s.kind === 'write-roster')).toEqual({ kind: 'write-roster', mode: 'off' });
-    expect(steps.find((s) => s.kind === 'install-unit')).toMatchObject({ text: TEMPLATE.replace('REPO_PATH', REPO) });
+    expect(steps.find((s) => s.kind === 'install-unit')).toMatchObject({ text: CLONE_UNIT });
     expect(steps.find((s) => s.kind === 'tailscale-serve')).toEqual({ kind: 'tailscale-serve', port: 10000, path: '/abu', target: TARGET, funnel: true });
     expect(steps.find((s) => s.kind === 'check-listener')).toEqual({ kind: 'check-listener', port: 8797 });
   });
@@ -247,7 +256,7 @@ describe('planSetup', () => {
   });
 
   it('reinstalls a current unit that is not enabled at boot', async () => {
-    const installed = TEMPLATE.replace('REPO_PATH', REPO);
+    const installed = CLONE_UNIT;
     expect(plan(flags(), fresh({ service: { kind: 'systemd', template: TEMPLATE, installed, enabled: false } })).map((s) => s.kind)).toContain('install-unit');
   });
 
@@ -260,8 +269,8 @@ describe('planSetup', () => {
   });
 
   it('treats a launchd plist that runs the checkout as current', () => {
-    const template = '<plist><string>REPO_PATH/deploy/run-agent.sh</string></plist>\n';
-    const installed = `<plist><string>${REPO}/deploy/run-agent.sh</string></plist>\n`;
+    const template = '<plist>AGENT_ARGUMENTS</plist>\n';
+    const installed = `<plist><string>/bin/bash</string>\n    <string>${REPO}/deploy/run-agent.sh</string></plist>\n`;
     expect(plan(flags(), fresh({ service: { kind: 'launchd', template, installed, enabled: true } })).map((s) => s.kind)).not.toContain('install-unit');
     expect(plan(flags(), fresh({ service: { kind: 'launchd', template, installed: null, enabled: false } }))).toContainEqual({
       kind: 'install-unit',
@@ -418,6 +427,93 @@ describe('planSetup', () => {
       const serve: ServeConfig = { ...SERVED, AllowFunnel: {} };
       expect(plan(flags(), fresh({ serve })).find((s) => s.kind === 'tailscale-serve')).toMatchObject({ funnel: true });
     });
+  });
+});
+
+describe('planSetup, the launcher and the package install', () => {
+  const pkg = (over: Partial<SetupState> = {}) => fresh({ install: 'package', repo: null, ...over });
+  const kinds = (f: SetupFlags, s: SetupState) => plan(f, s).map((step) => step.kind);
+
+  it('writes the launcher, then a unit that runs it, for a package install', () => {
+    const steps = plan(flags(), pkg());
+    expect(steps.map((s) => s.kind)).toEqual(['write-env', 'create-key', 'write-roster', 'write-launcher', 'install-unit', 'install-hooks', 'tailscale-serve', 'restart', 'check-listener']);
+    expect(steps.find((s) => s.kind === 'write-launcher')).toEqual({ kind: 'write-launcher', path: LAUNCHER, text: LAUNCHER_TEXT });
+    expect(steps.find((s) => s.kind === 'install-unit')).toMatchObject({ text: LAUNCHER_UNIT });
+    expect(LAUNCHER_UNIT).toContain(`ExecStart=${LAUNCHER}`);
+  });
+
+  it('plans nothing on a rerun against an adopted machine, and does not restart', () => {
+    const adopted = pkg({
+      envText: 'TARFA_TOKEN=t\nTARFA_MACHINE_ID=dev\nTARFA_PROJECT_ROOTS=/home/u/workspace:/home/u/other\nTARFA_PHONE_PORT=8797\nTARFA_PHONE_ADDRESSES=wss://dev.example.ts.net:10000/abu\nTARFA_PWA_ORIGIN=https://tarfa.app\n',
+      hasKey: true,
+      roster: 'off',
+      hooksCurrent: true,
+      phonePortOwner: 'ours',
+      hooksPortOwner: 'ours',
+      serve: SERVED,
+      launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: LAUNCHER_TEXT },
+      service: { kind: 'systemd', template: TEMPLATE, installed: LAUNCHER_UNIT, enabled: true },
+    });
+    expect(plan(flags(), adopted)).toEqual([]);
+  });
+
+  it('rewrites only a launcher that differs, then restarts', () => {
+    const state = pkg({
+      launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: '#!/bin/sh\nold\n' },
+      service: { kind: 'systemd', template: TEMPLATE, installed: LAUNCHER_UNIT, enabled: true },
+      hasKey: true,
+      roster: 'off',
+      hooksCurrent: true,
+      serve: SERVED,
+      envText: applied(flags(), pkg({ serve: SERVED })).envText,
+    });
+    expect(kinds(flags(), state)).toEqual(['write-launcher', 'restart', 'check-listener']);
+  });
+
+  it('counts a unit that runs the launcher as current on a source install, and never points it back at the checkout', () => {
+    const adopted = fresh({
+      launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: LAUNCHER_TEXT },
+      service: { kind: 'systemd', template: TEMPLATE, installed: LAUNCHER_UNIT, enabled: true },
+    });
+    expect(kinds(flags(), adopted)).not.toContain('install-unit');
+    expect(kinds(flags(), adopted)).not.toContain('write-launcher');
+  });
+
+  it('adopts a package install onto a unit that still runs a checkout, and requires KillMode=process of the launcher unit', () => {
+    const onCheckout = pkg({ service: { kind: 'systemd', template: TEMPLATE, installed: CLONE_UNIT, enabled: true } });
+    expect(plan(flags(), onCheckout)).toContainEqual({ kind: 'install-unit', text: LAUNCHER_UNIT });
+    const noKill = `[Service]\nExecStart=${LAUNCHER}\n`;
+    const state = pkg({ service: { kind: 'systemd', template: TEMPLATE, installed: noKill, enabled: true }, launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: LAUNCHER_TEXT } });
+    expect(kinds(flags(), state)).toContain('install-unit');
+  });
+
+  it('treats a launchd plist that runs the launcher as current, and logs to the state directory', () => {
+    const template = '<plist>AGENT_ARGUMENTS|LOG_DIR</plist>\n';
+    const installed = renderService(template, { kind: 'launcher', path: LAUNCHER });
+    expect(installed).toBe(`<plist><string>${LAUNCHER}</string>|/home/u/.tarfa</plist>\n`);
+    const state = pkg({ service: { kind: 'launchd', template, installed, enabled: true }, launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: LAUNCHER_TEXT } });
+    expect(kinds(flags(), state)).not.toContain('install-unit');
+  });
+
+  // The agent's startup move refuses when ~/.perch and ~/.tarfa both hold something, so nothing
+  // may be written under ~/.tarfa before the move.
+  it('moves ~/.perch before anything is written under ~/.tarfa', () => {
+    const order = kinds(flags(), pkg({ stateDir: 'legacy', legacyService: true, hasKey: true, roster: 'off' }));
+    const move = order.indexOf('move-state');
+    expect(move).toBeGreaterThanOrEqual(0);
+    for (const kind of ['write-env', 'write-launcher', 'install-unit', 'install-hooks', 'create-key', 'write-roster'] as const) {
+      const at = order.indexOf(kind);
+      if (at !== -1) expect(at).toBeGreaterThan(move);
+    }
+    expect(order.indexOf('stop-legacy-service')).toBeLessThan(move);
+  });
+
+  it('refuses before touching anything when ~/.perch and ~/.tarfa both hold state', () => {
+    expect(errorOf(flags(), pkg({ stateDir: 'conflict' }))).toMatch(/both ~\/\.perch and ~\/\.tarfa/);
+  });
+
+  it('describes the launcher step', () => {
+    expect(describeStep({ kind: 'write-launcher', path: LAUNCHER, text: '' }, '/e')).toContain(LAUNCHER);
   });
 });
 

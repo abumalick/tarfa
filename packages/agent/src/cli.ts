@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { homedir, hostname, userInfo } from 'node:os';
 import { readFile, mkdir, realpath } from 'node:fs/promises';
 import { dirname, join as joinPath, resolve as resolvePath } from 'node:path';
-import { isEntrypoint, packageRoot, packageVersion } from './infrastructure/package-root';
+import { installKind, isEntrypoint, packageRoot, packageVersion, type InstallKind } from './infrastructure/package-root';
 import { loadConfig, withLegacyEnv, type AgentConfig } from './infrastructure/config';
 import { migrateStateDir, stateDirLayout } from './infrastructure/state-dir';
 import { systemClock, systemPathResolver } from './infrastructure/system';
@@ -24,6 +24,10 @@ import { isHiddenPath } from './application/is-hidden-path';
 import { hooksFiles } from './infrastructure/hooks-files';
 import { parseSetupFlags, planSetup, type PortOwner, type SetupState } from './application/setup-machine';
 import { runSetup } from './application/run-setup';
+import { runApply } from './application/apply-agent';
+import { renderService } from './application/service-unit';
+import { atomicWrite } from './infrastructure/atomic-write';
+import { agentLog, type AgentLog } from './infrastructure/agent-log';
 import { serviceInstall } from './infrastructure/service-install';
 import { tailscaleCli } from './infrastructure/tailscale-cli';
 import { portOwner } from './infrastructure/port-owner';
@@ -40,7 +44,7 @@ import { parseEnvFile } from './application/agent-env';
 import { mintPairingLink, pairingName } from './application/pairing-link';
 import { PAIRING_TTL_MS } from './application/pairing';
 import { FilePairingStore } from './infrastructure/file-pairing-store';
-import { agentEnvFile, locateAgentEnv } from './infrastructure/agent-env-file';
+import { agentEnvFile, locateAgentEnv, mainCheckout } from './infrastructure/agent-env-file';
 import { agentService } from './infrastructure/agent-service';
 import { FileStatusStore } from './infrastructure/file-status-store';
 import { FileParkedStore } from './infrastructure/file-parked-store';
@@ -85,16 +89,21 @@ export interface CliIo {
     portOwner?: (port: number) => Promise<PortOwner>;
     restart?: AgentServicePort;
     checkListener?: (port: number) => Promise<boolean>;
+    // Source or package: decides where the service points and which agent.env is written.
+    installKind?: InstallKind;
+    agentLog?: AgentLog;
   };
 }
 
 const HOOKS_DIR = joinPath(packageRoot(), 'src', 'hooks');
+const LAUNCHER_TEMPLATE = joinPath(packageRoot(), 'templates', 'tarfa-agent.sh');
 const CODEX_NEXT_STEP = 'open Codex and trust the Tarfa hooks in /hooks; repeat after any hook change';
 
 export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: string, io: CliIo = {}): Promise<string> {
   const env = withLegacyEnv(rawEnv);
   if (argv[0] === '--version' || argv[0] === '-v') return packageVersion();
   if (argv[0] === 'setup') return setup(argv.slice(1), env, home, io);
+  if (argv[0] === 'apply') return apply(argv.slice(1), env, home, io);
   if (argv[0] === 'connect' || argv[0] === 'relay-key' || (argv[0] === 'pair' && argv.includes('--relay'))) {
     throw new UsageError(RELAYS_GONE);
   }
@@ -102,7 +111,7 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
   if (argv[0] === 'ls' || argv[0] === 'spawn' || argv[0] === 'peek' || argv[0] === 'unpark' || argv[0] === 'rename' || argv[0] === 'send') {
     return orchestration(argv[0], argv.slice(1), env, home, io);
   }
-  const config = loadConfig({ ...env, ...(await agentEnvValues(env)) }, home);
+  const config = loadConfig({ ...env, ...(await agentEnvValues(env, home)) }, home);
   const { tmux, recent, lister, hiddenFolders, repoRemote, claudeSessions } = wire(config);
   const [command, ...rest] = argv;
 
@@ -192,7 +201,7 @@ const SEND_USAGE = 'usage: tarfa send <workspace id> "<message>"   (or the messa
 // `ls`, `spawn` and `peek` serve sessions in any repo, so none of them needs deploy/agent.env:
 // it only lends the machine id, and the store paths come from $HOME.
 async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rename' | 'send', argv: string[], env: NodeJS.ProcessEnv, home: string, io: CliIo): Promise<string> {
-  const values = await agentEnvValues(env).catch(() => ({}) as Record<string, string>);
+  const values = await agentEnvValues(env, home).catch(() => ({}) as Record<string, string>);
   const config = loadConfig({ TARFA_MACHINE_ID: hostname().split('.')[0], ...env, ...values }, home);
   const tmux = io.tmux ?? new TmuxAdapter();
   const claudeSessions = new FileClaudeSessionsStore(config.claudeSessionsDir);
@@ -472,9 +481,9 @@ function pwaOrigin(value: string | undefined): string | undefined {
 // What the service reads, over the shell's environment: a shell inside a workspace has none of
 // the agent's variables, or a stale copy of them. No agent.env (a machine not set up as a
 // service) leaves the environment alone.
-async function agentEnvValues(env: NodeJS.ProcessEnv): Promise<Record<string, string>> {
+async function agentEnvValues(env: NodeJS.ProcessEnv, home: string): Promise<Record<string, string>> {
   try {
-    return withLegacyEnv(parseEnvFile(await readFile(await locateAgentEnv(env), 'utf8'))) as Record<string, string>;
+    return withLegacyEnv(parseEnvFile(await readFile(await locateAgentEnv(env, home), 'utf8'))) as Record<string, string>;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
     throw err;
@@ -485,7 +494,7 @@ async function agentEnvValues(env: NodeJS.ProcessEnv): Promise<Record<string, st
 // environment.
 async function pair(argv: string[], env: NodeJS.ProcessEnv, home: string): Promise<string> {
   const args = [...argv];
-  const config = loadConfig({ ...env, ...(await agentEnvValues(env)) }, home);
+  const config = loadConfig({ ...env, ...(await agentEnvValues(env, home)) }, home);
   let origin = pwaOrigin(takeOption(args, '--pwa', PAIR_USAGE));
   const ttl = takeOption(args, '--ttl', PAIR_USAGE) ?? String(PAIRING_TTL_MS / 60_000);
   const minutes = Number(ttl);
@@ -523,7 +532,8 @@ export class UsageError extends Error {
 
 export const SETUP_USAGE = `usage: tarfa setup --machine-id <id> --project-roots <dir,dir> [options]
 
-Sets this machine up as a Tarfa agent, without prompting: deploy/agent.env (backed up first), the
+Sets this machine up as a Tarfa agent, without prompting: agent.env (backed up first; ~/.tarfa/agent.env
+for an installed package), the launcher the service runs (~/.tarfa/bin/tarfa-agent), the
 agent key, a new device roster that admits pairing codes only (an existing one is kept), the service started at boot (systemd
 user unit with linger, or launchd), the Claude Code hooks, and optionally a Tailscale address for
 phones. Rerunning it with the same flags changes nothing. It refuses rather than replace anything
@@ -570,9 +580,10 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   const flags = parseSetupFlags(argv);
   if ('error' in flags) throw new UsageError(`${flags.error}\n\n${SETUP_USAGE.split('\n')[0]}\n(tarfa setup --help for every option)`);
 
-  const envPath = await locateAgentEnv(env);
-  // The checkout the service runs: the one whose deploy/ holds agent.env.
-  const repo = resolvePath(dirname(envPath), '..');
+  const kind = io.setup?.installKind ?? installKind();
+  const envPath = await locateAgentEnv(env, home, kind);
+  const repo = await mainCheckout(kind);
+  const launcherPath = joinPath(home, '.tarfa', 'bin', 'tarfa-agent');
   const envText = await readFile(envPath, 'utf8').catch((err: NodeJS.ErrnoException) => {
     if (err.code === 'ENOENT') return null;
     throw err;
@@ -587,7 +598,13 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   const hasRoster = await readFile(config.devicesPath).then(() => true, () => false);
 
   const state: SetupState = {
+    install: kind,
     repo,
+    launcher: {
+      path: launcherPath,
+      template: await readFile(LAUNCHER_TEMPLATE, 'utf8'),
+      installed: await readFile(launcherPath, 'utf8').catch(() => null),
+    },
     service: { kind: service.kind, template: await service.template(), installed: await service.installed(), enabled: await service.enabled() },
     envText,
     newToken: randomBytes(32).toString('hex'),
@@ -618,6 +635,7 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
         await mkdir(dirname(config.devicesPath), { recursive: true, mode: 0o700 });
         await devices.update((roster) => withEnrolmentMode(roster, mode));
       },
+      writeLauncher: (path, text) => atomicWrite(path, text, 0o755),
       installUnit: (text) => service.install(text),
       stopLegacyService: () => service.stopLegacy(),
       moveState: async () => {
@@ -634,6 +652,67 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
       pair: () => pair([], env, home),
     },
     { dryRun: flags.dryRun, phonePort: flags.phonePort },
+  );
+  if (!result.ok) throw new Error(result.lines.join('\n'));
+  return result.lines.join('\n');
+}
+
+export const APPLY_USAGE = `usage: tarfa apply
+
+After upgrading the package: rewrites the launcher and the service definition if they differ,
+reinstalls the hooks, restarts the agent, and checks that the phone port answers and the agent's
+log shows "phones on". One line per step; it stops at the first failure (exit 1).`;
+
+async function apply(argv: string[], env: NodeJS.ProcessEnv, home: string, io: CliIo): Promise<string> {
+  if (argv.includes('--help') || argv.includes('-h')) return APPLY_USAGE;
+  if (argv.length > 0) throw new UsageError(APPLY_USAGE);
+  const fx = io.setup ?? {};
+  if ((fx.installKind ?? installKind()) === 'clone') {
+    throw new UsageError('tarfa apply: this is a source install, and apply would point the service at a release that may not be installed. Use tarfa setup (or install the package)');
+  }
+  const envPath = await locateAgentEnv(env, home, 'package');
+  const envText = await readFile(envPath, 'utf8').catch((err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  });
+  if (envText === null) throw new Error(`failed: check: no agent config at ${envPath}: run tarfa setup`);
+  const config = loadConfig(withLegacyEnv(parseEnvFile(envText)), home);
+  const service = fx.service ?? serviceInstall({ home, user: userInfo().username, uid: process.getuid?.() ?? 0 });
+  const hooks = hooksFiles(home, HOOKS_DIR, config.port);
+  const launcherPath = joinPath(home, '.tarfa', 'bin', 'tarfa-agent');
+  const log = fx.agentLog ?? agentLog({ home });
+  const result = await runApply(
+    {
+      blocker: async () => {
+        if (!(await readFile(config.devicesPath).then(() => true, () => false))) return 'no device roster yet (~/.tarfa/devices.json): run tarfa setup, which writes it before the agent first starts';
+        if (stateDirLayout(home) !== 'moved') return '~/.perch has not moved to ~/.tarfa: run tarfa setup, which moves it';
+        return null;
+      },
+      writeLauncher: async () => {
+        const wanted = await readFile(LAUNCHER_TEMPLATE, 'utf8');
+        if ((await readFile(launcherPath, 'utf8').catch(() => null)) === wanted) return false;
+        await atomicWrite(launcherPath, wanted, 0o755);
+        return true;
+      },
+      writeUnit: async () => {
+        // Without a reachable user manager nothing below could be told from "not installed".
+        await service.enabled();
+        const wanted = renderService(await service.template(), { kind: 'launcher', path: launcherPath });
+        if ((await service.installed()) === wanted) return false;
+        await service.install(wanted);
+        return true;
+      },
+      installHooks: async () => {
+        if (await hooks.current()) return { changed: false, codex: false };
+        return { changed: true, ...(await hooks.install()) };
+      },
+      markLog: () => log.mark(),
+      restart: () => (fx.restart ?? agentService()).restart(),
+      checkListener: fx.checkListener ?? ((port) => answersUpgrade(port)),
+      agentLog: (mark) => log.since(mark),
+      sleep: io.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms))),
+    },
+    { phonePort: config.phonePort, codexNote: CODEX_NEXT_STEP },
   );
   if (!result.ok) throw new Error(result.lines.join('\n'));
   return result.lines.join('\n');

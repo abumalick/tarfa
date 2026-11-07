@@ -7,6 +7,7 @@ const ALL: SetupStep[] = [
   { kind: 'write-env', text: 'TARFA_TOKEN=x\n', changes: ['TARFA_TOKEN=(generated)'] },
   { kind: 'create-key' },
   { kind: 'write-roster', mode: 'off' },
+  { kind: 'write-launcher', path: '/home/u/.tarfa/bin/tarfa-agent', text: '#!/bin/sh\n' },
   { kind: 'install-unit', text: '[Service]\n' },
   { kind: 'install-hooks' },
   { kind: 'tailscale-serve', port: 10000, path: '/abu', target: 'http://127.0.0.1:8797', funnel: true },
@@ -28,6 +29,7 @@ function fakes(fail?: { at: string; error?: Error }) {
     writeEnv: act('write-env', '/repo/deploy/agent.env.bak-1') as SetupEffects['writeEnv'],
     createKey: act('create-key') as SetupEffects['createKey'],
     writeRoster: act('write-roster') as SetupEffects['writeRoster'],
+    writeLauncher: act('write-launcher') as SetupEffects['writeLauncher'],
     installUnit: act('install-unit', ['systemctl --user enable tarfa-agent']) as SetupEffects['installUnit'],
     stopLegacyService: act('stop-legacy-service', ['systemctl --user stop perch-agent']) as SetupEffects['stopLegacyService'],
     moveState: act('move-state') as SetupEffects['moveState'],
@@ -49,7 +51,7 @@ describe('runSetup', () => {
     const { effects, calls } = fakes();
     const result = await runSetup({ steps: ALL, checks: ['tailscale: ok'] }, effects, { dryRun: false, phonePort: 8797 });
     expect(result.ok).toBe(true);
-    expect(calls).toEqual(['write-env', 'create-key', 'write-roster', 'install-unit', 'install-hooks', 'tailscale-serve', 'restart', 'check-listener', 'pair']);
+    expect(calls).toEqual(['write-env', 'create-key', 'write-roster', 'write-launcher', 'install-unit', 'install-hooks', 'tailscale-serve', 'restart', 'check-listener', 'pair']);
     expect(result.lines.join('\n')).toContain('tailscale serve --bg --https=443 --set-path=/bob http://127.0.0.1:8798');
     expect(result.lines.at(-1)).toBe('the link');
   });
@@ -64,7 +66,7 @@ describe('runSetup', () => {
     const { effects, calls } = fakes({ at: 'install-unit' });
     const result = await runSetup({ steps: ALL, checks: [] }, effects, { dryRun: false, phonePort: 8797 });
     expect(result.ok).toBe(false);
-    expect(calls).toEqual(['write-env', 'create-key', 'write-roster', 'install-unit']);
+    expect(calls).toEqual(['write-env', 'create-key', 'write-roster', 'write-launcher', 'install-unit']);
     expect(result.lines.at(-1)).toMatch(/install-unit broke/);
   });
 

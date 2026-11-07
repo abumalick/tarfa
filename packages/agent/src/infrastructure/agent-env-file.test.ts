@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { chmod, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { agentEnvFile } from './agent-env-file';
+import { agentEnvFile, locateAgentEnv } from './agent-env-file';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -31,5 +31,23 @@ describe('agentEnvFile', () => {
     expect(await agentEnvFile(path).write('TARFA_TOKEN=t\n')).toBeNull();
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect(await readdir(dir)).toEqual(['agent.env']);
+  });
+});
+
+describe('locateAgentEnv', () => {
+  it('names ~/.tarfa/agent.env for a package install, present or not, and TARFA_AGENT_ENV over it', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-agent-env-home-'));
+    dirs.push(home);
+    expect(await locateAgentEnv({}, home, 'package')).toBe(join(home, '.tarfa', 'agent.env'));
+    expect(await locateAgentEnv({ TARFA_AGENT_ENV: '/etc/a.env' }, home, 'package')).toBe('/etc/a.env');
+  });
+
+  it('prefers ~/.tarfa/agent.env to the checkout\'s once it exists, for a source install', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-agent-env-home-'));
+    dirs.push(home);
+    expect(await locateAgentEnv({}, home, 'clone')).toMatch(/\/deploy\/agent\.env$/);
+    await mkdir(join(home, '.tarfa'));
+    await writeFile(join(home, '.tarfa', 'agent.env'), 'TARFA_TOKEN=t\n');
+    expect(await locateAgentEnv({}, home, 'clone')).toBe(join(home, '.tarfa', 'agent.env'));
   });
 });

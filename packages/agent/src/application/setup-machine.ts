@@ -6,6 +6,7 @@ import { isMachineUrl, isPairingPath, MAX_ADDRESSES } from '@tarfa/secure-channe
 import { parseEnvFile, setEnvValue } from './agent-env';
 import { renameLegacyEnvLines, withLegacyEnv } from './legacy-env';
 import type { EnrolmentMode } from './device-roster';
+import { renderService, unitRunsCheckout, unitRunsLauncher, type ServiceTarget } from './service-unit';
 
 export type TailscaleMode = 'serve' | 'funnel' | 'none';
 
@@ -44,9 +45,15 @@ export interface ServeConfig {
 export type PortOwner = 'free' | 'ours' | 'other';
 
 export interface SetupState {
-  // The main checkout, which the service runs (deploy/run-agent.sh follows deploy/agent-live).
-  repo: string;
-  // The unit (systemd) or plist (launchd) template with REPO_PATH, the one installed, and
+  // A package install, or a source checkout. A checkout's service runs its deploy/run-agent.sh
+  // (which follows deploy/agent-live) until the machine is adopted, i.e. its unit runs the launcher.
+  install: 'package' | 'clone';
+  // The main checkout; null for a package install.
+  repo: string | null;
+  // The stable launcher the service runs (~/.tarfa/bin/tarfa-agent): where it goes, what the
+  // package ships, and what is there.
+  launcher: { path: string; template: string; installed: string | null };
+  // The unit (systemd) or plist (launchd) template, the one installed, and
   // whether it is enabled to start at boot (with linger, under systemd).
   service: { kind: 'systemd' | 'launchd'; template: string; installed: string | null; enabled: boolean };
   envText: string | null;
@@ -74,6 +81,7 @@ export type SetupStep =
   | { kind: 'write-env'; text: string; changes: string[] }
   | { kind: 'create-key' }
   | { kind: 'write-roster'; mode: EnrolmentMode }
+  | { kind: 'write-launcher'; path: string; text: string }
   | { kind: 'install-unit'; text: string }
   | { kind: 'install-hooks' }
   | { kind: 'tailscale-serve'; port: number; path: string; target: string; funnel: boolean }
@@ -99,7 +107,7 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
     };
   }
   if (state.hooksPortOwner === 'other') {
-    return { error: 'the hooks port is taken by another process (another user\'s agent?): set TARFA_PORT in deploy/agent.env to a free port, then run tarfa setup again' };
+    return { error: 'the hooks port is taken by another process (another user\'s agent?): set TARFA_PORT in agent.env to a free port, then run tarfa setup again' };
   }
 
   if (state.stateDir === 'conflict') {
@@ -161,8 +169,16 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
   if (mode === 'on' && checks.some((line) => line.includes('internet') || line.includes('Funnel allowed'))) {
     checks.push('warning: token enrolment is on, so whoever holds TARFA_TOKEN can enrol a phone on a public port: run `tarfa devices enrolment off` (or pass --token-enrolment off)');
   }
-  const unit = state.service.template.replaceAll('REPO_PATH', state.repo);
-  if (!state.service.enabled || !unitIsCurrent(state.service.kind, state.service.installed, state.repo)) steps.push({ kind: 'install-unit', text: unit });
+  // A package install always runs the launcher; a checkout keeps running itself until its unit
+  // already runs the launcher (adopted), which setup never rewrites back to the checkout.
+  const { kind: unitKind, installed } = state.service;
+  const adopted = unitRunsLauncher(unitKind, installed, state.launcher.path);
+  const serviceTarget: ServiceTarget = state.install === 'package' || adopted ? { kind: 'launcher', path: state.launcher.path } : { kind: 'clone', repo: state.repo ?? '' };
+  if (serviceTarget.kind === 'launcher' && state.launcher.installed !== state.launcher.template) {
+    steps.push({ kind: 'write-launcher', path: state.launcher.path, text: state.launcher.template });
+  }
+  const current = serviceTarget.kind === 'launcher' ? adopted : unitRunsCheckout(unitKind, installed, serviceTarget.repo);
+  if (!state.service.enabled || !current) steps.push({ kind: 'install-unit', text: renderService(state.service.template, serviceTarget) });
   // The old agent is stopped: start the new one before anything that can fail, so a failed hooks
   // or serve step never leaves the machine with no agent (and a phone with no way back in).
   if (state.legacyService) steps.push({ kind: 'restart' }, { kind: 'check-listener', port: flags.phonePort });
@@ -195,21 +211,6 @@ function planEnv(flags: SetupFlags, state: SetupState, addresses: string[]): Set
     changes.push(`${name}=${shown ?? value}`);
   }
   return changes.length === 0 ? null : { kind: 'write-env', text, changes };
-}
-
-// An installed unit is left alone when it already runs this checkout's run-agent.sh, however it
-// gets there (dev's runs it through `mise exec` from WorkingDirectory), and, under systemd, stops
-// only the agent on a restart: KillMode=process is what keeps every workspace alive.
-function unitIsCurrent(kind: 'systemd' | 'launchd', installed: string | null, repo: string): boolean {
-  if (installed === null) return false;
-  const script = `${repo}/deploy/run-agent.sh`;
-  if (kind === 'launchd') return installed.includes(`<string>${script}</string>`);
-  if (!/^KillMode=process\s*$/m.test(installed)) return false;
-  const execStart = /^ExecStart=(.*)$/m.exec(installed)?.[1] ?? '';
-  const words = execStart.split(/\s+/);
-  if (words.includes(script)) return true;
-  const workingDirectory = /^WorkingDirectory=(.*)$/m.exec(installed)?.[1]?.trim();
-  return workingDirectory === repo && (words.includes('deploy/run-agent.sh') || words.includes('./deploy/run-agent.sh'));
 }
 
 // The handler a node's operator adds for a user who cannot change the serve config. The port is
@@ -296,6 +297,8 @@ export function describeStep(step: SetupStep, envPath: string): string {
       return 'create the agent key (~/.tarfa/agent-key.json)';
     case 'write-roster':
       return `write ~/.tarfa/devices.json with enrolment ${step.mode}${step.mode === 'off' ? ' (pairing codes only)' : ''}`;
+    case 'write-launcher':
+      return `write the launcher the service runs (${step.path})`;
     case 'install-unit':
       return 'install and enable the agent service (starts at boot)';
     case 'install-hooks':

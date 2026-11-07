@@ -9,6 +9,7 @@ export interface SetupEffects {
   writeEnv(text: string): Promise<string | null>;
   createKey(): Promise<void>;
   writeRoster(mode: EnrolmentMode): Promise<void>;
+  writeLauncher(path: string, text: string): Promise<void>;
   installUnit(text: string): Promise<string[]>;
   stopLegacyService(): Promise<string[]>;
   moveState(): Promise<void>;
@@ -79,6 +80,9 @@ async function apply(step: SetupStep, effects: SetupEffects): Promise<string | n
       return 'moved ~/.perch to ~/.tarfa (~/.perch is now a link to it)';
     case 'remove-legacy-service':
       return `removed the old agent service: ${(await effects.removeLegacyService()).join('; ')}`;
+    case 'write-launcher':
+      await effects.writeLauncher(step.path, step.text);
+      return `wrote the launcher ${step.path}`;
     case 'install-unit':
       return `installed the agent service: ${(await effects.installUnit(step.text)).join('; ')}`;
     case 'install-hooks':

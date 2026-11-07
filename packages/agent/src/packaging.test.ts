@@ -127,13 +127,22 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
       await chmod(agentEnv, 0o600);
       const serveEnv = { ...cleanEnv, ...settings, TARFA_AGENT_ENV: agentEnv, TMUX_TMPDIR: tmuxTmp };
 
+      // The hook scripts come from the installed package, not from a checkout.
+      await exec(bin, ['install-hooks'], { env: { ...serveEnv, TARFA_PORT: undefined } });
+      for (const script of ['tarfa-hook.sh', 'tarfa-guard.sh']) {
+        const installed = join(home, '.tarfa', script);
+        expect(await readFile(installed, 'utf8')).toBe(await readFile(join(pkgDir, 'src', 'hooks', script), 'utf8'));
+        expect((await stat(installed)).mode & 0o111).toBe(0o111);
+      }
+
       const homeBefore = await snapshot(home);
       const dry = await exec(
         bin,
         ['setup', '--machine-id', 'pack-test', '--project-roots', home, '--phone-port', String(phonePort), '--tailscale', 'none', '--dry-run'],
         { env: { ...serveEnv, TARFA_PORT: undefined, TARFA_PHONE_PORT: undefined, TARFA_TOKEN: undefined, TARFA_MACHINE_ID: undefined, TARFA_PROJECT_ROOTS: undefined } },
       );
-      expect(dry.stdout.length).toBeGreaterThan(0);
+      expect(dry.stdout).toContain(join(home, '.tarfa', 'bin', 'tarfa-agent'));
+      expect(dry.stdout).toContain(join(home, '.tarfa', 'agent.env'));
       expect(await snapshot(home)).toEqual(homeBefore);
 
       const before = await snapshot(pkgDir);

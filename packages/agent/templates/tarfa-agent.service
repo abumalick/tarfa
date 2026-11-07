@@ -3,7 +3,7 @@ Description=Tarfa agent
 After=network-online.target
 
 [Service]
-ExecStart=/usr/bin/env bash REPO_PATH/deploy/run-agent.sh
+ExecStart=AGENT_COMMAND
 Restart=always
 RestartSec=3
 # The agent spawns the tmux server as a child, so it lives in this unit's

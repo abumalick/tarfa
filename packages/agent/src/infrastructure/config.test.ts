@@ -75,7 +75,7 @@ describe('loadConfig', () => {
     for (const [relays, named] of cases) {
       const env = { ...reachable, ...relays };
       expect('relayUrls' in loadConfig(env, '/home/u')).toBe(false);
-      expect(configWarnings(env)).toEqual([`relays are gone; remove ${named} from deploy/agent.env`]);
+      expect(configWarnings(env)).toEqual([`relays are gone; remove ${named} from agent.env`]);
     }
     expect(configWarnings({ ...reachable, TARFA_RELAY_URLS: ' ' })).toEqual([]);
   });
@@ -156,8 +156,8 @@ describe('legacy PERCH_ names', () => {
   it('warns once per legacy name, and not for one its TARFA_ name overrides', () => {
     const warnings = configWarnings({ ...legacy, TARFA_TOKEN: 'secret', TARFA_PHONE_ADDRESSES: 'wss://a.example.ts.net' });
     expect(warnings).toEqual([
-      'PERCH_MACHINE_ID is read as TARFA_MACHINE_ID for one release: rename it in deploy/agent.env (tarfa setup does)',
-      'PERCH_PHONE_PORT is read as TARFA_PHONE_PORT for one release: rename it in deploy/agent.env (tarfa setup does)',
+      'PERCH_MACHINE_ID is read as TARFA_MACHINE_ID for one release: rename it in agent.env (tarfa setup does)',
+      'PERCH_PHONE_PORT is read as TARFA_PHONE_PORT for one release: rename it in agent.env (tarfa setup does)',
     ]);
   });
 });

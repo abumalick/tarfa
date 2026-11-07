@@ -1,7 +1,7 @@
 // The agent's service definition: a systemd user unit on Linux, a launchd agent on macOS.
 export interface ServiceInstallPort {
   kind: 'systemd' | 'launchd';
-  // The checked-in template, with REPO_PATH where the checkout goes.
+  // The shipped template, to be rendered by renderService.
   template(): Promise<string>;
   // The installed unit or plist, or null when none is.
   installed(): Promise<string | null>;

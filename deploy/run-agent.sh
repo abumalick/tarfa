@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Launch the Tarfa agent for a service manager. Sources deploy/agent.env.
+# Launch the Tarfa agent from this checkout. Sources deploy/agent.env unless TARFA_AGENT_ENV names one.
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-set -a
-# shellcheck disable=SC1091
-. "${REPO}/deploy/agent.env"
-set +a
-# The agent refuses to start while this file is readable by another user.
-export TARFA_AGENT_ENV="${REPO}/deploy/agent.env"
+# The launcher (~/.tarfa/bin/tarfa-agent) has already sourced agent.env and named it in
+# TARFA_AGENT_ENV, and a worktree it runs from has no deploy/agent.env of its own.
+if [ -z "${TARFA_AGENT_ENV:-}" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "${REPO}/deploy/agent.env"
+  set +a
+  # The agent refuses to start while this file is readable by another user.
+  export TARFA_AGENT_ENV="${REPO}/deploy/agent.env"
+fi
 # Run the agent from the deploy/agent-live target when it resolves — this lets a worktree's
 # agent be served for on-device testing (see deploy/serve-agent.sh). Secrets are always
 # sourced from main's agent.env above. A missing or dangling symlink falls back to main.

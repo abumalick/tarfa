@@ -50,7 +50,9 @@ describe('tailscaleCli', () => {
     const plan = planSetup(
       { machineId: 'dev', projectRoots: ['/w'], phonePort: 8797, tailscale: 'funnel', tailscalePort: 10000, slug: 'abu', addresses: [], pair: false, dryRun: false },
       {
+        install: 'clone',
         repo: '/r',
+        launcher: { path: '/h/.tarfa/bin/tarfa-agent', template: '', installed: null },
         service: { kind: 'systemd', template: '', installed: null, enabled: false },
         envText: null,
         newToken: 't',

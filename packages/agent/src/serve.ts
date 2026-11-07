@@ -74,7 +74,7 @@ export async function main(): Promise<void> {
     config.pairingPath,
     join(config.stateDir, 'token'),
     // It holds TARFA_TOKEN, which enrols a phone.
-    await locateAgentEnv(env),
+    await locateAgentEnv(env, homedir()),
   ]);
   const hookToken = await writeHookToken(config.stateDir);
   const tmux = new TmuxAdapter();
@@ -170,7 +170,7 @@ export async function main(): Promise<void> {
     if (config.phoneAddresses.length > 0) log(`tarfa agent: phone addresses ${config.phoneAddresses.join(', ')}`);
   } catch (err) {
     process.stderr.write(
-      `tarfa agent: no phone port: 127.0.0.1:${config.phonePort} ${err instanceof Error ? err.message : String(err)}; set TARFA_PHONE_PORT in deploy/agent.env\n`,
+      `tarfa agent: no phone port: 127.0.0.1:${config.phonePort} ${err instanceof Error ? err.message : String(err)}; set TARFA_PHONE_PORT in agent.env\n`,
     );
   }
 }

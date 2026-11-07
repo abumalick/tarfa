@@ -5,13 +5,12 @@
   <key>Label</key><string>app.tarfa.agent</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/bash</string>
-    <string>REPO_PATH/deploy/run-agent.sh</string>
+    AGENT_ARGUMENTS
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>REPO_PATH/deploy/agent.log</string>
-  <key>StandardErrorPath</key><string>REPO_PATH/deploy/agent.err.log</string>
+  <key>StandardOutPath</key><string>LOG_DIR/agent.log</string>
+  <key>StandardErrorPath</key><string>LOG_DIR/agent.err.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

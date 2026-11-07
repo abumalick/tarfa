@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, readFile, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readlink, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -302,7 +302,8 @@ describe('tarfa pair (arguments and agent.env)', () => {
 
 describe('tarfa setup (fake service and Tailscale)', () => {
   const HOST = 'dev.example.ts.net';
-  async function machine(envText: string | null = null, opts: { legacy?: boolean } = {}) {
+  async function machine(envText: string | null = null, opts: { legacy?: boolean; kind?: 'package' | 'clone' } = {}) {
+    const kind = opts.kind ?? 'clone';
     let legacy = opts.legacy ?? false;
     const root = await mkdtemp(join(tmpdir(), 'tarfa-setup-'));
     tmpDirs.push(root);
@@ -310,14 +311,18 @@ describe('tarfa setup (fake service and Tailscale)', () => {
     const home = join(root, 'home');
     await mkdir(join(repo, 'deploy'), { recursive: true });
     await mkdir(home);
-    await writeFile(join(repo, 'deploy', 'tarfa-agent.service'), '[Service]\nExecStart=/usr/bin/env bash REPO_PATH/deploy/run-agent.sh\nKillMode=process\n');
-    const envPath = join(repo, 'deploy', 'agent.env');
-    if (envText !== null) await writeFile(envPath, envText, { mode: 0o600 });
+    await writeFile(join(repo, 'deploy', 'tarfa-agent.service'), '[Service]\nExecStart=AGENT_COMMAND\nKillMode=process\n');
+    const envPath = kind === 'package' ? join(home, '.tarfa', 'agent.env') : join(repo, 'deploy', 'agent.env');
+    if (envText !== null) {
+      await mkdir(join(envPath, '..'), { recursive: true, mode: 0o700 });
+      await writeFile(envPath, envText, { mode: 0o600 });
+    }
     const calls: string[] = [];
     let unit: string | null = null;
     let served: Record<string, unknown> = {};
     const io: CliIo = {
       setup: {
+        installKind: kind,
         service: {
           kind: 'systemd',
           template: () => readFile(join(repo, 'deploy', 'tarfa-agent.service'), 'utf8'),
@@ -325,7 +330,9 @@ describe('tarfa setup (fake service and Tailscale)', () => {
           enabled: async () => unit !== null,
           install: async (text) => {
             // The roster must be on disk before the service can first start.
-            calls.push(`install-unit roster=${await readFile(join(home, '.tarfa', 'devices.json'), 'utf8').then(() => 'present', () => 'absent')}`);
+            const roster = await readFile(join(home, '.tarfa', 'devices.json'), 'utf8').then(() => 'present', () => 'absent');
+            const launcher = await readFile(join(home, '.tarfa', 'bin', 'tarfa-agent'), 'utf8').then(() => 'present', () => 'absent');
+            calls.push(kind === 'package' ? `install-unit roster=${roster} launcher=${launcher}` : `install-unit roster=${roster}`);
             unit = text;
             return ['enabled'];
           },
@@ -352,7 +359,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
         checkListener: async () => (calls.push('check'), true),
       },
     };
-    return { repo, home, env: { TARFA_AGENT_ENV: envPath }, envPath, calls, io };
+    return { repo, home, env: kind === 'package' ? {} : { TARFA_AGENT_ENV: envPath }, envPath, calls, io, unit: () => unit };
   }
   const FLAGS = ['--machine-id', 'dev', '--project-roots', '/home/u/workspace', '--tailscale', 'funnel', '--slug', 'abu'];
 
@@ -426,6 +433,144 @@ describe('tarfa setup (fake service and Tailscale)', () => {
   it('answers an unknown flag with the usage and exit code 2', async () => {
     const m = await machine();
     await expect(run(['setup', ...FLAGS, '--bogus', 'x'], m.env, m.home, m.io)).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining('usage: tarfa setup') });
+  });
+
+  describe('a package install', () => {
+    const LAUNCHER = (home: string) => join(home, '.tarfa', 'bin', 'tarfa-agent');
+    const shipped = () => readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'tarfa-agent.sh'), 'utf8');
+
+    it('writes ~/.tarfa/agent.env, the launcher (0755) and a unit that runs it, then changes nothing when rerun', async () => {
+      const m = await machine(null, { kind: 'package' });
+      const out = await run(['setup', ...FLAGS], m.env, m.home, m.io);
+      expect(out).toContain('the phone port answers');
+      expect(m.envPath).toBe(join(m.home, '.tarfa', 'agent.env'));
+      expect(parseEnvFile(await readFile(m.envPath, 'utf8'))).toMatchObject({ TARFA_MACHINE_ID: 'dev' });
+      expect((await stat(m.envPath)).mode & 0o777).toBe(0o600);
+      expect(await readFile(LAUNCHER(m.home), 'utf8')).toBe(await shipped());
+      expect((await stat(LAUNCHER(m.home))).mode & 0o777).toBe(0o755);
+      expect(m.unit()).toContain(`ExecStart=${LAUNCHER(m.home)}`);
+      expect(m.calls).toEqual(['install-unit roster=present launcher=present', 'serve 10000/abu http://127.0.0.1:8797 funnel=true', 'restart', 'check']);
+
+      m.calls.length = 0;
+      const env = await readFile(m.envPath, 'utf8');
+      expect(await run(['setup', ...FLAGS], m.env, m.home, m.io)).toMatch(/already set up/);
+      expect(m.calls).toEqual(['check']);
+      expect(await readFile(m.envPath, 'utf8')).toBe(env);
+    });
+
+    it('moves ~/.perch before writing under ~/.tarfa, so the agent\'s own move never meets two directories', async () => {
+      const m = await machine(null, { kind: 'package', legacy: true });
+      const legacy = join(m.home, '.perch');
+      await mkdir(legacy, { mode: 0o700 });
+      const key = await loadOrCreateAgentKeys(join(legacy, 'relay-key.json'));
+      await new FileDeviceStore(join(legacy, 'devices.json')).update((roster) => withEnrolmentMode(roster, 'off'));
+
+      await run(['setup', ...FLAGS], m.env, m.home, m.io);
+      expect(m.calls.slice(0, 2)).toEqual(['stop-legacy', 'install-unit roster=present launcher=present']);
+      expect(await readlink(legacy)).toBe('.tarfa');
+      expect((await loadOrCreateAgentKeys(join(m.home, '.tarfa', 'agent-key.json'))).x25519.publicKey).toBe(key.x25519.publicKey);
+      expect(await readFile(m.envPath, 'utf8')).toContain("TARFA_MACHINE_ID='dev'");
+      const { migrateStateDir } = await import('./infrastructure/state-dir');
+      await expect(migrateStateDir(m.home)).resolves.toBe('unchanged');
+    });
+
+    it('refuses, writing nothing, when ~/.perch and ~/.tarfa both hold state', async () => {
+      const m = await machine(null, { kind: 'package' });
+      await mkdir(join(m.home, '.perch'));
+      await writeFile(join(m.home, '.perch', 'devices.json'), '{}');
+      await mkdir(join(m.home, '.tarfa'));
+      await writeFile(join(m.home, '.tarfa', 'status.json'), '{}');
+      await expect(run(['setup', ...FLAGS], m.env, m.home, m.io)).rejects.toThrow(/both ~\/\.perch and ~\/\.tarfa/);
+      await expect(stat(LAUNCHER(m.home))).rejects.toThrow();
+      await expect(stat(m.envPath)).rejects.toThrow();
+    });
+
+    it('names the launcher and ~/.tarfa/agent.env in a dry run, changing nothing', async () => {
+      const m = await machine(null, { kind: 'package' });
+      const out = await run(['setup', ...FLAGS, '--dry-run'], m.env, m.home, m.io);
+      expect(out).toContain(LAUNCHER(m.home));
+      expect(out).toContain(m.envPath);
+      await expect(stat(join(m.home, '.tarfa'))).rejects.toThrow();
+    });
+
+    it('on an adopted machine, a source checkout\'s setup reads ~/.tarfa/agent.env and leaves the launcher unit alone', async () => {
+      const m = await machine(null, { kind: 'package' });
+      await run(['setup', ...FLAGS], m.env, m.home, m.io);
+      const unit = m.unit();
+      const live = await readFile(m.envPath, 'utf8');
+      m.calls.length = 0;
+      const fromCheckout: CliIo = { setup: { ...m.io.setup!, installKind: 'clone' } };
+      expect(await run(['setup', ...FLAGS], {}, m.home, fromCheckout)).toMatch(/already set up/);
+      expect(m.calls).toEqual(['check']);
+      expect(m.unit()).toBe(unit);
+      expect(await readFile(m.envPath, 'utf8')).toBe(live);
+    });
+  });
+
+  describe('tarfa apply', () => {
+    const LAUNCHER = (home: string) => join(home, '.tarfa', 'bin', 'tarfa-agent');
+    const logs = (text: string) => ({ mark: async () => 0, since: async () => text });
+    async function converged() {
+      const m = await machine(null, { kind: 'package' });
+      await run(['setup', ...FLAGS], m.env, m.home, m.io);
+      m.calls.length = 0;
+      const withLog = (text: string, over: Partial<NonNullable<CliIo['setup']>> = {}): CliIo => ({ ...m.io, sleep: async () => undefined, setup: { ...m.io.setup!, agentLog: logs(text), ...over } });
+      return { m, withLog };
+    }
+
+    it('refuses a source install, non-zero, touching nothing', async () => {
+      const { m, withLog } = await converged();
+      const io = withLog('', { installKind: 'clone' });
+      await expect(run(['apply'], {}, m.home, io)).rejects.toMatchObject({ exitCode: 2, message: expect.stringMatching(/source install.*tarfa setup/) });
+      expect(m.calls).toEqual([]);
+    });
+
+    it('reports one ok line per step, changing nothing when launcher and unit are current', async () => {
+      const { m, withLog } = await converged();
+      const out = await run(['apply'], {}, m.home, withLog('tarfa agent: phones on 127.0.0.1:8797\n'));
+      expect(out.split('\n')).toEqual([
+        'ok: launcher already current',
+        'ok: service definition already current',
+        'ok: hooks already current',
+        'ok: restarted (restarted)',
+        'ok: the phone port answers on 127.0.0.1:8797',
+        'ok: the log shows phones on',
+      ]);
+      expect(m.calls).toEqual(['restart', 'check']);
+    });
+
+    it('rewrites a stale launcher and unit, then restarts', async () => {
+      const { m, withLog } = await converged();
+      await writeFile(join(m.home, '.tarfa', 'bin', 'tarfa-agent'), '#!/bin/sh\nold\n');
+      const io = withLog('phones on\n');
+      io.setup!.service = { ...io.setup!.service!, installed: async () => '[Service]\nExecStart=/old\n' };
+      const out = await run(['apply'], {}, m.home, io);
+      expect(out).toContain('ok: launcher written');
+      expect(out).toContain('ok: service definition written, daemon reloaded');
+      expect(await readFile(join(m.home, '.tarfa', 'bin', 'tarfa-agent'), 'utf8')).not.toContain('old');
+      expect(m.calls.at(-3)).toMatch(/^install-unit/);
+    });
+
+    it('stops at a failed restart, names the step, exits non-zero', async () => {
+      const { m, withLog } = await converged();
+      const io = withLog('phones on\n', { restart: { restart: async () => { throw new Error('systemctl --user restart tarfa-agent failed: Unit not found'); } } });
+      const failed = run(['apply'], {}, m.home, io);
+      await expect(failed).rejects.toThrow(/failed: restart: systemctl --user restart tarfa-agent failed/);
+      expect(m.calls).toEqual([]);
+    });
+
+    it('fails when the log has no phones-on line since the restart', async () => {
+      const { m, withLog } = await converged();
+      await expect(run(['apply'], {}, m.home, withLog('tarfa agent: version 1\n'))).rejects.toThrow(/failed: log:/);
+    });
+
+    it('refuses before changing anything on a machine never set up, or with no roster', async () => {
+      const never = await machine(null, { kind: 'package' });
+      await expect(run(['apply'], {}, never.home, never.io)).rejects.toThrow(/failed: check: no agent config.*tarfa setup/);
+      const m = await machine('TARFA_MACHINE_ID=dev\nTARFA_TOKEN=t\n', { kind: 'package' });
+      await expect(run(['apply'], {}, m.home, m.io)).rejects.toThrow(/failed: check: no device roster.*tarfa setup/);
+      await expect(stat(LAUNCHER(m.home))).rejects.toThrow();
+    });
   });
 });
 

@@ -97,7 +97,13 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   phone port, `TARFA_PHONE_ADDRESSES` for where phones reach it) and
   runs as a service: **launchd** on macOS
   (`packages/agent/templates/app.tarfa.agent.plist`), **systemd user unit + linger** on Ubuntu. Both invoke
-  `deploy/run-agent.sh`, which self-locates `mise` (services don't inherit an interactive
+  `deploy/run-agent.sh` (a source install) or the launcher `~/.tarfa/bin/tarfa-agent` (a package
+  install: it sources `~/.tarfa/agent.env`, exports `TARFA_AGENT_ENV`, runs the checkout named by
+  `~/.tarfa/agent-source` when that still exists, else `tarfa serve` through mise; `run-agent.sh`
+  skips its own `deploy/agent.env` when `TARFA_AGENT_ENV` is set; `serve:agent` writes
+  `agent-source` instead of flipping `agent-live` on such a machine). `tarfa apply` (package
+  installs only) rewrites the launcher and unit if they differ, reinstalls the hooks, restarts and
+  checks the phone port and the log's `phones on` since the restart. `run-agent.sh` self-locates `mise` (services don't inherit an interactive
   PATH). Run `mise trust` once per machine or the unit crash-loops.
 - **An agent is reached on its phone port once that is published.** It binds `127.0.0.1`
   whatever `TARFA_HOST` says (a non-loopback value is ignored with a warning). The hooks port
@@ -111,9 +117,18 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   when it changes something**, so a rerun is a no-op and the agent is restarted only after a
   change; **the roster is written, token enrolment off, before the service first starts** (no
   `devices.json` means enrolment on, and a Funnel port is public); **an installed unit counts
-  as current when it runs `<checkout>/deploy/run-agent.sh` with `KillMode=process`**, however
+  as current when it runs `<checkout>/deploy/run-agent.sh` or the launcher
+  `~/.tarfa/bin/tarfa-agent`, with `KillMode=process`**, however
   it gets there (dev's runs it through `mise exec` from `WorkingDirectory`), so setup never
-  rewrites a working unit; **hooks count as installed regardless of key order and entry order**
+  rewrites a working unit; **a package install always runs the launcher** (`write-launcher`,
+  then a unit whose ExecStart is its absolute path), while a source checkout keeps running
+  `run-agent.sh` until its unit already runs the launcher, and is never pointed back at the
+  checkout; **`agent.env` is found in one pinned order** (`resolveAgentEnvPath`):
+  `TARFA_AGENT_ENV`, `~/.tarfa/agent.env`, then `<checkout>/deploy/agent.env` (a package install has
+  no third candidate and never runs `git`), for setup and every other command, so a checkout's CLI
+  on an adopted machine reads the file the service reads; **nothing is written under `~/.tarfa`
+  before `move-state`** (`~/.tarfa/agent.env`, the launcher), or the agent's own startup move
+  would find both directories and refuse; **hooks count as installed regardless of key order and entry order**
   (Claude Code rewrites `settings.json` with sorted keys); **an existing `TARFA_PWA_ORIGIN` is
   kept unless `--pwa` is given**; **a phone or hooks port held by anything but this user's
   agent is refused** (another Linux user's processes are invisible to `ss`/`lsof`); and **an

@@ -128,10 +128,10 @@ export function assertServerConfig(
 export function configWarnings(rawEnv: NodeJS.ProcessEnv): string[] {
   const env = withLegacyEnv(rawEnv);
   const warnings = legacyEnvNames(rawEnv).map(
-    (name) => `${name} is read as ${renamedEnvName(name)} for one release: rename it in deploy/agent.env (tarfa setup does)`,
+    (name) => `${name} is read as ${renamedEnvName(name)} for one release: rename it in agent.env (tarfa setup does)`,
   );
   const relays = ['TARFA_RELAY_URLS', 'TARFA_RELAY_URL'].filter((name) => env[name]?.trim());
-  if (relays.length > 0) warnings.push(`relays are gone; remove ${relays.join(' and ')} from deploy/agent.env`);
+  if (relays.length > 0) warnings.push(`relays are gone; remove ${relays.join(' and ')} from agent.env`);
   if (phoneAddresses(env).length === 0) {
     warnings.push('no TARFA_PHONE_ADDRESSES: phones reach this agent only once its phone port is published (tailscale serve, a reverse proxy)');
   }

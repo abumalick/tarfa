@@ -1,15 +1,16 @@
 import { execFile } from 'node:child_process';
-import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { cp, readFile, rm, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ServiceInstallPort } from '../ports/service-install-port';
+import { atomicWrite } from './atomic-write';
 import { childEnv } from './child-env';
 import { packageRoot } from './package-root';
 
 export type Run = (command: string, args: string[]) => Promise<string>;
 
 const exec = promisify(execFile);
-const systemRun: Run = async (command, args) => {
+export const systemRun: Run = async (command, args) => {
   try {
     return (await exec(command, args, { env: childEnv(), timeout: 30_000 })).stdout;
   } catch (err) {
@@ -37,7 +38,8 @@ async function readOrNull(path: string): Promise<string | null> {
   }
 }
 
-// The agent's service as docs/DEPLOY.md installs it, from the package's templates/: a
+// The agent's service as docs/DEPLOY.md installs it, from the package's templates/ (with
+// AGENT_COMMAND, AGENT_ARGUMENTS and LOG_DIR to fill in, see service-unit.ts): a
 // systemd user unit kept running without a login session by linger, or a launchd agent.
 export function serviceInstall(options: {
   templates?: string;
@@ -59,8 +61,7 @@ export function serviceInstall(options: {
       installed: () => readOrNull(plist),
       enabled: () => run('launchctl', ['print', `${domain}/app.tarfa.agent`]).then(() => true, () => false),
       async install(text) {
-        await mkdir(dirname(plist), { recursive: true });
-        await writeFile(plist, text, 'utf8');
+        await atomicWrite(plist, text, 0o644);
         // Not loaded yet is the usual case on a fresh machine.
         await run('launchctl', ['bootout', `${domain}/app.tarfa.agent`]).catch(() => undefined);
         await run('launchctl', ['bootstrap', domain, plist]);
@@ -103,8 +104,7 @@ export function serviceInstall(options: {
       return enabled && linger;
     },
     async install(text) {
-      await mkdir(dirname(unit), { recursive: true });
-      await writeFile(unit, text, 'utf8');
+      await atomicWrite(unit, text, 0o644);
       const copied = (await exists(legacyDropIns)) && !(await exists(dropIns));
       if (copied) await cp(legacyDropIns, dropIns, { recursive: true });
       const ran: Array<[string, string[]]> = [
