@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
@@ -50,9 +53,25 @@ function contentSecurityPolicy(): Plugin {
   };
 }
 
+// workbox-build bundles the service worker through a file in a fresh folder under the system temp
+// dir and never removes it, so every build left one behind. Give the build a folder of its own
+// (workbox reads TMPDIR when the PWA plugin loads it, at the end of the build) and remove it on exit.
+function privateTempDir(): Plugin {
+  return {
+    name: 'tarfa-private-tmpdir',
+    apply: 'build',
+    config() {
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'tarfa-pwa-build-'));
+      process.env.TMPDIR = dir;
+      process.once('exit', () => rmSync(dir, { recursive: true, force: true }));
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     svelte(),
+    privateTempDir(),
     contentSecurityPolicy(),
     emitVersionFile(buildLabel, buildId),
     emitHeadersFile(),

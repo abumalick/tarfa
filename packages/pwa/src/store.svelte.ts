@@ -43,6 +43,7 @@ import type { AudioRecorder } from './core/ports/audio-recorder';
 import type { Transcriber } from './core/ports/transcriber';
 import type { VoiceLink } from './core/claude-voice';
 import { resolveLanguage, type LanguageChoice } from './core/i18n/language';
+import { bytesToBase64 } from './core/base64';
 import { msg, setLanguage } from './i18n.svelte';
 
 function phoneLanguages(): readonly string[] {
@@ -62,17 +63,10 @@ function decode(b64: string): string {
   }
   return new TextDecoder().decode(bytes);
 }
-function encodeBytes(bytes: Uint8Array): string {
-  let binary = '';
-  for (const b of bytes) {
-    binary += String.fromCharCode(b);
-  }
-  return btoa(binary);
-}
 // Terminal input: encode the string as UTF-8 bytes, then base64 (utf8-safe — plain
 // btoa throws on non-latin1 input).
 function encode(text: string): string {
-  return encodeBytes(new TextEncoder().encode(text));
+  return bytesToBase64(new TextEncoder().encode(text));
 }
 
 // How long to show the "Connecting…" home screen before concluding the machines are
@@ -723,7 +717,7 @@ export class TarfaStore {
       this.actionError = tooLarge;
       return false;
     }
-    this.send(this.active.machineId, { type: 'putFile', workspaceId: this.active.id, name, data: encodeBytes(bytes) });
+    this.send(this.active.machineId, { type: 'putFile', workspaceId: this.active.id, name, data: bytesToBase64(bytes) });
     return true;
   }
 
@@ -756,7 +750,7 @@ export class TarfaStore {
     },
     chunk: (pcm) => {
       const voice = this.voice;
-      if (voice && !voice.settled) this.send(voice.machineId, { type: 'voiceChunk', id: voice.id, data: encodeBytes(pcm) });
+      if (voice && !voice.settled) this.send(voice.machineId, { type: 'voiceChunk', id: voice.id, data: bytesToBase64(pcm) });
     },
     finish: async () => {
       const voice = this.voice;
