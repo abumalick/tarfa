@@ -142,7 +142,7 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
     credential: z.enum(['device', 'pairing', 'token']).optional().catch(undefined),
     enrolled: z.boolean().optional().catch(undefined),
     pushed: z.literal(true).optional().catch(undefined),
-    agent: z.object({ protocol: z.number().int() }).optional().catch(undefined),
+    agent: z.object({ protocol: z.number().int(), version: z.string().optional() }).optional().catch(undefined),
   }),
   // `claudeVoice`: whether this machine can play a Claude voice dictation (see voiceStart).
   // An older agent omits it, and the PWA then treats Claude voice as unavailable there.

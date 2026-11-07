@@ -4,6 +4,8 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+pnpmfileChecksum: sha256-bRdPM2MB1MmhHTWef94fc2mfg/IY82M7RxDqe9dsalA=
+
 importers:
 
   .:
@@ -17,12 +19,6 @@ importers:
 
   packages/agent:
     dependencies:
-      '@tarfa/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      '@tarfa/secure-channel':
-        specifier: workspace:*
-        version: link:../secure-channel
       node-pty:
         specifier: ^1.0.0
         version: 1.1.0
@@ -36,12 +32,21 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
+      '@tarfa/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@tarfa/secure-channel':
+        specifier: workspace:*
+        version: link:../secure-channel
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.21
       '@types/ws':
         specifier: ^8.5.13
         version: 8.18.1
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
       tsx:
         specifier: ^4.19.0
         version: 4.22.4

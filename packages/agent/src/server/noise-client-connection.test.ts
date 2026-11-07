@@ -166,6 +166,18 @@ describe('NoiseClientConnection', () => {
     expect(replies.map((m) => JSON.parse(new TextDecoder().decode(m)))).toEqual([{ type: 'authResult', ok: true, enrolled: true, agent: { protocol: 1 } }]);
   });
 
+  it('names the agent version on the accepted authResult when it has one', async () => {
+    const socket = new FakeFrameSocket();
+    const gate = new FakeGate();
+    const conn = new NoiseClientConnection(socket, staticPrivate, { devices: gate, agentVersion: '9.8.7' });
+    const phone = await handshake(socket, gate);
+    conn.send({ type: 'authResult', ok: true });
+    const replies = socket.sent.slice(1).map((f) => phone.open(f)).filter((m): m is Uint8Array => m !== null);
+    expect(replies.map((m) => JSON.parse(new TextDecoder().decode(m)))).toEqual([
+      { type: 'authResult', ok: true, enrolled: true, agent: { protocol: 1, version: '9.8.7' } },
+    ]);
+  });
+
   it('reassembles a message larger than one frame', async () => {
     const { socket, conn, received, gate } = setup();
     const phone = await handshake(socket, gate);

@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { homedir, hostname, userInfo } from 'node:os';
 import { readFile, mkdir, realpath } from 'node:fs/promises';
 import { dirname, join as joinPath, resolve as resolvePath } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isEntrypoint, packageRoot, packageVersion } from './infrastructure/package-root';
 import { loadConfig, withLegacyEnv, type AgentConfig } from './infrastructure/config';
 import { migrateStateDir, stateDirLayout } from './infrastructure/state-dir';
 import { systemClock, systemPathResolver } from './infrastructure/system';
@@ -88,11 +88,12 @@ export interface CliIo {
   };
 }
 
-const HOOKS_DIR = joinPath(dirname(fileURLToPath(import.meta.url)), 'hooks');
+const HOOKS_DIR = joinPath(packageRoot(), 'src', 'hooks');
 const CODEX_NEXT_STEP = 'open Codex and trust the Tarfa hooks in /hooks; repeat after any hook change';
 
 export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: string, io: CliIo = {}): Promise<string> {
   const env = withLegacyEnv(rawEnv);
+  if (argv[0] === '--version' || argv[0] === '-v') return packageVersion();
   if (argv[0] === 'setup') return setup(argv.slice(1), env, home, io);
   if (argv[0] === 'connect' || argv[0] === 'relay-key' || (argv[0] === 'pair' && argv.includes('--relay'))) {
     throw new UsageError(RELAYS_GONE);
@@ -578,7 +579,7 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   });
   const config = loadConfig({ ...withLegacyEnv(parseEnvFile(envText ?? '')), TARFA_MACHINE_ID: flags.machineId }, home);
   const fx = io.setup ?? {};
-  const service = fx.service ?? serviceInstall({ repo, home, user: userInfo().username, uid: process.getuid?.() ?? 0 });
+  const service = fx.service ?? serviceInstall({ home, user: userInfo().username, uid: process.getuid?.() ?? 0 });
   const tailscale = fx.tailscale ?? tailscaleCli();
   const owner = fx.portOwner ?? portOwner;
   const hooks = hooksFiles(home, HOOKS_DIR, config.port);
@@ -711,14 +712,16 @@ function formatRoster(roster: DeviceRoster): string {
   return lines.join('\n');
 }
 
-const isEntrypoint = process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`;
-if (isEntrypoint) {
-  run(process.argv.slice(2), process.env, homedir())
-    .then((out) => {
-      process.stdout.write(`${out}\n`);
-    })
-    .catch((err: unknown) => {
-      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-      process.exitCode = err instanceof UsageError ? err.exitCode : 1;
-    });
+if (isEntrypoint(import.meta.url, process.argv[1])) {
+  const argv = process.argv.slice(2);
+  const program =
+    argv[0] === 'serve'
+      ? import('./serve').then((agent) => agent.main())
+      : run(argv, process.env, homedir()).then((out) => {
+          process.stdout.write(`${out}\n`);
+        });
+  program.catch((err: unknown) => {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exitCode = err instanceof UsageError ? err.exitCode : 1;
+  });
 }

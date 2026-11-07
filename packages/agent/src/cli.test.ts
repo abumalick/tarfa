@@ -76,6 +76,14 @@ describe('tarfa CLI (real tmux)', () => {
   });
 });
 
+describe('tarfa --version', () => {
+  it('prints the package version', async () => {
+    const { version } = JSON.parse(await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')) as { version: string };
+    expect(await run(['--version'], {}, '/nonexistent')).toBe(version);
+    expect(await run(['-v'], {}, '/nonexistent')).toBe(version);
+  });
+});
+
 describe('removed relay commands', () => {
   it('refuses connect, relay-key and pair --relay with one line naming what replaces them, exit 2', async () => {
     const home = await mkdtemp(join(tmpdir(), 'tarfa-cli-home-'));

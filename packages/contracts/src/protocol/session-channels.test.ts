@@ -31,6 +31,20 @@ describe('session channels on the wire', () => {
     expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1.5 } })).toEqual({ type: 'authResult', ok: true });
   });
 
+  it('keeps the agent version an agent names beside its protocol, and drops a malformed one', () => {
+    expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1, version: '1.2.3' } })).toEqual({
+      type: 'authResult',
+      ok: true,
+      agent: { protocol: 1, version: '1.2.3' },
+    });
+    expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1 } })).toEqual({
+      type: 'authResult',
+      ok: true,
+      agent: { protocol: 1 },
+    });
+    expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1, version: 3 } })).toEqual({ type: 'authResult', ok: true });
+  });
+
   it('drops the channel list an older agent still advertises on authResult', () => {
     expect(parseAgentMessage({ type: 'authResult', ok: true, channels: ['media', 'browser'] })).toEqual({ type: 'authResult', ok: true });
   });

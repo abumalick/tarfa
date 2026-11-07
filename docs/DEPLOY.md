@@ -93,14 +93,14 @@ install -m 600 deploy/agent.env.example deploy/agent.env
 **macOS:**
 ```sh
 mise trust
-sed "s#REPO_PATH#$(pwd)#g" deploy/app.tarfa.agent.plist > ~/Library/LaunchAgents/app.tarfa.agent.plist
+sed "s#REPO_PATH#$(pwd)#g" packages/agent/templates/app.tarfa.agent.plist > ~/Library/LaunchAgents/app.tarfa.agent.plist
 launchctl load ~/Library/LaunchAgents/app.tarfa.agent.plist
 # logs: tail -f deploy/agent.err.log
 ```
 **Linux (systemd):**
 ```sh
 mkdir -p ~/.config/systemd/user
-sed "s#REPO_PATH#$(pwd)#g" deploy/tarfa-agent.service > ~/.config/systemd/user/tarfa-agent.service
+sed "s#REPO_PATH#$(pwd)#g" packages/agent/templates/tarfa-agent.service > ~/.config/systemd/user/tarfa-agent.service
 systemctl --user daemon-reload
 systemctl --user enable --now tarfa-agent
 loginctl enable-linger "$USER"   # keep the user service running without an active login

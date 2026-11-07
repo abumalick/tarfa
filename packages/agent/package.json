@@ -1,29 +1,47 @@
 {
   "name": "@tarfa/cli",
   "version": "0.0.0",
-  "private": true,
+  "description": "Tarfa agent and CLI: serves your Claude Code terminal sessions (tmux workspaces) to the Tarfa phone app.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abumalick/tarfa",
+    "directory": "packages/agent"
+  },
   "license": "MIT",
   "type": "module",
-  "bin": {
-    "tarfa": "./src/cli.ts",
-    "perch": "./src/cli.ts",
-    "tarfa-serve": "./src/serve.ts"
+  "engines": {
+    "node": ">=24"
   },
+  "bin": {
+    "tarfa": "./dist/cli.js",
+    "perch": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "src/hooks/tarfa-hook.sh",
+    "src/hooks/tarfa-guard.sh",
+    "templates",
+    "scripts/postinstall.mjs"
+  ],
   "scripts": {
+    "build": "esbuild src/cli.ts src/serve.ts --bundle --splitting --format=esm --platform=node --target=node24 --outdir=dist --external:node-pty --external:ws --external:qr --external:zod --banner:js='#!/usr/bin/env node' --legal-comments=none",
+    "prepack": "pnpm run build",
+    "postinstall": "node scripts/postinstall.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tarfa/contracts": "workspace:*",
-    "@tarfa/secure-channel": "workspace:*",
     "node-pty": "^1.0.0",
     "qr": "^0.7.0",
     "ws": "^8.18.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@tarfa/contracts": "workspace:*",
+    "@tarfa/secure-channel": "workspace:*",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
+    "esbuild": "^0.28.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.2",
     "vitest": "^3.0.0"

@@ -29,6 +29,15 @@ the phone's device key, and streams its terminals. No agent listens off loopback
   attention here), `POST /unpark` (`tarfa unpark`) and `POST /message` (`tarfa send`).
   Domain/application in `application/` + `ports/`, adapters in `infrastructure/`, wiring in
   `server/`.
+  **It is also the published package.** `pnpm --filter @tarfa/cli build` (esbuild) bundles
+  `src/cli.ts` and `src/serve.ts` into `dist/` with the two workspace packages inlined; `files`
+  adds the hook scripts, `templates/` and `scripts/postinstall.mjs`. Files are found with
+  `packageRoot()` (`infrastructure/package-root.ts`, realpath of the running file up to its
+  `package.json`), the same from `src/` and `dist/`, and `isEntrypoint` compares real paths so a
+  bin symlink or shim still runs the CLI. Nothing in the package directory is written at runtime.
+  `.pnpmfile.cjs` strips the workspace entries when packing. Pack and install it with
+  `TARFA_PACK_TEST=1 pnpm --filter @tarfa/cli exec vitest run src/packaging.test.ts` (opt-in,
+  not in the gate; it compiles node-pty).
 - `packages/secure-channel` (`@tarfa/secure-channel`) — the Noise IK session both ends run, its
   framing, the device hello, pairing links and refusals (see "Device keys, enrolment and
   pairing").
@@ -86,7 +95,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   `TARFA_PROJECT_ROOTS`, `TARFA_PORT` for the loopback hooks listener, `TARFA_PHONE_PORT` for the
   phone port, `TARFA_PHONE_ADDRESSES` for where phones reach it) and
   runs as a service: **launchd** on macOS
-  (`deploy/app.tarfa.agent.plist`), **systemd user unit + linger** on Ubuntu. Both invoke
+  (`packages/agent/templates/app.tarfa.agent.plist`), **systemd user unit + linger** on Ubuntu. Both invoke
   `deploy/run-agent.sh`, which self-locates `mise` (services don't inherit an interactive
   PATH). Run `mise trust` once per machine or the unit crash-loops.
 - **An agent is reached on its phone port once that is published.** It binds `127.0.0.1`
@@ -881,7 +890,7 @@ So the PWA is on a public origin, tarfa.app, and what follows from that:
 - **Restarting the agent must NOT kill tmux sessions:** the agent spawns the tmux server
   as a child, so it lives in the systemd unit's cgroup. The default
   `KillMode=control-group` would SIGTERM the whole cgroup on restart and take every
-  workspace (and the Claude Code session inside it) down with it. `deploy/tarfa-agent.service`
+  workspace (and the Claude Code session inside it) down with it. `packages/agent/templates/tarfa-agent.service`
   sets **`KillMode=process`** so a restart stops only the agent; the tmux server and its
   sessions survive. Don't drop this. On restart the agent re-discovers live sessions via
   `tmux list-sessions` (no in-memory session registry), so workspaces reappear on the PWA's

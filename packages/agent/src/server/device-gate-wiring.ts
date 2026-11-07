@@ -15,6 +15,7 @@ export interface DeviceGateDeps {
   pairings: PairingStorePort;
   log: (message: string) => void;
   rosterPollMs: number;
+  agentVersion?: string;
 }
 
 // The device gate every phone session goes through: one roster, one push budget, one refusal log,
@@ -70,7 +71,7 @@ export function startDeviceGate(deps: DeviceGateDeps): AgentDeviceGate {
   return {
     staticPrivate: b64url.decode(keys.x25519.privateKey),
     devices,
-    options: (extra) => ({ devices, log, refusalLog, pushBudget, ...extra }),
+    options: (extra) => ({ devices, log, refusalLog, pushBudget, agentVersion: deps.agentVersion, ...extra }),
     roster: () => last,
     pollRoster: () => monitor.poll(),
     stop: () => clearInterval(poll),

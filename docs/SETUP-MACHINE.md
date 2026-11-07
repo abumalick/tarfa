@@ -163,7 +163,7 @@ another user can read it.
 
 ```bash
 mkdir -p ~/.config/systemd/user
-sed "s#REPO_PATH#$(pwd)#g" deploy/tarfa-agent.service > ~/.config/systemd/user/tarfa-agent.service
+sed "s#REPO_PATH#$(pwd)#g" packages/agent/templates/tarfa-agent.service > ~/.config/systemd/user/tarfa-agent.service
 mkdir -p ~/.config/systemd/user/tarfa-agent.service.d
 printf '[Unit]\nAfter=tmux-server.service\nWants=tmux-server.service\n' \
   > ~/.config/systemd/user/tarfa-agent.service.d/10-tmux.conf    # only with step 5

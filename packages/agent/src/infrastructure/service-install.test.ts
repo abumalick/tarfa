@@ -5,19 +5,26 @@ import { describe, expect, it } from 'vitest';
 import { serviceInstall } from './service-install';
 
 async function dirs() {
-  const repo = await mkdtemp(join(tmpdir(), 'tarfa-svc-repo-'));
+  const templates = await mkdtemp(join(tmpdir(), 'tarfa-svc-templates-'));
   const home = await mkdtemp(join(tmpdir(), 'tarfa-svc-home-'));
-  await mkdir(join(repo, 'deploy'));
-  await writeFile(join(repo, 'deploy', 'tarfa-agent.service'), 'unit REPO_PATH\n');
-  await writeFile(join(repo, 'deploy', 'app.tarfa.agent.plist'), 'plist REPO_PATH\n');
-  return { repo, home };
+  await writeFile(join(templates, 'tarfa-agent.service'), 'unit REPO_PATH\n');
+  await writeFile(join(templates, 'app.tarfa.agent.plist'), 'plist REPO_PATH\n');
+  return { templates, home };
 }
 
 describe('serviceInstall', () => {
+  it('reads the templates the package ships by default', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-svc-home-'));
+    const unit = serviceInstall({ home, user: 'u', uid: 1000, platform: 'linux', run: async () => '' });
+    expect(await unit.template()).toContain('KillMode=process');
+    const agent = serviceInstall({ home, user: 'u', uid: 501, platform: 'darwin', run: async () => '' });
+    expect(await agent.template()).toContain('app.tarfa.agent');
+  });
+
   it('installs a systemd user unit, enables it and turns linger on', async () => {
-    const { repo, home } = await dirs();
+    const { templates, home } = await dirs();
     const ran: string[] = [];
-    const service = serviceInstall({ repo, home, user: 'u', uid: 1000, platform: 'linux', run: async (c, a) => (ran.push([c, ...a].join(' ')), a.includes('Linger') ? 'yes\n' : '') });
+    const service = serviceInstall({ templates, home, user: 'u', uid: 1000, platform: 'linux', run: async (c, a) => (ran.push([c, ...a].join(' ')), a.includes('Linger') ? 'yes\n' : '') });
     expect(service.kind).toBe('systemd');
     expect(await service.template()).toBe('unit REPO_PATH\n');
     expect(await service.installed()).toBeNull();
@@ -29,9 +36,9 @@ describe('serviceInstall', () => {
   });
 
   it('finds, stops and removes the unit installed under its old name', async () => {
-    const { repo, home } = await dirs();
+    const { templates, home } = await dirs();
     const ran: string[] = [];
-    const service = serviceInstall({ repo, home, user: 'u', uid: 1000, platform: 'linux', run: async (c, a) => (ran.push([c, ...a].join(' ')), '') });
+    const service = serviceInstall({ templates, home, user: 'u', uid: 1000, platform: 'linux', run: async (c, a) => (ran.push([c, ...a].join(' ')), '') });
     expect(await service.legacyInstalled()).toBe(false);
     const old = join(home, '.config', 'systemd', 'user', 'perch-agent.service');
     await mkdir(dirname(old), { recursive: true });
@@ -51,9 +58,9 @@ describe('serviceInstall', () => {
   });
 
   it('boots out and removes the launchd agent installed under its old label', async () => {
-    const { repo, home } = await dirs();
+    const { templates, home } = await dirs();
     const ran: string[] = [];
-    const service = serviceInstall({ repo, home, user: 'u', uid: 501, platform: 'darwin', run: async (c, a) => (ran.push([c, ...a].join(' ')), '') });
+    const service = serviceInstall({ templates, home, user: 'u', uid: 501, platform: 'darwin', run: async (c, a) => (ran.push([c, ...a].join(' ')), '') });
     const old = join(home, 'Library', 'LaunchAgents', 'com.perch.agent.plist');
     await mkdir(dirname(old), { recursive: true });
     await writeFile(old, '<plist/>\n');
@@ -65,11 +72,11 @@ describe('serviceInstall', () => {
   });
 
   it('is not enabled without linger, or when systemctl says it is not enabled', async () => {
-    const { repo, home } = await dirs();
-    const noLinger = serviceInstall({ repo, home, user: 'u', uid: 1000, platform: 'linux', run: async (_c, a) => (a.includes('Linger') ? 'no\n' : '') });
+    const { templates, home } = await dirs();
+    const noLinger = serviceInstall({ templates, home, user: 'u', uid: 1000, platform: 'linux', run: async (_c, a) => (a.includes('Linger') ? 'no\n' : '') });
     expect(await noLinger.enabled()).toBe(false);
     const disabled = serviceInstall({
-      repo,
+      templates,
       home,
       user: 'u',
       uid: 1000,
@@ -83,22 +90,22 @@ describe('serviceInstall', () => {
   });
 
   it('stops when systemctl --user cannot reach the user manager, instead of reading it as not enabled', async () => {
-    const { repo, home } = await dirs();
+    const { templates, home } = await dirs();
     const run = (stderr: string) => async (_c: string, a: string[]) => {
       if (a.includes('is-enabled')) throw new Error(`systemctl --user is-enabled tarfa-agent failed: ${stderr}`);
       return 'yes\n';
     };
-    const unreachable = serviceInstall({ repo, home, user: 'u', uid: 1000, platform: 'linux', run: run('Failed to connect to bus: No medium found') });
+    const unreachable = serviceInstall({ templates, home, user: 'u', uid: 1000, platform: 'linux', run: run('Failed to connect to bus: No medium found') });
     await expect(unreachable.enabled()).rejects.toThrow(/XDG_RUNTIME_DIR=\/run\/user\/\$\(id -u\)/);
-    const notFound = serviceInstall({ repo, home, user: 'u', uid: 1000, platform: 'linux', run: run('not-found') });
+    const notFound = serviceInstall({ templates, home, user: 'u', uid: 1000, platform: 'linux', run: run('not-found') });
     expect(await notFound.enabled()).toBe(false);
   });
 
   it('installs a launchd agent, replacing a loaded one', async () => {
-    const { repo, home } = await dirs();
+    const { templates, home } = await dirs();
     const ran: string[] = [];
     const service = serviceInstall({
-      repo,
+      templates,
       home,
       user: 'u',
       uid: 501,

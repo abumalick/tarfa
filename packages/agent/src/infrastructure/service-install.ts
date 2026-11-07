@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ServiceInstallPort } from '../ports/service-install-port';
 import { childEnv } from './child-env';
+import { packageRoot } from './package-root';
 
 export type Run = (command: string, args: string[]) => Promise<string>;
 
@@ -36,10 +37,10 @@ async function readOrNull(path: string): Promise<string | null> {
   }
 }
 
-// The agent's service as docs/DEPLOY.md installs it, from the checkout's deploy/ templates: a
+// The agent's service as docs/DEPLOY.md installs it, from the package's templates/: a
 // systemd user unit kept running without a login session by linger, or a launchd agent.
 export function serviceInstall(options: {
-  repo: string;
+  templates?: string;
   home: string;
   user: string;
   uid: number;
@@ -47,13 +48,14 @@ export function serviceInstall(options: {
   run?: Run;
 }): ServiceInstallPort {
   const run = options.run ?? systemRun;
+  const templates = options.templates ?? join(packageRoot(), 'templates');
   if ((options.platform ?? process.platform) === 'darwin') {
     const plist = join(options.home, 'Library', 'LaunchAgents', 'app.tarfa.agent.plist');
     const domain = `gui/${options.uid}`;
     const legacyPlist = join(options.home, 'Library', 'LaunchAgents', `${LEGACY_LABEL}.plist`);
     return {
       kind: 'launchd',
-      template: () => readFile(join(options.repo, 'deploy', 'app.tarfa.agent.plist'), 'utf8'),
+      template: () => readFile(join(templates, 'app.tarfa.agent.plist'), 'utf8'),
       installed: () => readOrNull(plist),
       enabled: () => run('launchctl', ['print', `${domain}/app.tarfa.agent`]).then(() => true, () => false),
       async install(text) {
@@ -83,7 +85,7 @@ export function serviceInstall(options: {
   const legacyDropIns = `${legacyUnit}.d`;
   return {
     kind: 'systemd',
-    template: () => readFile(join(options.repo, 'deploy', 'tarfa-agent.service'), 'utf8'),
+    template: () => readFile(join(templates, 'tarfa-agent.service'), 'utf8'),
     installed: () => readOrNull(unit),
     async enabled() {
       const enabled = await run('systemctl', ['--user', 'is-enabled', 'tarfa-agent']).then(

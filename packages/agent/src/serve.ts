@@ -50,11 +50,14 @@ import { writeHookToken } from './infrastructure/token-file';
 import { assertPrivateFiles, securePrivateDir } from './infrastructure/private-dir';
 import { ensureUtf8Locale } from './infrastructure/ensure-utf8-locale';
 import { locateAgentEnv } from './infrastructure/agent-env-file';
+import { isEntrypoint, packageVersion } from './infrastructure/package-root';
 
 const ROSTER_POLL_MS = 3000;
+const agentVersion = packageVersion();
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   ensureUtf8Locale(process.env);
+  process.stdout.write(`tarfa agent: version ${agentVersion}\n`);
   // Before anything reads the state: ~/.perch becomes ~/.tarfa, and the agent key its new name.
   if ((await migrateStateDir(homedir())) === 'moved') {
     process.stdout.write(`tarfa agent: moved ~/.perch to ~/.tarfa (~/.perch is now a link to it)\n`);
@@ -150,6 +153,7 @@ async function main(): Promise<void> {
     pairings: new FilePairingStore(config.pairingPath),
     log,
     rosterPollMs: ROSTER_POLL_MS,
+    agentVersion,
   });
   // A port another agent on this machine already holds (a second Linux user left on the default)
   // must not crash-loop this one: it goes on without its phone port, and says so.
@@ -171,7 +175,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
-  process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-  process.exitCode = 1;
-});
+if (isEntrypoint(import.meta.url, process.argv[1])) {
+  main().catch((err: unknown) => {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  });
+}

@@ -50,6 +50,8 @@ export interface NoiseClientConnectionOptions {
   // takes them without one.
   refusalLog?: { line(key: string, text: string): void };
   startTimer?: (fn: () => void, ms: number) => () => void;
+  // Named on the accepted authResult beside the protocol.
+  agentVersion?: string;
 }
 
 type State =
@@ -114,7 +116,7 @@ export class NoiseClientConnection implements ClientConnection {
       return;
     }
     if (message.type === 'authResult' && message.ok) {
-      const accepted = { ...message, agent: { protocol: PROTOCOL_VERSION } };
+      const accepted = { ...message, agent: { protocol: PROTOCOL_VERSION, ...(this.options.agentVersion ? { version: this.options.agentVersion } : {}) } };
       message = accepted;
       if (!this.awaitingPhone) this.cancelDeadline();
       this.session.raiseCap(MAX_MESSAGE_BYTES);
