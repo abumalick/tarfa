@@ -19,6 +19,11 @@ const exec = promisify(execFile);
 const AGENT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SCRATCH_ROOT = join(AGENT_DIR, '..', '..', '.tmp');
 
+// A git hook exports GIT_DIR and friends, which any git a child runs would obey.
+function noGitVars(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith('GIT_')));
+}
+
 async function freePort(): Promise<number> {
   const server = createServer();
   server.listen(0, '127.0.0.1');
@@ -61,7 +66,7 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
     };
     let server: ReturnType<typeof spawn> | undefined;
     try {
-      const { stdout: packed } = await exec('pnpm', ['pack', '--pack-destination', tarballs], { cwd: AGENT_DIR });
+      const { stdout: packed } = await exec('pnpm', ['pack', '--pack-destination', tarballs], { cwd: AGENT_DIR, env: noGitVars(process.env) });
       const tarball = join(tarballs, packed.trim().split('\n').pop()!.split('/').pop()!);
 
       const listing = (await exec('tar', ['-tzf', tarball])).stdout.trim().split('\n');

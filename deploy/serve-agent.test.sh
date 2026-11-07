@@ -2,8 +2,9 @@
 # Tests for deploy/serve-agent.sh. It runs from a scratch git repo and a scratch HOME with a stub
 # systemctl, so no real service is restarted and no real symlink or agent-source is touched.
 set -euo pipefail
-# A git hook exports GIT_DIR and friends, which would send the scratch repo's git calls to the real one.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX
+# A git hook exports GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE and more, which would send the scratch
+# repo's git calls (init writes core.bare) to the real repository: strip every GIT_* variable first.
+for _v in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "${_v}"; done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"

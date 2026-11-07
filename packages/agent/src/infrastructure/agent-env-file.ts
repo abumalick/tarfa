@@ -10,13 +10,18 @@ import { installKind, type InstallKind } from './package-root';
 
 const exec = promisify(execFile);
 
+// A git hook exports GIT_DIR and friends, which would make `-C` name some other repository.
+function withoutGitVars(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith('GIT_')));
+}
+
 // The main checkout of a source install, where deploy/run-agent.sh sources deploy/agent.env from
 // even when a worktree is being served; null for a package install, which must not run git.
 export async function mainCheckout(kind: InstallKind = installKind()): Promise<string | null> {
   if (kind === 'package') return null;
   const here = dirname(fileURLToPath(import.meta.url));
   try {
-    const { stdout } = await exec('git', ['-C', here, 'rev-parse', '--path-format=absolute', '--git-common-dir']);
+    const { stdout } = await exec('git', ['-C', here, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { env: withoutGitVars(process.env) });
     return dirname(stdout.trim());
   } catch {
     return resolve(here, '..', '..', '..', '..');

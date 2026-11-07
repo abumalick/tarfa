@@ -3,6 +3,8 @@
 # deploy/run-agent.sh yields to it. Everything runs under a scratch HOME with a stub mise, so no
 # real agent starts and nothing outside the sandbox is read or written.
 set -euo pipefail
+# Nothing here runs git, but the scripts under test may not: keep a hook's GIT_* out of them.
+for _v in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "${_v}"; done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"
