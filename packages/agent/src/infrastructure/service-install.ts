@@ -49,6 +49,13 @@ async function backupFile(path: string): Promise<string | null> {
   return copy;
 }
 
+// launchd lets go of a label some time after `bootout` returns, and a `bootstrap` of the same
+// label meanwhile fails ("Bootstrap failed: 5: Input/output error").
+const LABEL_GONE_MS = 10_000;
+const BOOTSTRAP_TRIES = 5;
+const POLL_MS = 250;
+const RETRY_MS = 1_000;
+
 export function serviceInstall(options: {
   templates?: string;
   home: string;
@@ -56,30 +63,52 @@ export function serviceInstall(options: {
   uid: number;
   platform?: NodeJS.Platform;
   run?: Run;
+  sleep?: (ms: number) => Promise<void>;
 }): ServiceInstallPort {
   const run = options.run ?? systemRun;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const templates = options.templates ?? join(packageRoot(), 'templates');
   if ((options.platform ?? process.platform) === 'darwin') {
     const plist = join(options.home, 'Library', 'LaunchAgents', 'app.tarfa.agent.plist');
     const domain = `gui/${options.uid}`;
     const legacyPlist = join(options.home, 'Library', 'LaunchAgents', `${LEGACY_LABEL}.plist`);
+    const loaded = (label: string) => run('launchctl', ['print', `${domain}/${label}`]).then(() => true, () => false);
+    // Bounded and silent: a label still there when it runs out is the bootstrap's to report.
+    const untilGone = async (label: string) => {
+      for (let waited = 0; waited < LABEL_GONE_MS && (await loaded(label)); waited += POLL_MS) await sleep(POLL_MS);
+    };
     return {
       kind: 'launchd',
       template: () => readFile(join(templates, 'app.tarfa.agent.plist'), 'utf8'),
       installed: () => readOrNull(plist),
       backup: () => backupFile(plist),
-      enabled: () => run('launchctl', ['print', `${domain}/app.tarfa.agent`]).then(() => true, () => false),
+      enabled: () => loaded('app.tarfa.agent'),
       async install(text) {
         await atomicWrite(plist, text, 0o644);
         // Not loaded yet is the usual case on a fresh machine.
         await run('launchctl', ['bootout', `${domain}/app.tarfa.agent`]).catch(() => undefined);
-        await run('launchctl', ['bootstrap', domain, plist]);
-        return [`wrote ${plist}`, `launchctl bootstrap ${domain}`];
+        await untilGone('app.tarfa.agent');
+        // The plist is already the new one, so every try (the last included) bootstraps what is on
+        // disk: a remote Mac is left without its agent only if launchd refuses it every time.
+        let failure: unknown;
+        for (let attempt = 1; attempt <= BOOTSTRAP_TRIES; attempt++) {
+          try {
+            await run('launchctl', ['bootstrap', domain, plist]);
+            return [`wrote ${plist}`, `launchctl bootstrap ${domain}${attempt > 1 ? ` (try ${attempt})` : ''}`];
+          } catch (err) {
+            failure = err;
+            if (attempt < BOOTSTRAP_TRIES) await sleep(RETRY_MS);
+          }
+        }
+        const reason = failure instanceof Error ? failure.message : String(failure);
+        throw new Error(`no agent is loaded: ${reason} (${BOOTSTRAP_TRIES} tries). The new ${plist} is in place: load it with \`launchctl bootstrap ${domain} ${plist}\`, then run tarfa setup again`);
       },
       legacyInstalled: async () => (await readOrNull(legacyPlist)) !== null,
       legacyText: () => readOrNull(legacyPlist),
+      // The old agent holds the hooks and phone ports until launchd has stopped it.
       async stopLegacy() {
         await run('launchctl', ['bootout', `${domain}/${LEGACY_LABEL}`]).catch(() => undefined);
+        await untilGone(LEGACY_LABEL);
         return [`launchctl bootout ${domain}/${LEGACY_LABEL}`];
       },
       async removeLegacy() {

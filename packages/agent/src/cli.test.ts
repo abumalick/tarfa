@@ -516,6 +516,38 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       expect(m.unit()).toBe(unit);
       expect(await readFile(m.envPath, 'utf8')).toBe(live);
     });
+
+    it('reads machine id, roots, phone port and default path from agent.env on a bare rerun, and changes nothing', async () => {
+      const m = await machine(null, { kind: 'package' });
+      const second = ['--machine-id', 'dev-2', '--project-roots', '/home/v/a,/home/v/b', '--phone-port', '8798', '--default-path', '/home/v/a', '--address', 'wss://node.example.ts.net:443/v'];
+      await run(['setup', ...second], m.env, m.home, m.io);
+      const live = await readFile(m.envPath, 'utf8');
+      const unit = m.unit();
+      const asked: number[] = [];
+      const io: CliIo = { setup: { ...m.io.setup!, portOwner: async (port) => (asked.push(port), port === 8798 ? 'ours' : 'free') } };
+      m.calls.length = 0;
+      expect(await run(['setup'], m.env, m.home, io)).toMatch(/already set up/);
+      expect(m.calls).toEqual(['check']);
+      expect(asked).toContain(8798);
+      expect(await readFile(m.envPath, 'utf8')).toBe(live);
+      expect(m.unit()).toBe(unit);
+      expect(parseEnvFile(live)).toMatchObject({ TARFA_PHONE_ADDRESSES: 'wss://node.example.ts.net:443/v' });
+    });
+
+    it('still lets a flag win over agent.env on a rerun', async () => {
+      const m = await machine(null, { kind: 'package' });
+      await run(['setup', ...FLAGS], m.env, m.home, m.io);
+      await run(['setup', '--machine-id', 'renamed'], m.env, m.home, m.io);
+      expect(parseEnvFile(await readFile(m.envPath, 'utf8'))).toMatchObject({ TARFA_MACHINE_ID: 'renamed', TARFA_PROJECT_ROOTS: '/home/u/workspace' });
+    });
+
+    it('names the env file it read when a value is still missing', async () => {
+      const m = await machine(null, { kind: 'package' });
+      await expect(run(['setup'], m.env, m.home, m.io)).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining(`--machine-id is required: letters, digits, . _ - (at most 64) (there is no ${m.envPath} yet to read them from)`) });
+      await mkdir(dirname(m.envPath), { recursive: true, mode: 0o700 });
+      await writeFile(m.envPath, 'TARFA_TOKEN=t\nTARFA_MACHINE_ID=dev\n', { mode: 0o600 });
+      await expect(run(['setup'], m.env, m.home, m.io)).rejects.toThrow(`--project-roots is required: absolute paths, comma-separated (a value not given as a flag is read from ${m.envPath})`);
+    });
   });
 
   describe('adopting a clone install', () => {

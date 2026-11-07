@@ -57,7 +57,10 @@ writes the launcher and the `~/.local/bin/tarfa` wrapper, installs the systemd u
 `tailscale serve` (or `funnel`) handler for the phone port, restarts the agent only if anything
 changed and checks the phone port answers. On a machine whose existing roster has token
 enrolment on, a run that leaves phones an address (new, or already in `agent.env`) refuses until `--token-enrolment off` switches it
-off or `--token-enrolment on` keeps it deliberately. Rerun with the same flags, it changes nothing. It
+off or `--token-enrolment on` keeps it deliberately. Rerun with the same flags, or with none, it changes
+nothing: a flag not given takes the machine id, roots, phone port and default path from the `agent.env`
+it finds, and a flag given still wins. How the port is published is not in `agent.env`, so `--tailscale`
+defaults to `none`, which changes nothing, and the `TARFA_PHONE_ADDRESSES` already there are kept. It
 never replaces an agent key, a token, an installed unit that already runs the launcher (or a clone's
 `deploy/run-agent.sh`) with `KillMode=process`, or a `tailscale serve` entry pointing elsewhere.
 An existing `TARFA_PWA_ORIGIN` is kept unless `--pwa` names another (the default is
@@ -80,7 +83,9 @@ It refuses from a clone and when no service is installed. In order, it: moves `~
 `deploy/agent-live` only when it is a symlink; rewrites the unit to run the launcher (the old text is
 kept as `<unit>.bak-<time>`); restarts the agent; and writes the `tarfa` wrapper over a link into the
 clone. Every flag you do not give (machine id, roots, phone port, default path) is read from the
-copied env. The agent key, roster and parked and live state are never touched. A package-run
+copied env. On macOS, launchd lets go of a label a moment after `bootout`, so setup waits for it and
+retries a refused `bootstrap` for a few seconds; if it still fails, it says no agent is loaded and
+prints the `launchctl bootstrap` line that loads the new plist. The agent key, roster and parked and live state are never touched. A package-run
 `tarfa setup` that finds such a unit adopts it the same way. Afterwards, `command -v tarfa` inside a
 workspace pane must print `~/.local/bin/tarfa` (the wrapper); another path means something else comes
 first on PATH: a project's `tarfa`, a mise shim, or another install directory (setup and `tarfa apply`
@@ -96,7 +101,9 @@ ls -l "$(mise where npm:@tarfa/cli)/lib/node_modules/@tarfa/cli/node_modules/nod
 Linux: copy the unit's `~/.config/systemd/user/tarfa-agent.service.bak-<time>` back over it, then
 `systemctl --user daemon-reload` and `systemctl --user restart tarfa-agent`. macOS: copy
 `~/Library/LaunchAgents/app.tarfa.agent.plist.bak-<time>` back, then
-`launchctl bootout gui/$UID/app.tarfa.agent` and `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/app.tarfa.agent.plist`.
+`launchctl bootout gui/$UID/app.tarfa.agent`, wait until `launchctl print gui/$UID/app.tarfa.agent`
+fails (a bootstrap before then fails with `5: Input/output error`), and
+`launchctl bootstrap gui/$UID ~/Library/LaunchAgents/app.tarfa.agent.plist`.
 
 ### A machine set up as Perch
 Install the package (above) and run `tarfa setup --adopt`, or, from a clone (`git pull`,

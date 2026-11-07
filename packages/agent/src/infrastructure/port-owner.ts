@@ -5,7 +5,19 @@ import { promisify } from 'node:util';
 import type { PortOwner } from '../application/setup-machine';
 import { childEnv } from './child-env';
 
-const exec = promisify(execFile);
+export interface PortOwnerDeps {
+  exec: (command: string, args: string[]) => Promise<string>;
+  readFile: (path: string) => Promise<string>;
+}
+
+const run = promisify(execFile);
+const systemDeps: PortOwnerDeps = {
+  exec: async (command, args) => (await run(command, args, { env: childEnv() })).stdout,
+  readFile: (path) => readFile(path, 'utf8'),
+};
+
+// The launcher execs `node <install>/bin/tarfa serve`; a source checkout runs src/serve.ts.
+const AGENT_COMMAND = /\bsrc\/serve\.ts\b|(^|[\s/])tarfa serve(\s|$)/;
 
 function isFree(port: number): Promise<boolean> {
   return new Promise((resolve, reject) => {
@@ -17,14 +29,14 @@ function isFree(port: number): Promise<boolean> {
 
 // A listener is "ours" when it is this user's running agent. Neither ss nor lsof shows another
 // user's processes without root, so a taken port with no pid we can see belongs to someone else.
-async function listenerPid(port: number, platform: NodeJS.Platform): Promise<number | null> {
+async function listenerPid(port: number, platform: NodeJS.Platform, deps: PortOwnerDeps): Promise<number | null> {
   try {
     if (platform === 'darwin') {
-      const { stdout } = await exec('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { env: childEnv() });
+      const stdout = await deps.exec('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
       const pid = Number(stdout.trim().split('\n')[0]);
       return pid > 0 ? pid : null;
     }
-    const { stdout } = await exec('ss', ['-ltnpH', `sport = :${port}`], { env: childEnv() });
+    const stdout = await deps.exec('ss', ['-ltnpH', `sport = :${port}`]);
     const pid = /pid=(\d+)/.exec(stdout)?.[1];
     return pid ? Number(pid) : null;
   } catch {
@@ -32,21 +44,20 @@ async function listenerPid(port: number, platform: NodeJS.Platform): Promise<num
   }
 }
 
-async function isAgent(pid: number, platform: NodeJS.Platform): Promise<boolean> {
+async function isAgent(pid: number, platform: NodeJS.Platform, deps: PortOwnerDeps): Promise<boolean> {
   try {
     if (platform === 'darwin') {
-      const { stdout } = await exec('ps', ['-o', 'command=', '-p', String(pid)], { env: childEnv() });
-      return /\bsrc\/serve\.ts\b/.test(stdout);
+      return AGENT_COMMAND.test((await deps.exec('ps', ['-o', 'command=', '-p', String(pid)])).trim());
     }
     // The unit had the old name until setup swaps it.
-    return /\/(tarfa|perch)-agent\.service\b/.test(await readFile(`/proc/${pid}/cgroup`, 'utf8'));
+    return /\/(tarfa|perch)-agent\.service\b/.test(await deps.readFile(`/proc/${pid}/cgroup`));
   } catch {
     return false;
   }
 }
 
-export async function portOwner(port: number, platform: NodeJS.Platform = process.platform): Promise<PortOwner> {
+export async function portOwner(port: number, platform: NodeJS.Platform = process.platform, deps: PortOwnerDeps = systemDeps): Promise<PortOwner> {
   if (await isFree(port)) return 'free';
-  const pid = await listenerPid(port, platform);
-  return pid !== null && (await isAgent(pid, platform)) ? 'ours' : 'other';
+  const pid = await listenerPid(port, platform, deps);
+  return pid !== null && (await isAgent(pid, platform, deps)) ? 'ours' : 'other';
 }

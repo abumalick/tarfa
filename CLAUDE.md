@@ -158,11 +158,17 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   launcher, remove the clone's `deploy/agent-live` **only if it is a symlink** (before the unit is
   rewritten, so a rerun after a failure still knows the clone), unit (old text kept as
   `<unit>.bak-<time>`), restart, wrapper; the agent key, roster and parked/live state are never
-  touched, so no phone pairs again, and `--adopt` takes machine id, roots, phone port and default
-  path from that env unless given; **hooks count as installed regardless of key order and entry order**
+  touched, so no phone pairs again; **every run takes machine id, roots, phone port and default path
+  from the agent.env it found (or the clone's, when adopting) unless a flag gives one**, so a bare rerun
+  of an adopted machine plans nothing, while `--tailscale` is never read from it (not in agent.env;
+  `none` changes nothing and keeps `TARFA_PHONE_ADDRESSES`); **on macOS the install waits for launchd to
+  drop the label after `bootout` and retries `bootstrap`** (a bootstrap right after a bootout fails
+  `5: Input/output error`), then says no agent is loaded and how to load the plist on disk; **hooks count as installed regardless of key order and entry order**
   (Claude Code rewrites `settings.json` with sorted keys); **an existing `TARFA_PWA_ORIGIN` is
   kept unless `--pwa` is given**; **a phone or hooks port held by anything but this user's
-  agent is refused** (another Linux user's processes are invisible to `ss`/`lsof`); and **an
+  agent is refused** (another Linux user's processes are invisible to `ss`/`lsof`; the agent is a
+  listener in the `tarfa-agent`/`perch-agent` unit's cgroup, and on macOS one whose command is
+  `… tarfa serve`, which the launcher execs, or a checkout's `src/serve.ts`); and **an
   existing serve handler on the same port and path is never replaced**; **an existing roster with
   token enrolment on is never published silently** (any phone address and no `--token-enrolment`
   → refused, an address already in agent.env included); **the `--tailscale none` operator line

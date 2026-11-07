@@ -19,6 +19,30 @@ async function dirs() {
   return { templates, home };
 }
 
+// A fake launchctl: a label booted out stays loaded for `lingers` more prints, and bootstrap fails
+// its first `failures` tries, as launchd does while it still holds the label.
+function launchctl(ran: string[], { lingers = 0, failures = 0 }: { lingers?: number; failures?: number } = {}) {
+  let loaded = false;
+  let prints = 0;
+  let bootstraps = 0;
+  return async (c: string, a: string[]) => {
+    ran.push([c, ...a].join(' '));
+    if (a[0] === 'bootout') {
+      if (!loaded && lingers === 0) throw new Error('not loaded');
+      loaded = true;
+      prints = lingers;
+      return '';
+    }
+    if (a[0] === 'print') {
+      if (loaded && prints-- > 0) return 'state = running\n';
+      loaded = false;
+      throw new Error('could not find service');
+    }
+    if (a[0] === 'bootstrap' && bootstraps++ < failures) throw new Error('launchctl bootstrap failed: Bootstrap failed: 5: Input/output error');
+    return '';
+  };
+}
+
 describe('serviceInstall', () => {
   it('reads the templates the package ships by default', async () => {
     const home = await mkdtemp(join(tmpdir(), 'tarfa-svc-home-'));
@@ -67,13 +91,13 @@ describe('serviceInstall', () => {
   it('boots out and removes the launchd agent installed under its old label', async () => {
     const { templates, home } = await dirs();
     const ran: string[] = [];
-    const service = serviceInstall({ templates, home, user: 'u', uid: 501, platform: 'darwin', run: async (c, a) => (ran.push([c, ...a].join(' ')), '') });
+    const service = serviceInstall({ templates, home, user: 'u', uid: 501, platform: 'darwin', sleep: async () => undefined, run: launchctl(ran) });
     const old = join(home, 'Library', 'LaunchAgents', 'com.perch.agent.plist');
     await mkdir(dirname(old), { recursive: true });
     await writeFile(old, '<plist/>\n');
     expect(await service.legacyInstalled()).toBe(true);
     await service.stopLegacy();
-    expect(ran).toEqual(['launchctl bootout gui/501/com.perch.agent']);
+    expect(ran).toEqual(['launchctl bootout gui/501/com.perch.agent', 'launchctl print gui/501/com.perch.agent']);
     await service.removeLegacy();
     expect(await service.legacyInstalled()).toBe(false);
   });
@@ -111,23 +135,50 @@ describe('serviceInstall', () => {
   it('installs a launchd agent, replacing a loaded one', async () => {
     const { templates, home } = await dirs();
     const ran: string[] = [];
-    const service = serviceInstall({
-      templates,
-      home,
-      user: 'u',
-      uid: 501,
-      platform: 'darwin',
-      run: async (c, a) => {
-        ran.push([c, ...a].join(' '));
-        if (a[0] === 'bootout') throw new Error('not loaded');
-        return '';
-      },
-    });
+    const service = serviceInstall({ templates, home, user: 'u', uid: 501, platform: 'darwin', sleep: async () => undefined, run: launchctl(ran) });
     expect(service.kind).toBe('launchd');
     await service.install('plist /r\n');
     const plist = join(home, 'Library', 'LaunchAgents', 'app.tarfa.agent.plist');
     expect(await readFile(plist, 'utf8')).toBe('plist /r\n');
-    expect(ran).toEqual(['launchctl bootout gui/501/app.tarfa.agent', `launchctl bootstrap gui/501 ${plist}`]);
+    expect(ran).toEqual(['launchctl bootout gui/501/app.tarfa.agent', 'launchctl print gui/501/app.tarfa.agent', `launchctl bootstrap gui/501 ${plist}`]);
+  });
+
+  it('waits for launchd to let go of the label before bootstrapping it again', async () => {
+    const { templates, home } = await dirs();
+    const ran: string[] = [];
+    const slept: number[] = [];
+    const run = launchctl(ran, { lingers: 3 });
+    const service = serviceInstall({ templates, home, user: 'u', uid: 501, platform: 'darwin', sleep: async (ms) => void slept.push(ms), run });
+    await service.install('plist /r\n');
+    expect(ran.filter((line) => line.includes('print'))).toHaveLength(4);
+    expect(ran.at(-1)).toMatch(/^launchctl bootstrap gui\/501 /);
+    expect(slept).toEqual([250, 250, 250]);
+  });
+
+  it('retries a bootstrap launchd refuses, and reports it ran', async () => {
+    const { templates, home } = await dirs();
+    const ran: string[] = [];
+    const service = serviceInstall({ templates, home, user: 'u', uid: 501, platform: 'darwin', sleep: async () => undefined, run: launchctl(ran, { failures: 2 }) });
+    expect((await service.install('plist /r\n')).at(-1)).toBe('launchctl bootstrap gui/501 (try 3)');
+    expect(ran.filter((line) => line.includes('bootstrap'))).toHaveLength(3);
+  });
+
+  it('gives up after a bounded number of tries, naming the command that loads the plist on disk', async () => {
+    const { templates, home } = await dirs();
+    const ran: string[] = [];
+    const service = serviceInstall({ templates, home, user: 'u', uid: 501, platform: 'darwin', sleep: async () => undefined, run: launchctl(ran, { failures: 99 }) });
+    const plist = join(home, 'Library', 'LaunchAgents', 'app.tarfa.agent.plist');
+    await expect(service.install('plist /r\n')).rejects.toThrow(`no agent is loaded: launchctl bootstrap failed: Bootstrap failed: 5: Input/output error (5 tries). The new ${plist} is in place: load it with \`launchctl bootstrap gui/501 ${plist}\``);
+    expect(ran.filter((line) => line.includes('bootstrap'))).toHaveLength(5);
+    expect(await readFile(plist, 'utf8')).toBe('plist /r\n');
+  });
+
+  it('stops waiting for a label that never goes, and lets the bootstrap report', async () => {
+    const { templates, home } = await dirs();
+    const ran: string[] = [];
+    const service = serviceInstall({ templates, home, user: 'u', uid: 501, platform: 'darwin', sleep: async () => undefined, run: launchctl(ran, { lingers: 1_000 }) });
+    await service.install('plist /r\n');
+    expect(ran.filter((line) => line.includes('print'))).toHaveLength(40);
   });
 
   it('keeps a copy of the installed unit or plist beside it, and reads the legacy one', async () => {

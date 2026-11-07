@@ -608,8 +608,9 @@ Sets this machine up as a Tarfa agent, without prompting: agent.env (backed up f
 for an installed package), the launcher the service runs (~/.tarfa/bin/tarfa-agent), the
 agent key, a new device roster that admits pairing codes only (an existing one is kept), the service started at boot (systemd
 user unit with linger, or launchd), the Claude Code hooks, and optionally a Tailscale address for
-phones. Rerunning it with the same flags changes nothing. It refuses rather than replace anything
-it did not make (an agent key, a token, another tailscale serve entry).
+phones. Rerunning it with the same flags, or with none, changes nothing: --machine-id, --project-roots,
+--phone-port and --default-path default to what the agent.env it finds holds. It refuses rather than
+replace anything it did not make (an agent key, a token, another tailscale serve entry).
 
   --machine-id <id>             the name phones show for this machine
   --project-roots <dir,dir>     absolute folders new workspaces may be made in
@@ -697,22 +698,23 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
     envText = await readText(envPath);
   }
 
-  // An adoption takes what the machine already runs for every flag it is not given.
-  const adopting = adoptRequested || cloneRepo !== null;
-  const given = adopting ? withLegacyEnv(parseEnvFile(envText ?? '')) : {};
+  // A flag not given takes what the machine already runs (the agent.env found above, or the one an
+  // adoption copies), so a bare rerun plans nothing. How the port is published is not in agent.env:
+  // --tailscale defaults to none, which changes nothing, and TARFA_PHONE_ADDRESSES is kept.
+  const given = withLegacyEnv(parseEnvFile(envText ?? ''));
   const filled = (name: string, value: string | undefined) => (value !== undefined && !argv.includes(name) ? [name, value] : []);
-  const flags = parseSetupFlags(
-    adopting
-      ? [
-          ...argv,
-          ...filled('--machine-id', given.TARFA_MACHINE_ID),
-          ...filled('--project-roots', given.TARFA_PROJECT_ROOTS?.split(':').join(',')),
-          ...filled('--phone-port', given.TARFA_PHONE_PORT),
-          ...filled('--default-path', given.TARFA_DEFAULT_PATH),
-        ]
-      : argv,
-  );
-  if ('error' in flags) throw new UsageError(`${flags.error}\n\n${SETUP_USAGE.split('\n')[0]}\n(tarfa setup --help for every option)`);
+  const flags = parseSetupFlags([
+    ...argv,
+    ...filled('--machine-id', given.TARFA_MACHINE_ID),
+    ...filled('--project-roots', given.TARFA_PROJECT_ROOTS?.split(':').join(',')),
+    ...filled('--phone-port', given.TARFA_PHONE_PORT),
+    ...filled('--default-path', given.TARFA_DEFAULT_PATH),
+  ]);
+  if ('error' in flags) {
+    const read = cloneRepo !== null && copyEnv ? joinPath(cloneRepo, 'deploy', 'agent.env') : envPath;
+    const source = envText === null ? `there is no ${read} yet to read them from` : `a value not given as a flag is read from ${read}`;
+    throw new UsageError(`${flags.error} (${source})\n\n${SETUP_USAGE.split('\n')[0]}\n(tarfa setup --help for every option)`);
+  }
 
   const repo = await mainCheckout(kind);
   const config = loadConfig({ ...withLegacyEnv(parseEnvFile(envText ?? '')), TARFA_MACHINE_ID: flags.machineId }, home);
