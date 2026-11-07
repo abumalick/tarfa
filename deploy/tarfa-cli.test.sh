@@ -2,7 +2,9 @@
 # Tests for deploy/install-cli.sh and the deploy/tarfa-cli.sh shim it links.
 # install-cli.sh runs under a fake HOME, so the real ~/.local/bin is never touched. The shim runs
 # under the real HOME (mise needs it to find node) but only on paths that fail before any file
-# or tmux server is touched.
+# or tmux server is touched, or against a stub tmux that answers for one made-up session, and
+# should one reach the real tmux, it finds an empty sandbox instead of the server of the pane this
+# test runs in.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,6 +12,8 @@ REPO="$(cd "${HERE}/.." && pwd)"
 mkdir -p "${REPO}/.tmp"
 SANDBOX="$(mktemp -d "${REPO}/.tmp/tarfa-cli-test.XXXXXX")"
 trap 'rm -rf "${SANDBOX}"' EXIT
+unset TMUX TMUX_PANE
+export TMUX_TMPDIR="${SANDBOX}"
 
 fails=0
 check() {
@@ -75,6 +79,24 @@ ln -s "${HERE}/perch-cli.sh" "${SANDBOX}/bin/old-perch"
 status=0
 out="$(cd "${SANDBOX}/cwd" && TARFA_AGENT_ENV="${NO_ENV}" "${SANDBOX}/bin/old-perch" peek 2>&1)" || status=$?
 check "an install from before the rename still runs through deploy/perch-cli.sh" "usage: tarfa peek <workspace id> [-n <lines>]" "${out}"
+
+# `tarfa wait` promises its exit codes to scripts, and only the entrypoint turns errors into them.
+mkdir -p "${SANDBOX}/stub"
+cat > "${SANDBOX}/stub/tmux" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = list-sessions ]; then printf 'perch-tarfaclistub|:|/w|:|%s|:|h|:|h|:|claude|:||:||:||:||:||:||:||:|\n' "$(date +%s)"; fi
+EOF
+chmod +x "${SANDBOX}/stub/tmux"
+wait_cli() { (cd "${SANDBOX}/cwd" && PATH="${SANDBOX}/stub:${PATH}" TARFA_AGENT_ENV="${NO_ENV}" "${SANDBOX}/bin/tarfa" wait "$@" 2>&1); }
+status=0; out="$(wait_cli perch-tarfacligone)" || status=$?
+check "wait prints the id and state of a stopped workspace" "perch-tarfacligone gone" "${out}"
+check "a stop exits 0" "0" "${status}"
+status=0; out="$(wait_cli perch-tarfaclistub --timeout 10)" || status=$?
+check "wait names what it waited on at a timeout" "timed out after 10s, no stop to report: perch-tarfaclistub" "${out}"
+check "a timeout exits 124" "124" "${status}"
+status=0; out="$(wait_cli)" || status=$?
+check "wait without an id prints its usage" "usage: tarfa wait <workspace id>... [--timeout <seconds, at least 10>]" "${out}"
+check "a usage error exits 2" "2" "${status}"
 
 if [ "${fails}" -gt 0 ]; then
   echo "${fails} check(s) failed"

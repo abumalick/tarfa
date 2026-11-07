@@ -125,8 +125,8 @@ The child then:
   carries the owner's authority.
 
 Without `--child` the workspace is an ordinary one the user drives (the default;
-orchestration is explicit). The orchestrator's side is the `tarfa-orchestrate` skill. A Codex
-or Pi child has no Claude idle notice, so the orchestrator follows it with `tarfa peek`/`tarfa ls`.
+orchestration is explicit). The orchestrator's side is the `tarfa-orchestrate` skill: it follows
+any child, whatever its CLI, with `tarfa wait`, and closes it with `tarfa close`.
 
 ## Writing the brief
 

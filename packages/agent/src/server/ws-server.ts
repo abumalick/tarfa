@@ -29,6 +29,7 @@ import type { ClientLogPort } from '../ports/client-log-port';
 import type { WorkspaceLogPort } from '../ports/workspace-log-port';
 import type { ParkedStorePort } from '../ports/parked-store-port';
 import { unparkWorkspace } from '../application/unpark-workspace';
+import { finishClose, retireWorkspace } from '../application/retire-workspace';
 import type { LiveSnapshotPort } from '../ports/live-snapshot-port';
 import type { ProcessScopePort } from '../ports/process-scope-port';
 import type { SystemStatsPort } from '../ports/system-stats-port';
@@ -311,11 +312,12 @@ export class WsServer {
     });
   }
 
-  // Three routes, all behind the hooks secret: `/hooks` for Claude Code's hook events, `/unpark`
-  // for `tarfa unpark`, which must go through the agent because it holds status.json in memory and
-  // writes parked.json itself, and `/message` for `tarfa send`, whose marks live here too.
+  // Four routes, all behind the hooks secret: `/hooks` for Claude Code's hook events; `/unpark` for
+  // `tarfa unpark` and `/close` for `tarfa close`, which must go through the agent because it holds
+  // status.json in memory, writes parked.json itself and tells the phones; and `/message` for
+  // `tarfa send`, whose marks live here too.
   private handleHttp(req: IncomingMessage, res: ServerResponse): void {
-    const routes = this.deps.messaging ? ['/hooks', '/unpark', '/message'] : ['/hooks', '/unpark'];
+    const routes = this.deps.messaging ? ['/hooks', '/unpark', '/close', '/message'] : ['/hooks', '/unpark', '/close'];
     if (req.method !== 'POST' || !routes.includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
@@ -345,6 +347,10 @@ export class WsServer {
       if (refused) return;
       if (route === '/unpark') {
         void this.handleUnpark(body, res);
+        return;
+      }
+      if (route === '/close') {
+        void this.handleClose(body, res);
         return;
       }
       if (route === '/message') {
@@ -439,6 +445,53 @@ export class WsServer {
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ result }));
     } catch (err) {
       res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: (err as Error).message }));
+    }
+  }
+
+  private async handleClose(body: string, res: ServerResponse): Promise<void> {
+    let id: unknown;
+    try {
+      id = (JSON.parse(body) as { id?: unknown }).id;
+    } catch {
+      id = undefined;
+    }
+    if (typeof id !== 'string' || id === '') {
+      res.writeHead(400).end();
+      return;
+    }
+    const json = (status: number, answer: unknown) =>
+      res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(answer));
+    try {
+      const { tmux, parked, config } = this.deps;
+      // listSessions leaves out the sessions Tarfa did not make, whatever they are called.
+      const known = (await tmux.listSessions(config.sessionPrefix)).some((s) => s.name === id) || (await parked.get(id));
+      if (!known) {
+        json(200, { result: 'no-such-workspace' });
+        return;
+      }
+      const scope = await retireWorkspace(
+        {
+          ...this.deps,
+          forgetWorkspace: (workspace, closing) => this.forgetWorkspace(workspace, closing),
+          dropWorkspaceState: (workspace) => this.dropWorkspaceState(workspace),
+          snapshot: async (workspace) =>
+            (
+              await listWorkspaces({
+                tmux,
+                machineId: config.machineId,
+                sessionPrefix: config.sessionPrefix,
+                status: this.deps.status,
+                messagedLast: this.messagedLast,
+              })
+            ).find((w) => w.id === workspace),
+        },
+        id,
+      );
+      this.broadcastClosed(id);
+      json(200, { result: 'closed' });
+      void finishClose(this.deps, id, scope);
+    } catch (err) {
+      json(500, { error: (err as Error).message });
     }
   }
 

@@ -3,7 +3,7 @@ import type { WorkspaceStatus } from '@tarfa/contracts';
 // What to do with the session's deferral mark: `set` it, `clear` it, or leave it alone.
 type Deferral = 'set' | 'clear' | 'keep';
 
-// Which rule decided, for the hook-event log only: nothing acts on it.
+// Which rule decided, for the hook-event log; only applyHookEvent's `sentDuringTool` bookkeeping acts on it.
 export type AttentionReason =
   | 'stop'
   | 'stop-background'
@@ -114,7 +114,7 @@ export function attentionDecision(input: {
   claude?: unknown;
   wasDeferred: boolean;
   messagedLast?: boolean;
-  // Whether a `tarfa send` marked this session during the tool call this PostToolUse closes.
+  // Whether a `tarfa send` marked this session with no later tool call since (`markSent`).
   sentDuringTool?: boolean;
   questionPending?: boolean;
   currentStatus?: WorkspaceStatus;
@@ -172,7 +172,8 @@ export function attentionDecision(input: {
         return { reason: 'blocking-tool', status: 'needs-feedback', deferral: 'clear' };
       }
       if (input.event === 'PostToolUse') {
-        // The send ran inside this very tool call, so its PostToolUse is not a later tool call.
+        // The send ran inside this tool call (or, under Codex, this is a poll: `markSent`), so
+        // this PostToolUse is not a later tool call.
         if (input.sentDuringTool && !isPeerMessage(input.claude)) {
           return { reason: 'tarfa-send', status: 'working', deferral: 'keep' };
         }
@@ -183,7 +184,9 @@ export function attentionDecision(input: {
           messagedLast: isPeerMessage(input.claude) ? 'set' : 'clear',
         };
       }
-      return { reason: 'tool', status: 'working', deferral: 'keep' };
+      // Another tool starting means the turn went on past any message it sent. Not while a send
+      // is pending: Pi posts its hooks from a queue, so this may be the send's own PreToolUse, late.
+      return { reason: 'tool', status: 'working', deferral: 'keep', ...(input.sentDuringTool ? {} : { messagedLast: 'clear' as const }) };
     default:
       return { reason: 'unknown-event', status: null, deferral: 'keep' };
   }

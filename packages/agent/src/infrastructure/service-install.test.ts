@@ -1,12 +1,19 @@
-import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { serviceInstall } from './service-install';
+
+const created: string[] = [];
+
+afterEach(async () => {
+  for (const dir of created.splice(0)) await rm(dir, { recursive: true, force: true });
+});
 
 async function dirs() {
   const templates = await mkdtemp(join(tmpdir(), 'tarfa-svc-templates-'));
   const home = await mkdtemp(join(tmpdir(), 'tarfa-svc-home-'));
+  created.push(templates, home);
   await writeFile(join(templates, 'tarfa-agent.service'), 'unit AGENT_COMMAND\n');
   await writeFile(join(templates, 'app.tarfa.agent.plist'), 'plist AGENT_COMMAND\n');
   return { templates, home };

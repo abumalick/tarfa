@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { ClaudeInbox, ClaudeSessionsPort } from '../ports/claude-sessions-port';
-import { parseClaudeSession } from '../application/parse-claude-session';
+import { isPrintRun, parseClaudeSession } from '../application/parse-claude-session';
 
 // Reads Claude Code's session registry (default ~/.claude/sessions), one json file per live
 // session. A missing directory yields an empty map, so an agent on a machine without Claude
@@ -27,7 +27,8 @@ export class FileClaudeSessionsStore implements ClaudeSessionsPort {
         .filter((f) => f.endsWith('.json'))
         .map(async (f) => {
           const entry = await this.read(join(this.dirPath, f));
-          if (entry) addresses[entry.tmuxSession] = entry.address;
+          // A print run never hides the name of the interactive session it runs inside.
+          if (entry && !(entry.print && addresses[entry.tmuxSession])) addresses[entry.tmuxSession] = entry.address;
         }),
     );
     return addresses;
@@ -40,19 +41,28 @@ export class FileClaudeSessionsStore implements ClaudeSessionsPort {
     } catch {
       return null;
     }
-    const live: Array<{ pid: number; pane: string; socketPath: string; peerProtocol: number }> = [];
+    const live: Array<{ pid: number; pane: string; socketPath: string; peerProtocol: number; print: boolean }> = [];
     for (const f of files.filter((name) => name.endsWith('.json'))) {
       const raw = await this.readJson(join(this.dirPath, f));
       if (typeof raw !== 'object' || raw === null) continue;
-      const { pid, tmux, messagingSocketPath, peerProtocol } = raw as Record<string, unknown>;
+      const { pid, tmux, messagingSocketPath, peerProtocol, entrypoint } = raw as Record<string, unknown>;
       if (typeof tmux !== 'string' || tmux.split(':')[0] !== tmuxSession) continue;
       if (typeof pid !== 'number' || !isAlive(pid)) continue;
       if (typeof messagingSocketPath !== 'string' || typeof peerProtocol !== 'number') continue;
       // `tmux` is "<session>:@<window>.%<pane>".
-      live.push({ pid, pane: tmux.split('.').pop() ?? '', socketPath: messagingSocketPath, peerProtocol });
+      live.push({
+        pid,
+        pane: tmux.split('.').pop() ?? '',
+        socketPath: messagingSocketPath,
+        peerProtocol,
+        print: isPrintRun(entrypoint),
+      });
     }
-    const onFirst = live.length > 1 ? live.filter((r) => firstPane && r.pane === firstPane) : live;
     if (live.length === 0) return null;
+    // A print run registers an inbox too; an interactive session on any pane comes first.
+    const interactive = live.filter((r) => !r.print);
+    const candidates = interactive.length > 0 ? interactive : live;
+    const onFirst = candidates.length > 1 ? candidates.filter((r) => firstPane && r.pane === firstPane) : candidates;
     if (onFirst.length !== 1) return 'ambiguous';
     const { pid, socketPath, peerProtocol } = onFirst[0]!;
     const token = await this.peerToken(pid, socketPath);

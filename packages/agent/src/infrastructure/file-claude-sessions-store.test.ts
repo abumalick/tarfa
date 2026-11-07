@@ -51,6 +51,21 @@ describe('FileClaudeSessionsStore', () => {
     });
   });
 
+  // Files are read concurrently, so the preference must hold whichever finishes first.
+  it.each([
+    ['12345', '23456'],
+    ['23456', '12345'],
+  ])('keeps the interactive address when a claude -p run shares the session (%s, %s)', async (interactivePid, printPid) => {
+    await write(interactivePid, { name: 'foo-cc', tmux: 'perch-aaa111:@1.%1', entrypoint: 'cli' });
+    await write(printPid, { name: 'print-run', tmux: 'perch-aaa111:@1.%1', entrypoint: 'sdk-cli' });
+    expect(await new FileClaudeSessionsStore(dir).addressesByTmuxSession()).toEqual({ 'perch-aaa111': 'foo-cc' });
+  });
+
+  it('names a session after its claude -p run when nothing else runs there', async () => {
+    await write('12345', { name: 'print-run', tmux: 'perch-aaa111:@1.%1', entrypoint: 'sdk-cli' });
+    expect(await new FileClaudeSessionsStore(dir).addressesByTmuxSession()).toEqual({ 'perch-aaa111': 'print-run' });
+  });
+
   // Only the per-session json files are entries; the directory also holds `.key` files.
   it('ignores files that are not json', async () => {
     await write('12345', { name: 'foo-cc', tmux: 'perch-aaa111:@1.%1' });
@@ -105,6 +120,37 @@ describe('FileClaudeSessionsStore.inboxOf', () => {
     await entry(process.pid, 'perch-aaa111:@1.%1');
     await entry(process.ppid, 'perch-aaa111:@1.%7');
     expect(await new FileClaudeSessionsStore(dir).inboxOf('perch-aaa111', '%7')).toEqual({ socketPath: sock(process.ppid), peerProtocol: 1 });
+  });
+
+  // A `claude -p` run inside a session's Bash shares its pane, and both say `kind: "interactive"`;
+  // only `entrypoint` tells them apart (`cli` against `sdk-cli`, measured on Claude Code 2.1.319).
+  it('prefers the interactive session over a claude -p run on the same pane', async () => {
+    await entry(process.pid, 'perch-aaa111:@1.%1', { kind: 'interactive', entrypoint: 'cli' });
+    await entry(process.ppid, 'perch-aaa111:@1.%1', { kind: 'interactive', entrypoint: 'sdk-cli' });
+    expect(await new FileClaudeSessionsStore(dir).inboxOf('perch-aaa111', '%1')).toEqual({ socketPath: sock(process.pid), peerProtocol: 1 });
+  });
+
+  it('prefers the interactive session over a claude -p run on the first pane', async () => {
+    await entry(process.pid, 'perch-aaa111:@1.%2', { entrypoint: 'cli' });
+    await entry(process.ppid, 'perch-aaa111:@1.%1', { entrypoint: 'sdk-cli' });
+    expect(await new FileClaudeSessionsStore(dir).inboxOf('perch-aaa111', '%1')).toEqual({ socketPath: sock(process.pid), peerProtocol: 1 });
+  });
+
+  it('counts an entry that names no entrypoint as interactive', async () => {
+    await entry(process.pid, 'perch-aaa111:@1.%1');
+    await entry(process.ppid, 'perch-aaa111:@1.%1', { entrypoint: 'sdk-ts' });
+    expect(await new FileClaudeSessionsStore(dir).inboxOf('perch-aaa111', '%1')).toEqual({ socketPath: sock(process.pid), peerProtocol: 1 });
+  });
+
+  it('still refuses two interactive sessions on the same pane', async () => {
+    await entry(process.pid, 'perch-aaa111:@1.%1', { entrypoint: 'cli' });
+    await entry(process.ppid, 'perch-aaa111:@1.%1', { entrypoint: 'cli' });
+    expect(await new FileClaudeSessionsStore(dir).inboxOf('perch-aaa111', '%1')).toBe('ambiguous');
+  });
+
+  it('delivers to a claude -p run when nothing else is live there', async () => {
+    await entry(process.pid, 'perch-aaa111:@1.%1', { entrypoint: 'sdk-cli' });
+    expect(await new FileClaudeSessionsStore(dir).inboxOf('perch-aaa111', '%1')).toEqual({ socketPath: sock(process.pid), peerProtocol: 1 });
   });
 
   it('refuses to pick when several live records name the session and none, or more than one, is on its first pane', async () => {
