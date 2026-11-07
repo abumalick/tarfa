@@ -31,7 +31,8 @@ the phone's device key, and streams its terminals. No agent listens off loopback
   `server/`.
   **It is also the published package.** `pnpm --filter @tarfa/cli build` (esbuild) bundles
   `src/cli.ts` and `src/serve.ts` into `dist/` with the two workspace packages inlined; `files`
-  adds the hook scripts, `templates/` and `scripts/postinstall.mjs`. Files are found with
+  adds the hook scripts and `templates/`. It has no install scripts (installers like mise run npm with
+  `--ignore-scripts`): `node-pty` is pinned to a version whose prebuilds load without its install step. Files are found with
   `packageRoot()` (`infrastructure/package-root.ts`, realpath of the running file up to its
   `package.json`), the same from `src/` and `dist/`, and `isEntrypoint` compares real paths so a
   bin symlink or shim still runs the CLI. Nothing in the package directory is written at runtime.

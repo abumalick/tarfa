@@ -20,18 +20,16 @@
     "dist",
     "src/hooks/tarfa-hook.sh",
     "src/hooks/tarfa-guard.sh",
-    "templates",
-    "scripts/postinstall.mjs"
+    "templates"
   ],
   "scripts": {
     "build": "esbuild src/cli.ts src/serve.ts --bundle --splitting --format=esm --platform=node --target=node24 --outdir=dist --external:node-pty --external:ws --external:qr --external:zod --banner:js='#!/usr/bin/env node' --legal-comments=none",
-    "prepack": "pnpm run build",
-    "postinstall": "node scripts/postinstall.mjs",
+    "prepack": "cp ../../LICENSE LICENSE && pnpm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "node-pty": "^1.0.0",
+    "node-pty": "1.2.0-beta.18",
     "qr": "^0.7.0",
     "ws": "^8.18.0",
     "zod": "^3.25.76"

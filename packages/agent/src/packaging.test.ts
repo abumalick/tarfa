@@ -74,6 +74,8 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
       expect(Object.keys(manifest.dependencies as Record<string, string>).sort()).toEqual(['node-pty', 'qr', 'ws', 'zod']);
       expect(manifest.repository).toMatchObject({ url: 'https://github.com/abumalick/tarfa' });
       expect(manifest.private).toBeUndefined();
+      expect(Object.keys((manifest.scripts as Record<string, string> | undefined) ?? {}).filter((n) => /^(pre|post)?install$|^prepare$/.test(n))).toEqual([]);
+      expect(listing).toContain('package/LICENSE');
 
       for (const wanted of [
         'dist/cli.js',
@@ -82,7 +84,6 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
         'templates/app.tarfa.agent.plist',
         'src/hooks/tarfa-hook.sh',
         'src/hooks/tarfa-guard.sh',
-        'scripts/postinstall.mjs',
       ]) {
         expect(listing).toContain(`package/${wanted}`);
       }
@@ -92,7 +93,7 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
         expect(text, js).not.toMatch(/from ["']@tarfa\//);
       }
 
-      await exec(process.execPath, [npmCli, 'install', '--global', '--prefix', prefix, '--allow-scripts=@tarfa/cli,node-pty', '--no-audit', '--no-fund', tarball], { env: cleanEnv, timeout: 540_000 });
+      await exec(process.execPath, [npmCli, 'install', '--global', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', tarball], { env: cleanEnv, timeout: 540_000 });
       const pkgDir = join(prefix, 'lib', 'node_modules', '@tarfa', 'cli');
       const bin = join(prefix, 'bin', 'tarfa');
 
@@ -100,6 +101,14 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
       expect((await exec(bin, ['--version'], { env: cleanEnv })).stdout.trim()).toBe(expected);
       expect((await exec(join(prefix, 'bin', 'perch'), ['--version'], { env: cleanEnv })).stdout.trim()).toBe(expected);
 
+      // Installed the way a version manager does, with no lifecycle script run: node-pty must load
+      // its prebuilt binding, and the helper it spawns through must already be executable.
+      const ptyDir = join(pkgDir, 'node_modules', 'node-pty');
+      const platformDir = join(ptyDir, 'prebuilds', `${process.platform}-${process.arch}`);
+      expect(await stat(join(platformDir, 'pty.node')).then(() => true, () => false)).toBe(true);
+      expect(await stat(join(ptyDir, 'build')).then(() => true, () => false)).toBe(false);
+      const helper = await stat(join(platformDir, 'spawn-helper')).catch(() => null);
+      if (helper) expect(helper.mode & 0o111).toBe(0o111);
       const ptyProbe = `const pty = require('node-pty'); const p = pty.spawn('echo', ['pty-works'], {}); let out = ''; p.onData((d) => (out += d)); p.onExit(() => { process.stdout.write(out); });`;
       expect((await exec(process.execPath, ['-e', ptyProbe], { cwd: pkgDir, env: cleanEnv })).stdout).toContain('pty-works');
 
