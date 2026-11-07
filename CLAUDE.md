@@ -483,7 +483,8 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     sender is proven by pane and the subagent's Bash runs in the parent's pane.
   - **A `claude -p` or SDK run yields to an interactive session:** it registers an inbox on the
     same pane with the same `kind`, so `inboxOf` tells them apart by `entrypoint` (`sdk-*`,
-    measured on 2.1.319). `several Claude sessions` is left for two interactive ones.
+    measured on 2.1.319). `several Claude sessions` is left for two interactive ones. The address
+    the PWA and `tarfa ls` show follows the same preference (`addressesByTmuxSession`).
   - **A refusal that passes says `retry in a few seconds`** (several sessions, agent not running):
     without it, senders went to Claude's `SendMessage` during an agent restart.
   - **Codex takes messages only in workspaces made by `tarfa spawn --cli codex`:** Tarfa creates

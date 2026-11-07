@@ -8,6 +8,14 @@ describe('parseClaudeSession', () => {
     ).toEqual({ tmuxSession: 'perch-bbb222', address: 'perch-be' });
   });
 
+  it('marks a claude -p or SDK run, and only those', () => {
+    const base = { name: 'perch-be', tmux: 'perch-bbb222:@2.%2' };
+    expect(parseClaudeSession({ ...base, entrypoint: 'sdk-cli' })?.print).toBe(true);
+    expect(parseClaudeSession({ ...base, entrypoint: 'sdk-ts' })?.print).toBe(true);
+    expect(parseClaudeSession({ ...base, entrypoint: 'cli' })?.print).toBeUndefined();
+    expect(parseClaudeSession(base)?.print).toBeUndefined();
+  });
+
   // The registry is undocumented Claude Code internals, so every field is read defensively:
   // an entry we cannot join or cannot label is dropped rather than guessed at.
   it('returns null when the entry is not an object', () => {

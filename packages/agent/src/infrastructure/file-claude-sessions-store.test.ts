@@ -51,6 +51,21 @@ describe('FileClaudeSessionsStore', () => {
     });
   });
 
+  // Files are read concurrently, so the preference must hold whichever finishes first.
+  it.each([
+    ['12345', '23456'],
+    ['23456', '12345'],
+  ])('keeps the interactive address when a claude -p run shares the session (%s, %s)', async (interactivePid, printPid) => {
+    await write(interactivePid, { name: 'foo-cc', tmux: 'perch-aaa111:@1.%1', entrypoint: 'cli' });
+    await write(printPid, { name: 'print-run', tmux: 'perch-aaa111:@1.%1', entrypoint: 'sdk-cli' });
+    expect(await new FileClaudeSessionsStore(dir).addressesByTmuxSession()).toEqual({ 'perch-aaa111': 'foo-cc' });
+  });
+
+  it('names a session after its claude -p run when nothing else runs there', async () => {
+    await write('12345', { name: 'print-run', tmux: 'perch-aaa111:@1.%1', entrypoint: 'sdk-cli' });
+    expect(await new FileClaudeSessionsStore(dir).addressesByTmuxSession()).toEqual({ 'perch-aaa111': 'print-run' });
+  });
+
   // Only the per-session json files are entries; the directory also holds `.key` files.
   it('ignores files that are not json', async () => {
     await write('12345', { name: 'foo-cc', tmux: 'perch-aaa111:@1.%1' });

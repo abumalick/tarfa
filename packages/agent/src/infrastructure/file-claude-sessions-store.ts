@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { ClaudeInbox, ClaudeSessionsPort } from '../ports/claude-sessions-port';
-import { parseClaudeSession } from '../application/parse-claude-session';
+import { isPrintRun, parseClaudeSession } from '../application/parse-claude-session';
 
 // Reads Claude Code's session registry (default ~/.claude/sessions), one json file per live
 // session. A missing directory yields an empty map, so an agent on a machine without Claude
@@ -27,7 +27,8 @@ export class FileClaudeSessionsStore implements ClaudeSessionsPort {
         .filter((f) => f.endsWith('.json'))
         .map(async (f) => {
           const entry = await this.read(join(this.dirPath, f));
-          if (entry) addresses[entry.tmuxSession] = entry.address;
+          // A print run never hides the name of the interactive session it runs inside.
+          if (entry && !(entry.print && addresses[entry.tmuxSession])) addresses[entry.tmuxSession] = entry.address;
         }),
     );
     return addresses;
@@ -54,12 +55,11 @@ export class FileClaudeSessionsStore implements ClaudeSessionsPort {
         pane: tmux.split('.').pop() ?? '',
         socketPath: messagingSocketPath,
         peerProtocol,
-        print: typeof entrypoint === 'string' && entrypoint.startsWith('sdk-'),
+        print: isPrintRun(entrypoint),
       });
     }
     if (live.length === 0) return null;
-    // A `claude -p` run or SDK process registers an inbox too, on the pane of whichever session
-    // started it, and says `kind: "interactive"` like any other; only `entrypoint` differs.
+    // A print run registers an inbox too; an interactive session on any pane comes first.
     const interactive = live.filter((r) => !r.print);
     const candidates = interactive.length > 0 ? interactive : live;
     const onFirst = candidates.length > 1 ? candidates.filter((r) => firstPane && r.pane === firstPane) : candidates;
