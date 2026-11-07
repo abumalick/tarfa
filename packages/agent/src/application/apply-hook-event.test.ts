@@ -341,6 +341,42 @@ describe('applyHookEvent', () => {
       expect(deps.sentDuringTool.has('perch-aa')).toBe(false);
     });
 
+    describe('from Codex', () => {
+      const codexPost = { ...post, agent: 'codex' };
+      const codexPre = { sessionName: 'perch-aa', event: 'PreToolUse', claude: { tool_name: 'Bash' }, agent: 'codex' };
+
+      // Codex 0.166: a `write_stdin` poll that sees an earlier command exit fires that command's
+      // Bash PostToolUse, and a poll fires no PreToolUse. Only the order of events marks it.
+      it('a poll\'s PostToolUse right after the send\'s keeps the mark through Stop', () => {
+        const deps = setup();
+        applyHookEvent(deps, codexPost);
+        applyHookEvent(deps, codexPost);
+        expect(deps.messagedLast.has('perch-aa')).toBe(true);
+        expect(applyHookEvent(deps, { sessionName: 'perch-aa', event: 'Stop', agent: 'codex' })).toBeNull();
+        expect(deps.deferred.has('perch-aa')).toBe(true);
+      });
+
+      it('a later tool call clears the mark as soon as it starts', () => {
+        const deps = setup();
+        applyHookEvent(deps, codexPost);
+        applyHookEvent(deps, codexPre);
+        expect(deps.messagedLast.has('perch-aa')).toBe(false);
+        expect(deps.sentDuringTool.has('perch-aa')).toBe(false);
+      });
+
+      it('a subagent\'s PreToolUse does not count as the later call', () => {
+        const deps = setup();
+        applyHookEvent(deps, { ...codexPre, claude: { tool_name: 'Bash', agent_id: 'sub1' } });
+        expect(deps.sentDuringTool.has('perch-aa')).toBe(true);
+      });
+    });
+
+    it('Claude\'s PreToolUse leaves the send mark for its own PostToolUse', () => {
+      const deps = setup();
+      applyHookEvent(deps, { sessionName: 'perch-aa', event: 'PreToolUse', claude: { tool_name: 'Bash' } });
+      expect(deps.sentDuringTool.has('perch-aa')).toBe(true);
+    });
+
     it('logs the keep as tarfa-send', async () => {
       const deps = setup();
       const entries: HookEventEntry[] = [];
@@ -348,6 +384,15 @@ describe('applyHookEvent', () => {
       await Promise.resolve();
       expect(entries[0]?.reason).toBe('tarfa-send');
     });
+  });
+
+  // Pi posts its hooks from a queue, so the send's own PreToolUse may land after the send.
+  it('keeps the send mark against a PreToolUse landing while the send is pending', () => {
+    const f = fakeStore();
+    const marks = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    markSent(marks, 'perch-aa');
+    applyHookEvent(marks, { sessionName: 'perch-aa', event: 'PreToolUse', claude: { tool_name: 'bash' } });
+    expect(marks.messagedLast.has('perch-aa')).toBe(true);
   });
 
   // A child that sends a progress note and starts a long test is not waiting on its orchestrator.
