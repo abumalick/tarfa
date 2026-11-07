@@ -313,6 +313,8 @@ describe('TarfaStore', () => {
     expect(store.actionError).toBe('File is too large to attach (20 MB max)');
   });
 
+  // The buffer only reports the limit's size: encoding a real 20 MB one takes seconds on a loaded
+  // machine, which is the next test's concern at a size that stays cheap.
   it('sendPutFile accepts a non-image file at the size limit', () => {
     const { store, sockets } = build([mac]);
     store.start();
@@ -320,10 +322,26 @@ describe('TarfaStore', () => {
     sockets['wss://mac']!.deliver({ type: 'authResult', ok: true });
     const ws = { machineId: 'mac', id: 'perch-a', name: 'a', projectPath: '/a', command: 'claude', createdAt: 0, lastActivityAt: 0, status: 'idle' as const };
     store.open(ws);
-    store.sendPutFile('archive.zip', new Uint8Array(MAX_UPLOAD_BYTES));
+    const atLimit = Object.defineProperty(new Uint8Array([1, 2, 3]), 'byteLength', { value: MAX_UPLOAD_BYTES });
+    expect(store.sendPutFile('archive.zip', atLimit)).toBe(true);
     const sent = sockets['wss://mac']!.sent.map((s) => JSON.parse(s));
-    expect(sent.some((m) => m.type === 'putFile' && m.name === 'archive.zip')).toBe(true);
+    expect(sent.find((m) => m.type === 'putFile')).toEqual({ type: 'putFile', workspaceId: 'perch-a', name: 'archive.zip', data: btoa(String.fromCharCode(1, 2, 3)) });
     expect(store.actionError).toBeNull();
+  });
+
+  // Large enough that `String.fromCharCode(...bytes)` overflows the stack, which would break every
+  // big attachment while the small payloads above still pass.
+  it('sendPutFile encodes a file too large to spread into a call', () => {
+    const { store, sockets } = build([mac]);
+    store.start();
+    sockets['wss://mac']!.open();
+    sockets['wss://mac']!.deliver({ type: 'authResult', ok: true });
+    const ws = { machineId: 'mac', id: 'perch-a', name: 'a', projectPath: '/a', command: 'claude', createdAt: 0, lastActivityAt: 0, status: 'idle' as const };
+    store.open(ws);
+    const size = 1024 * 1024;
+    expect(store.sendPutFile('archive.zip', new Uint8Array(size))).toBe(true);
+    const sent = sockets['wss://mac']!.sent.map((s) => JSON.parse(s));
+    expect(sent.find((m) => m.type === 'putFile').data).toHaveLength(4 * Math.ceil(size / 3));
   });
 
   describe('voiceLink', () => {

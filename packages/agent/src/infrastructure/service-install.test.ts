@@ -1,12 +1,19 @@
-import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { serviceInstall } from './service-install';
+
+const created: string[] = [];
+
+afterEach(async () => {
+  for (const dir of created.splice(0)) await rm(dir, { recursive: true, force: true });
+});
 
 async function dirs() {
   const repo = await mkdtemp(join(tmpdir(), 'tarfa-svc-repo-'));
   const home = await mkdtemp(join(tmpdir(), 'tarfa-svc-home-'));
+  created.push(repo, home);
   await mkdir(join(repo, 'deploy'));
   await writeFile(join(repo, 'deploy', 'tarfa-agent.service'), 'unit REPO_PATH\n');
   await writeFile(join(repo, 'deploy', 'app.tarfa.agent.plist'), 'plist REPO_PATH\n');
