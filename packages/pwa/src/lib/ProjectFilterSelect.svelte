@@ -30,6 +30,9 @@
   const MODES = ['only', 'hide'] as const;
 
   let open = $state(false);
+  // Where the summary ends on screen when the menu opens, so the menu can run to the bottom of
+  // the viewport below it.
+  let summaryBottom = $state(0);
 </script>
 
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') open = false; }} />
@@ -49,6 +52,7 @@
       class:clearable={selected.size > 0}
       onclick={(e) => {
         e.preventDefault();
+        summaryBottom = e.currentTarget.getBoundingClientRect().bottom;
         open = !open;
       }}
     >
@@ -62,7 +66,7 @@
         aria-label={msg().home.filter.close}
         onclick={() => (open = false)}
       ></button>
-      <div class="menu" role="group" aria-label={msg().home.filter.group}>
+      <div class="menu" role="group" aria-label={msg().home.filter.group} style="--summary-bottom: {summaryBottom}px">
         <div class="modes" role="radiogroup" aria-label={msg().home.filter.mode}>
           {#each MODES as option (option)}
             <button
@@ -158,15 +162,19 @@
     padding: 0;
   }
 
-  /* The open menu floats over the list so toggling filters doesn't shove the rows down.
-     Capped height keeps a long project list scrollable on a short phone screen. */
+  /* The open menu floats over the list so toggling filters doesn't shove the rows down. A long
+     project list runs to the bottom of the screen and scrolls there; the floor keeps it usable
+     when the control was scrolled low before opening. */
   .menu {
     position: absolute;
     z-index: 5;
     left: 0;
     right: 0;
     margin-top: 0.3rem;
-    max-height: 50vh;
+    max-height: max(
+      12rem,
+      calc(100dvh - var(--summary-bottom, 0px) - 0.3rem - 0.75rem - env(safe-area-inset-bottom))
+    );
     overflow-y: auto;
     padding: 0.3rem;
     border: 1px solid var(--border);
