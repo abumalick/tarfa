@@ -160,6 +160,7 @@
     border: 0;
     background: transparent;
     padding: 0;
+    touch-action: none;
   }
 
   /* The open menu floats over the list so toggling filters doesn't shove the rows down. A long
@@ -176,6 +177,9 @@
       calc(100dvh - var(--summary-bottom, 0px) - 0.3rem - 0.75rem - env(safe-area-inset-bottom))
     );
     overflow-y: auto;
+    /* The height is measured from where the control sat when the menu opened, so the page
+       must not scroll under it, or the menu's bottom lifts off the screen. */
+    overscroll-behavior: contain;
     padding: 0.3rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
