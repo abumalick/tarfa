@@ -230,10 +230,10 @@ curl -si http://127.0.0.1:8797/hooks | head -1
 ```
 
 ## 4. Wire Claude Code hooks (each machine)
-The agent writes its token to `~/.tarfa/token` on startup (mode 600); the hook reads it.
+The agent writes a hooks-only secret to `~/.tarfa/token` at each start (mode 600; never `TARFA_TOKEN`); the hook reads it.
 ```sh
 tarfa install-hooks     # reads the machine id and hooks port from agent.env; `tarfa apply` reruns it
-# merges UserPromptSubmit/PreToolUse/PostToolUse/Notification/Stop hooks into ~/.claude/settings.json
+# merges Stop/StopFailure/Notification/UserPromptSubmit/PreToolUse/PostToolUse/SessionStart hooks into ~/.claude/settings.json
 ```
 
 It also registers a second `PreToolUse` hook on `Bash`, `~/.tarfa/tarfa-guard.sh`, which refuses
@@ -384,7 +384,7 @@ prebuilds; move it to the stable release once one ships.
 - **`/hooks` 401 from the local hook:** the agent hasn't written `~/.tarfa/token` yet (start the agent first) or the hook ran before startup. The file holds a hooks-only secret the agent replaces at each start, not `TARFA_TOKEN`.
 - **node-pty `posix_spawnp failed` on Ubuntu:** in a package install, an installer stripped the prebuild's execute bit: reinstall with `mise install --force npm:@tarfa/cli@<version>` then `tarfa apply` (`tarfa update --force` only re-selects an installed version and reinstalls nothing), and check `spawn-helper` under the install's `node_modules/node-pty/prebuilds/linux-*/` is `+x`. In a source install, re-run `pnpm install` (the root postinstall chmods it).
 - **The phone does not connect:** the entry's message in Settings names the refusal (an agent refusal: revoked, not enrolled, a spent or expired pairing code, the wrong agent key). Check the agent logs `phones on 127.0.0.1:<port>`, that the publishing entry points at that port (`tailscale serve status`), and that the phone reaches the address (a tailnet address needs the phone's Tailscale connected; a Funnel one does not).
-- **An old direct entry in Settings** ("no longer supported"): delete it and pair the machine again.
+- **An old entry with no agent key** (made by hand before pairing links): it never connects; delete it in Settings and pair the machine again.
 - **PWA loads but no workspaces:** watch the agent log (`journalctl --user -u tarfa-agent -f` on Linux, `tail -f ~/.tarfa/agent.log` on macOS where the plist writes it; a source install: `tail -f deploy/agent.log`) for `phone:` lines.
 - **Port already in use:** change `TARFA_PORT` in `agent.env`, then re-run `install-hooks` (step 4), which bakes the port into the hook command.
 - **`mise` or `node` not found from the service:** the launcher resolves both from `$HOME` (the global node 24 of `mise use -g`), so check `mise which node` as the service's user, and that `~/.local/bin/mise` (or the mise on the unit's PATH) exists.

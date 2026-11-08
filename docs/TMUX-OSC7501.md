@@ -105,7 +105,7 @@ tmux-resurrect and tmux-continuum ran under 3.8 on macOS (continuum restored the
 
 ### Linux (systemd `tmux-server` unit)
 
-1. Deploy the agent first (merge, then `systemctl --user restart tarfa-agent`). It degrades to the
+1. Deploy the agent first (a release, then `tarfa update`; a source install: pull, then `systemctl --user restart tarfa-agent`). It degrades to the
    hooks with the old tmux, so this can go out on its own.
 2. Build and check: `deploy/tmux-osc7501/build.sh && deploy/tmux-osc7501/build.sh check`.
 3. Check the tmux config parses under the new version (`-n` executes nothing):

@@ -1,16 +1,16 @@
 ---
 name: tarfa-spawn
-description: Launch separate local Tarfa tmux workspaces from self-contained task briefs with the `tarfa spawn` CLI, which starts Claude Code. Use when asked to open or spawn a Tarfa workspace, not for in-session Codex subagents or remote machines.
+description: Launch separate local Tarfa tmux workspaces from self-contained task briefs with the `tarfa spawn` CLI (Claude Code by default, or Codex or Pi). Use when asked to open or spawn a Tarfa workspace, not for in-session Codex subagents or remote machines.
 ---
 
 # Spawn a Tarfa workspace from Codex
 
-A Tarfa workspace is a detached tmux session named `perch-<6 hex>`, discovered by
-the machine agent. The launcher is the `tarfa` CLI (`tarfa spawn`), on PATH once
-`deploy/install-cli.sh` has run on the machine (`docs/DEPLOY.md`, "Tarfa CLI").
-It starts **Claude Code**, not Codex. Make that explicit in the proposed launch.
-If the user specifically requests a Codex workspace, do not silently substitute
-Claude.
+A Tarfa workspace is a detached tmux session named after its folder and a small
+number (`tarfa-3`; older ones are `perch-<6 hex>`), discovered by the machine agent.
+The launcher is the `tarfa` CLI (`tarfa spawn`), on PATH on every machine running
+the agent (`docs/DEPLOY.md`). It starts **Claude Code** unless `--cli codex` or
+`--cli pi` says otherwise. Name the CLI in the proposed launch; if the user asks
+for a Codex workspace, pass `--cli codex` rather than substituting Claude.
 
 Use the CLI rather than raw tmux or a launcher of your own. It is
 `spawnWorkspace` in `packages/agent`, tested there.
@@ -39,9 +39,13 @@ PROMPT
 5. Report the returned workspace id and title. The brief remains at
    `~/.tarfa/spawn/<id>.md`.
 
-`--model <alias>` picks the Claude model; the default is `opus[1m]`. Preserve that default unless the user requests a
-different model. `--title` distinguishes batches and suppresses Claude's pane-title
-updates for the initial session; it does not survive park/unpark.
+`--model <alias>` picks the model: `claude --model '<m>'` for Claude (default
+`opus[1m]`; preserve it unless the user asks otherwise), the thread's model for Codex,
+`pi-reviewed --model '<m>'` for Pi. `--cli codex` creates the Codex thread and starts
+it bound to the Codex daemon, which is what lets that workspace take messages; spawn
+refuses when `codex --version` and the daemon's version differ. `--title` names the
+workspace and holds the name, through park/unpark too. Other sessions message a
+workspace with `tarfa send <id> "<message>"`.
 
 Point children at their project roots and let each project's own worktree rules
 provide isolation. If the project has no such convention and concurrent children
@@ -49,16 +53,17 @@ would edit the same files, resolve ownership before launching.
 
 ## Messaging boundary
 
-**Do not pass `--child` from an ordinary Codex session.** It installs Claude hooks
-that deny user questions and require the child to contact its parent (the calling
-workspace) through Claude's `SendMessage`. Codex collaboration agent ids are not Claude session names; there is
-no implicit bridge between them. Without that bridge a child could be stranded.
+`--child` records the calling workspace as the child's parent. The child is told
+to send its questions and final report with `tarfa send <parent id>`, and a Claude
+child cannot use `AskUserQuestion` or plan mode. Pass it only when this session is
+itself a Tarfa workspace that can take messages: a Codex session started by
+`tarfa spawn --cli codex` can, a Codex session started any other way cannot (Tarfa
+has no thread of it to deliver into), and the child's reports would be stranded.
 
-Leave `--child` off for user-driven workspaces (the default). For a user-requested coordinated
-batch, follow `$tarfa-orchestrate`: prefer native Codex subagents when suitable, or
-explicitly arrange a workspace report location and monitoring plan. Use Claude's
-parent mode only if an actual Claude parent and working messaging integration have
-been established. The legacy Claude procedure is in
+Leave `--child` off for user-driven workspaces (the default). For a user-requested
+coordinated batch, follow `$tarfa-orchestrate`: prefer native Codex subagents when
+suitable; follow children with `tarfa wait <id>...` and close them with
+`tarfa close <id>...`. The Claude procedure is in
 [the original skill](../../../.claude/skills/tarfa-spawn/SKILL.md).
 
 ## Launcher invariants

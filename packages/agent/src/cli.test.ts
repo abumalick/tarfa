@@ -86,6 +86,24 @@ describe('tarfa --version', () => {
   });
 });
 
+describe('tarfa --help', () => {
+  it('lists every command with no agent.env, for a bare tarfa, --help, -h and help', async () => {
+    for (const argv of [[], ['--help'], ['-h'], ['help']]) {
+      const help = await run(argv, {}, '/nonexistent');
+      for (const command of ['setup', 'pair', 'update', 'apply', 'devices', 'install-hooks', 'serve', 'ls', 'spawn', 'peek', 'wait', 'send', 'unpark', 'rename', 'close']) {
+        expect(help).toMatch(new RegExp(`^  ${command}\\b`, 'm'));
+      }
+    }
+  });
+
+  it('refuses an unknown command with exit 2 and a pointer to --help, before reading agent.env', async () => {
+    await expect(run(['frobnicate'], {}, '/nonexistent')).rejects.toMatchObject({
+      exitCode: 2,
+      message: expect.stringContaining('unknown command: frobnicate (run `tarfa --help`)'),
+    });
+  });
+});
+
 describe('removed relay commands', () => {
   it('refuses connect, relay-key and pair --relay with one line naming what replaces them, exit 2', async () => {
     const home = await mkdtemp(join(tmpdir(), 'tarfa-cli-home-'));

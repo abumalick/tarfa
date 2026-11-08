@@ -15,11 +15,9 @@ deploy/*.log
 .worktrees/
 
 # Live-serve symlinks: pwa-live (serve-build.sh) points at the PWA build being served;
-# agent-live (serve-agent.sh) and relay-live (serve-relay.sh) point at the checkout the agent
-# and the self-hosted relay run from.
+# agent-live (serve-agent.sh) points at the checkout a source install's agent runs from.
 deploy/pwa-live
 deploy/agent-live
-deploy/relay-live
 
 # Machine-local agent notes (per-computer, not shared)
 CLAUDE.local.md
@@ -27,7 +25,8 @@ CLAUDE.local.md
 # Local design notes (brainstorm specs & plans) — kept out of the repo
 docs/superpowers/
 
-# Cloudflare relay: wrangler state and the maintainer-specific deploy values.
+# wrangler state and the maintainer-specific deploy values. deploy/relay-cf.env belonged to the
+# retired relay; it stays ignored so a leftover copy can never be committed.
 .wrangler/
 .dev.vars
 .dev.vars.*

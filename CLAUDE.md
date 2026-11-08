@@ -16,7 +16,7 @@ the phone's device key, and streams its terminals. No agent listens off loopback
   tricky logic, not to restate code.
 - Toolchain via **mise** (`mise.toml` pins node 24 + pnpm 11). Package manager is **pnpm**
   (workspace monorepo). Any Python would use **uv** (none today).
-- **Never commit secrets.** Tokens live in `deploy/agent.env` (gitignored) and in a password manager. `deploy/agent.env.example` is the template.
+- **Never commit secrets.** Tokens live in `~/.tarfa/agent.env` (a source install: the gitignored `deploy/agent.env`) and in a password manager. `deploy/agent.env.example` is the template.
 
 ## Layout
 - `packages/contracts` (`@tarfa/contracts`) — the zod wire protocol and shared types.
@@ -50,7 +50,7 @@ the phone's device key, and streams its terminals. No agent listens off loopback
   framing, the device hello, pairing links and refusals (see "Device keys, enrolment and
   pairing").
 - `packages/pwa` (`@tarfa/pwa`) — Svelte 5 (runes) PWA, launched as Tarfa. xterm.js terminal, vite-plugin-pwa
-  (auto-update), Playwright e2e. Core logic (connection manager, aggregator, store) is in
+  (an update banner, reload on tap: `registerType: 'prompt'`), Playwright e2e. Core logic (connection manager, aggregator, store) is in
   `src/core` + `src/adapters` and unit-tested with a fake socket; `src/lib` is the UI.
 - **The PWA speaks English and French.** Every string a user reads goes in
   `src/core/i18n/en/<namespace>.ts` and its French twin (typed `Messages['<namespace>']`, so the
@@ -83,7 +83,7 @@ Build each feature in its own git worktree; full runbook in `docs/WORKTREES.md`.
   **4173 is the standing deploy**; give each checkout its own:
   `E2E_PORT=4175 pnpm --filter @tarfa/pwa e2e` (build first — `vite preview` serves the gitignored `dist/`).
 - **Test a worktree build on the phone:** `pnpm serve:build .worktrees/<feature>` points the
-  staging PWA on the tailnet at it (installed PWA auto-updates in ~60s; the home header shows the
+  staging PWA on the tailnet at it (the installed PWA offers the update within ~60s, applied on a tap of its banner; the home header shows the
   worktree slug as a badge); `pnpm serve:restore` flips back to main. From a public origin,
   `deploy/pwa-deploy.sh --dev` puts a checkout on a throwaway `tarfa-dev` Worker instead
   (`--dev --delete` afterwards).
@@ -200,6 +200,8 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   - `~/.local/bin/perch` is a link to `tarfa`, `deploy/perch-cli.sh` (what an older install
     links) to `tarfa-cli.sh`, `@tarfa/cli` has both bins and `pnpm perch` runs the CLI, for one
     release after `tarfa` ships.
+  - `deploy/check-leaks.sh` falls back to `$PERCH_LEAK_WORDS` and `~/.perch/leak-words.txt`, for a
+    machine whose agent has not moved `~/.perch` yet. Goes with the `~/.perch` read.
   - The guard refuses `.perch/inbox/` and `@perch_parent`/`_codex_thread` too, and the quoting
     regex quotes `[Perch message` and `[Tarfa message`. `send` writes the Tarfa header since 0.1.2;
     the receivers' rules accept both spellings, and the Perch reads go a release after that.
@@ -809,8 +811,8 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     `sandbox`: WebKit draws PDFs with a plugin, which any sandbox disables.
   - **Secret files must be private, or the agent does not start.** At startup it makes
     `~/.tarfa` 0700 and exits, naming each file and the `chmod 600` that fixes it, while
-    `relay-key.json` (the agent key, named when relays existed), `devices.json`, `pairing.json`,
-    `token` or `deploy/agent.env` (named by `TARFA_AGENT_ENV` from `run-agent.sh`) can be read or
+    `agent-key.json` (the agent key), `devices.json`, `pairing.json`, `token` or the agent.env it
+    read (`~/.tarfa/agent.env`, or the file `TARFA_AGENT_ENV` names) can be read or
     written by another user. A service that crash-loops right after an update: read its log for
     that line first.
   - **No process the agent starts gets a `TARFA_` variable** (`childEnv`, used by every

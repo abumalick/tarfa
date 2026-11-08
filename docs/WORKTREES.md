@@ -78,7 +78,7 @@ replacing production), temporarily point the live deploy at it:
 
 ```sh
 pnpm serve:build .worktrees/<feature>   # build it and serve it at the live origin
-# … test on the phone; the installed PWA auto-updates within ~60s …
+# … test on the phone; the installed PWA offers the update within ~60s (tap its banner) …
 pnpm serve:restore                      # point back at main's build
 ```
 
@@ -162,7 +162,7 @@ What they do:
 - **post-commit / post-merge** — rebuild the current working tree's PWA
   (`deploy/build-current.sh`). A hook runs in the working tree where the action
   happened, so committing in `main` rebuilds main's `dist` (which the live deploy serves
-  — the phone auto-updates) and committing in a feature worktree rebuilds *that*
+  — the phone offers the update) and committing in a feature worktree rebuilds *that*
   worktree's `dist` without touching the live deploy. `post-merge` covers merges
   (including fast-forwards, which create no commit), so merging a worktree into `main`
   rebuilds main. Skip a build with `TARFA_NO_BUILD=1 git commit …`.

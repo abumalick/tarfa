@@ -121,7 +121,9 @@ const CODEX_NEXT_STEP = 'open Codex and trust the Tarfa hooks in /hooks; repeat 
 
 export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: string, io: CliIo = {}): Promise<string> {
   const env = withLegacyEnv(rawEnv);
+  if (argv[0] === undefined || argv[0] === '--help' || argv[0] === '-h' || argv[0] === 'help') return HELP;
   if (argv[0] === '--version' || argv[0] === '-v') return packageVersion();
+  if (!COMMANDS.has(argv[0])) throw new UsageError(`unknown command: ${argv[0]} (run \`tarfa --help\`)`);
   if (argv[0] === 'setup') return setup(argv.slice(1), env, home, io);
   if (argv[0] === 'apply') return apply(argv.slice(1), env, home, io);
   if (argv[0] === 'update') return update(argv.slice(1), env, home, io);
@@ -201,9 +203,40 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
     case 'devices':
       return devices(new FileDeviceStore(config.devicesPath), rest);
     default:
-      throw new Error(`unknown command: ${command ?? '(none)'}`);
+      throw new UsageError(`unknown command: ${command} (run \`tarfa --help\`)`);
   }
 }
+
+const HELP = `usage: tarfa <command> [options]   (\`tarfa <command> --help\` where it has one)
+
+Set up this machine:
+  setup          write agent.env, the agent key, the service and the hooks, then check the phone port
+  pair           print a one-time pairing link and QR code for a phone
+  devices        list, revoke or forget paired phones; switch enrolment on, off or closed
+  update         install the newest @tarfa/cli and apply it (package installs)
+  apply          rewrite the launcher and service if they changed, reinstall the hooks, restart
+  install-hooks  install the Claude Code and Codex hooks that report each workspace's status
+  serve          run the agent in the foreground (what the service runs)
+
+Workspaces on this machine:
+  ls             list workspaces and their state
+  spawn          open a workspace on a project with a brief on stdin (--child to orchestrate it)
+  peek           print the end of a workspace's screen
+  wait           wait until one of the workspaces stops working
+  send           send a message to another workspace
+  unpark         reopen parked workspaces
+  rename         rename a workspace (without an id: this one)
+  close          close workspaces
+  list, create, recent, browse   the agent's own views, as JSON
+
+  --version      print the version`;
+
+// `serve` is not here: the entrypoint starts the agent before `run` is reached.
+const COMMANDS = new Set([
+  'setup', 'apply', 'update', 'pair', 'connect', 'relay-key', 'devices', 'install-hooks',
+  'ls', 'spawn', 'peek', 'unpark', 'rename', 'send', 'close', 'wait',
+  'list', 'create', 'recent', 'browse',
+]);
 
 const LS_USAGE = `usage: tarfa ls [--json] [--mine] [--parent <workspace id>] [--role ${WORKSPACE_ROLES.join('|')}] [--path <project dir>]`;
 const SPAWN_USAGE = 'usage: tarfa spawn [--title <title>] [--child] [--model <model>] [--cli claude|codex|pi] <projectPath>   (brief on stdin)';

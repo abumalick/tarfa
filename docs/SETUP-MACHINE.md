@@ -8,8 +8,9 @@ need:
 - an Ubuntu machine you have sudo on (the steps were written on Ubuntu 26.04);
 - [Tailscale](https://tailscale.com) on the machine and the phone (or a reverse proxy of your own
   in front of the agent's phone port);
-- a phone;
-- your own fork of this repository.
+- a phone.
+
+A fork of this repository is needed only to serve your own copy of the app (step 7).
 
 ```
 phone (the app, https://tarfa.app or your own origin)
@@ -140,8 +141,9 @@ systemctl --user daemon-reload && systemctl --user enable --now tmux-server
 ```
 
 Never run `tmux kill-server` on this machine: every workspace lives on that one server.
-Workspaces do not come back after a reboot; a Claude conversation can be resumed with
-`claude --resume` in a new workspace.
+Workspaces do not keep running through a reboot: each Claude workspace whose conversation the
+agent knew comes back **parked**, and opening it on the phone resumes the conversation. Close
+the others.
 
 ## 6. Install the agent
 
@@ -197,22 +199,22 @@ Phones load the app from `https://tarfa.app`, the maintainer's copy, which every
 names unless `TARFA_PWA_ORIGIN` says otherwise. The origin holds every phone's device key, and
 whoever serves it can read what it shows, so if you would rather trust yourself, serve your own
 copy: on a free Cloudflare account it is a static-assets Worker, deployed from a clean, pushed
-`main` of your fork.
+`main` of your fork. The deploy never uses a wrangler login: it takes a Cloudflare API token
+scoped to Workers Scripts:Edit on your account (create one in the dashboard and keep it in your
+password manager), printed by the command `PWA_DEPLOY_TOKEN_CMD` names.
 
 ```bash
-install -m 600 deploy/pwa-deploy.env.example ~/.tarfa/pwa-deploy.<name>.env   # CLOUDFLARE_ACCOUNT_ID
-(cd packages/pwa && pnpm exec wrangler login --device && pnpm exec wrangler whoami)
+install -m 600 deploy/pwa-deploy.env.example ~/.tarfa/pwa-deploy.<name>.env   # CLOUDFLARE_ACCOUNT_ID, PWA_DEPLOY_TOKEN_CMD
+deploy/pwa-deploy.sh --env-file ~/.tarfa/pwa-deploy.<name>.env --dry-run       # builds, deploys nothing
 deploy/pwa-deploy.sh --env-file ~/.tarfa/pwa-deploy.<name>.env
 ```
 
-`--device` lets you approve the login from any browser, which a machine with no screen needs. If
-you hold several Cloudflare accounts, give each its own wrangler login with
-`XDG_CONFIG_HOME=<a directory of its own>` on every wrangler and deploy command. Then set
+Several Cloudflare accounts take one env file each. Then set
 `TARFA_PWA_ORIGIN` (or pass `--pwa` to `tarfa setup` / `tarfa pair`) to your origin. Moving to
 another origin later means pairing every phone again: a new origin has empty storage.
 
 Docs: [Workers static assets](https://developers.cloudflare.com/workers/static-assets/),
-[wrangler login](https://developers.cloudflare.com/workers/wrangler/commands/general/).
+[API tokens](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/).
 
 ## 8. Publish the machine and pair your phone
 
@@ -326,7 +328,9 @@ grant the user the loopback devices directly instead (lost at reboot, when the g
 ```bash
 card=$(awk '/\[Loopback/ {print $1}' /proc/asound/cards)
 for d in /dev/snd/controlC$card /dev/snd/pcmC${card}D*; do sudo setfacl -m u:<user>:rw "$d"; done
-``` On the phone: Settings →
+```
+
+On the phone: Settings →
 Add preset → Provider "Claude Code /voice".
 
 - **Check:** `aplay -l | grep Loopback` lists the card, `jq .voice ~/.claude/settings.json`
@@ -398,8 +402,8 @@ None of this is required by Tarfa.
 ## 13. Another Linux user on the same machine
 
 One machine can run several Tarfa agents, one per Linux user. Each user has its own agent, tmux
-server, `~/.tarfa` (agent key, paired phones, parked workspaces, and its own `hidden-folders.json`,
-`commands.json` and `launchers.json`), Claude Code login and config, and files. The phone sees
+server, `~/.tarfa` (agent key, paired phones, parked workspaces, and its own `hidden-folders.json`
+and `launchers.json`), Claude Code login and config, and files. The phone sees
 each agent as a separate machine. Use it to keep one kind of work apart from the rest: a client's
 projects in an account that cannot read your home directory, your credentials or your sessions.
 
@@ -459,7 +463,7 @@ EOF
 ```
 
 **Steps 3 to 6, 8 and 9 again, as that user** (step 7, if you serve your own app, is done once per Cloudflare account). The new user installs the package itself (mise, step 3, and `tarfa setup`).
-In its `~/.tarfa/agent.env`, three values differ:
+In its `~/.tarfa/agent.env`, these values differ:
 
 - **`TARFA_PORT` must differ from every other agent's on the machine** (and step 6's check
   `curl`s that port). Each agent listens on `127.0.0.1:<port>` for its hooks, and with the port
@@ -503,8 +507,6 @@ agent key. `tarfa setup --pair` prints the first pairing code; `tarfa pair` make
   PATH. Step 4, then restart the agent.
 - **`wrangler pages project create` made an empty Worker:** deploy the app as a static-assets
   Worker (step 7).
-- **`wrangler login` hangs on a machine with no screen:** it waits for a redirect to
-  `localhost` on the machine. Use `--device`.
 - **The deploy script refuses:** it wants the main checkout, on `main`, clean, equal to
   `origin/main`, and an env file only you can read. Fix the checkout rather than working around it.
 - **Pairing on an iPhone "did nothing":** the link opened in Safari, not the installed app. Scan or
@@ -517,4 +519,5 @@ agent key. `tarfa setup --pair` prints the first pairing code; `tarfa pair` make
   connected; on Android, Chrome's local-network permission for the app must be allowed (Site
   settings → Local network access). `tailscale serve status` shows what is published.
 - **Accents or Arabic show as `_`:** no UTF-8 locale (step 1).
-- **After a reboot the workspaces are gone:** resume conversations with `claude --resume`.
+- **After a reboot the workspaces show as parked:** open one to resume its conversation; one
+  that had no conversation yet (a shell, or a Claude never used) does not come back.
