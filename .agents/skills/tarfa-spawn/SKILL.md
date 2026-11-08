@@ -24,7 +24,7 @@ Use the CLI rather than raw tmux or a launcher of your own. It is
    Reference an issue if it contains the details; otherwise describe the observed
    problem and desired outcome. Include reporting expectations and relevant
    constraints. Do not refer to “the bug above”.
-3. Show the concrete batch (project, brief, optional title, and Claude runtime).
+3. Show the concrete batch (project, brief, optional title, and CLI).
    Obtain launch authorization if the existing request does not already cover
    these workspaces. Honor existing authorization without asking again.
 4. Run `tarfa spawn`, passing the brief through a **quoted** heredoc:
@@ -72,4 +72,4 @@ suitable; follow children with `tarfa wait <id>...` and close them with
   command line: it preserves `$`, backticks, apostrophes, and newlines.
 - Do not start workspaces with raw `tmux new-session`: without the CLI's
   `@tarfa_command` a workspace can never be parked or resumed.
-- Do not run `tarfa spawn` as a migration smoke test: it starts a real process.
+- Do not run `tarfa spawn` as a smoke test: it starts a real process.

@@ -198,10 +198,13 @@ run `/hooks` and trust them (again after any change). See `docs/DEPLOY.md`, step
 Phones load the app from `https://tarfa.app`, the maintainer's copy, which every pairing link
 names unless `TARFA_PWA_ORIGIN` says otherwise. The origin holds every phone's device key, and
 whoever serves it can read what it shows, so if you would rather trust yourself, serve your own
-copy: on a free Cloudflare account it is a static-assets Worker, deployed from a clean, pushed
-`main` of your fork. The deploy never uses a wrangler login: it takes a Cloudflare API token
-scoped to Workers Scripts:Edit on your account (create one in the dashboard and keep it in your
-password manager), printed by the command `PWA_DEPLOY_TOKEN_CMD` names.
+copy. Any static host serves `packages/pwa/dist` after `pnpm --filter @tarfa/pwa build`. On a free
+Cloudflare account it is a static-assets Worker, deployed from a clean, pushed `main` of your
+fork, once the fork names your own domain: the route in `env.production` of
+`packages/pwa/wrangler.jsonc` and the `version.json` check in `deploy/pwa-deploy.sh` both say
+tarfa.app. The deploy never uses a wrangler login: it takes a Cloudflare API token on your
+account (Workers Scripts:Edit, plus what a custom-domain route needs on your zone), kept in
+your password manager and printed by the command `PWA_DEPLOY_TOKEN_CMD` names.
 
 ```bash
 install -m 600 deploy/pwa-deploy.env.example ~/.tarfa/pwa-deploy.<name>.env   # CLOUDFLARE_ACCOUNT_ID, PWA_DEPLOY_TOKEN_CMD
@@ -469,7 +472,14 @@ In its `~/.tarfa/agent.env`, these values differ:
   `curl`s that port). Each agent listens on `127.0.0.1:<port>` for its hooks, and with the port
   taken the second agent exits at once and its service restarts it in a loop. Pick 8789 or above. `install-hooks` and the `tarfa` CLI read the port from
   `agent.env`; `install-hooks` writes it into each hook, so run it again after changing the port.
+- **`TARFA_PHONE_PORT` must differ too** (8798 beside your 8797): `setup` refuses a phone port
+  another user's agent holds.
+- **`TARFA_PHONE_ADDRESSES`** names this agent's own address (under its `/<slug>` when it shares
+  your Tailscale port), which `setup` writes.
 - **`TARFA_MACHINE_ID`** is the name the phone shows: give each agent its own.
+
+Two more matter only when both users use the feature:
+
 - **`TARFA_STATS`**: each agent shows its own user's memory room on the home screen, which is
   how you see the new user's jobs nearing their cap. `TARFA_STATS=off` hides that line.
 - **`TARFA_VOICE_DEVICE`**: for Claude voice, each user needs its own loopback subdevice, in

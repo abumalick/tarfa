@@ -9,10 +9,10 @@ description: Use when asked to launch, spawn, or open one or more new Tarfa work
 
 A Tarfa workspace *is* a detached tmux session named after its folder and a small
 number (`perch-3`, `eng-ops-1`; older ones are `perch-<6 hex>`). The Tarfa agent
-discovers workspaces by running `tmux list-sessions` — nothing registers them.
+finds its workspaces by the `@tarfa_command` marker `tarfa spawn` sets on each session.
 `tarfa rename [<id>] <title>` changes a workspace's title, never its id. The `tarfa` CLI starts one (`tarfa spawn`); it needs no agent restart and no
-token. It is on PATH once `deploy/install-cli.sh` has run on the machine (see
-"Tarfa CLI" in the Tarfa repo's `docs/DEPLOY.md`).
+token. It is on PATH on every machine running the agent (`tarfa setup` installs it; see the
+Tarfa repo's `docs/DEPLOY.md`).
 
 Each workspace runs its own `claude` process with its own context. It cannot see
 this conversation. **The brief is the only thing it will ever know.**

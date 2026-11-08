@@ -313,8 +313,9 @@ deploy/pwa-deploy.sh --dry-run   # build and check only, from any checkout
 To test a worktree's PWA on a phone from a public origin, `deploy/pwa-deploy.sh --dev` deploys it
 to a throwaway `tarfa-dev` Worker on workers.dev and prints its URL (its header shows a
 `tarfa-dev` badge); mint a link for it with `tarfa pair --pwa <that URL>`, and remove it with
-`deploy/pwa-deploy.sh --dev --delete` when done. Another Cloudflare account serves its own copy the
-same way with `--env-file <its file>`.
+`deploy/pwa-deploy.sh --dev --delete` when done. Another Cloudflare account serves its own copy with
+`--env-file <its file>` from a fork whose `packages/pwa/wrangler.jsonc` names its own domain in `env.production`'s route
+and whose `deploy/pwa-deploy.sh` checks that domain's `version.json` (both name tarfa.app).
 
 The script never uses a wrangler login: `PWA_DEPLOY_TOKEN_CMD` prints an API token scoped to
 Workers Scripts:Edit (kept in a password manager, e.g. `bw get password <item>`), which goes only

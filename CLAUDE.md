@@ -892,7 +892,9 @@ So the PWA is on a public origin, tarfa.app, and what follows from that:
   the key is stored as raw bytes readable by any script on the origin, and an enrolled key is the
   phone's whole credential; whoever serves the PWA can also read everything it shows.
   **tarfa.app is the maintainer's origin**: whoever does not trust it serves their own copy
-  (`deploy/pwa-deploy.sh --env-file` for their own Cloudflare account, or any static host) and
+  (any static host, or `deploy/pwa-deploy.sh --env-file` for their own Cloudflare account from
+  a fork that names their own domain in `wrangler.jsonc` and the script's `version.json` check,
+  which say tarfa.app) and
   points their pairing links at it (`tarfa pair --pwa`). Moving origins means a new device key
   (a new origin has empty storage), so every phone pairs again there.
 - **Pairing links name the PWA's origin** (`TARFA_PWA_ORIGIN`, default `https://tarfa.app`), so

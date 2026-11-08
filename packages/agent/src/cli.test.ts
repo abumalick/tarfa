@@ -96,6 +96,10 @@ describe('tarfa --help', () => {
     }
   });
 
+  it('refuses serve with anything after it instead of starting a second agent', async () => {
+    await expect(run(['serve', '--help'], {}, '/nonexistent')).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining('usage: tarfa serve') });
+  });
+
   it('refuses an unknown command with exit 2 and a pointer to --help, before reading agent.env', async () => {
     await expect(run(['frobnicate'], {}, '/nonexistent')).rejects.toMatchObject({
       exitCode: 2,

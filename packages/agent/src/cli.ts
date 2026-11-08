@@ -123,6 +123,9 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
   const env = withLegacyEnv(rawEnv);
   if (argv[0] === undefined || argv[0] === '--help' || argv[0] === '-h' || argv[0] === 'help') return HELP;
   if (argv[0] === '--version' || argv[0] === '-v') return packageVersion();
+  // A bare `serve` never reaches here (the entrypoint starts the agent); with anything after it,
+  // starting a second agent would replace ~/.tarfa/token under the running one.
+  if (argv[0] === 'serve') throw new UsageError('usage: tarfa serve   (no options: runs the agent in the foreground, as the service does)');
   if (!COMMANDS.has(argv[0])) throw new UsageError(`unknown command: ${argv[0]} (run \`tarfa --help\`)`);
   if (argv[0] === 'setup') return setup(argv.slice(1), env, home, io);
   if (argv[0] === 'apply') return apply(argv.slice(1), env, home, io);
@@ -207,7 +210,7 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
   }
 }
 
-const HELP = `usage: tarfa <command> [options]   (\`tarfa <command> --help\` where it has one)
+const HELP = `usage: tarfa <command> [options]   (\`tarfa setup --help\`, \`tarfa apply --help\` and \`tarfa update --help\` list their flags)
 
 Set up this machine:
   setup          write agent.env, the agent key, the service and the hooks, then check the phone port
@@ -231,7 +234,6 @@ Workspaces on this machine:
 
   --version      print the version`;
 
-// `serve` is not here: the entrypoint starts the agent before `run` is reached.
 const COMMANDS = new Set([
   'setup', 'apply', 'update', 'pair', 'connect', 'relay-key', 'devices', 'install-hooks',
   'ls', 'spawn', 'peek', 'unpark', 'rename', 'send', 'close', 'wait',
@@ -1009,7 +1011,7 @@ function formatRoster(roster: DeviceRoster): string {
 if (isEntrypoint(import.meta.url, process.argv[1])) {
   const argv = process.argv.slice(2);
   const program =
-    argv[0] === 'serve'
+    argv[0] === 'serve' && argv.length === 1
       ? import('./serve').then((agent) => agent.main())
       : run(argv, process.env, homedir()).then((out) => {
           process.stdout.write(`${out}\n`);
