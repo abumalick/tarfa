@@ -121,8 +121,9 @@ The child then:
   on a question its orchestrator could have answered.
 - **is told in its brief** (an appended footer) to send its questions and its final
   report to the parent with `tarfa send <parent id> "<message>"` (a Codex child as an
-  escalated command), and that a message headed `[Perch message — from your ORCHESTRATOR]`
-  carries the owner's authority.
+  escalated command). A Codex child is also told that a message headed
+  `[Tarfa message — from your ORCHESTRATOR]` carries the owner's authority (a Claude child
+  takes that from its global rules, which accept the older `[Perch message` too).
 
 Without `--child` the workspace is an ordinary one the user drives (the default;
 orchestration is explicit). The orchestrator's side is the `tarfa-orchestrate` skill: it follows

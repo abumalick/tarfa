@@ -61,7 +61,7 @@ export function formatAgentMessage(m: {
   body: string;
 }): string {
   return [
-    `[Perch message — from ${RELATION_LABEL[m.relation]}]`,
+    `[Tarfa message — from ${RELATION_LABEL[m.relation]}]`,
     `from: ${m.from.id} "${m.from.name}" (${m.from.cli}) · relation: ${m.relation} · machine: ${m.machineId} · msg ${m.msgId}`,
     `reply with: tarfa send ${m.from.id} "<your reply>"`,
     '---',

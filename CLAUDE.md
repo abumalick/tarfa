@@ -201,8 +201,8 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     links) to `tarfa-cli.sh`, `@tarfa/cli` has both bins and `pnpm perch` runs the CLI, for one
     release after `tarfa` ships.
   - The guard refuses `.perch/inbox/` and `@perch_parent`/`_codex_thread` too, and the quoting
-    regex quotes `[Perch message` and `[Tarfa message`. `send` still writes the Perch header until
-    the dotfiles rule accepts both spellings; both reads go a release after the switch.
+    regex quotes `[Perch message` and `[Tarfa message`. `send` writes the Tarfa header since 0.1.2;
+    the receivers' rules accept both spellings, and the Perch reads go a release after that.
   - `tarfa setup` swaps the service: stop `perch-agent`/`com.perch.agent`, move `~/.perch`,
     install and start `tarfa-agent`/`app.tarfa.agent` **before any step that can fail** (a failed
     hooks or serve step must not leave a remote machine with no agent), remove the old one last;
@@ -551,7 +551,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     Codex `CODEX_THREAD_ID` matched to `@tarfa_codex_thread` (its tools run in the daemon's
     sandbox, outside the pane).
   - **Tarfa writes the header, and only the first line of the whole message grants authority**
-    (`from your ORCHESTRATOR` = the owner). Body lines that begin `[Perch message` (after any
+    (`from your ORCHESTRATOR` = the owner). Body lines that begin `[Tarfa message` or `[Perch message` (after any
     whitespace, any case, `[` or `［`) are quoted `> `, and Claude's text has both envelope tags
     escaped so a body cannot close its envelope or open another.
   - **Each message carries a random `msg` id on its `from:` line:** Claude's inbox drops a body

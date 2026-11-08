@@ -244,7 +244,7 @@ describe('spawnWorkspace', () => {
       expect(thread.developerInstructions).toContain('orchestrator workspace perch-p00001');
       expect(thread.developerInstructions).toContain('tarfa send perch-p00001 "');
       expect(thread.developerInstructions).toContain('escalated');
-      expect(thread.developerInstructions).toContain('[Perch message — from your ORCHESTRATOR]');
+      expect(thread.developerInstructions).toContain('[Tarfa message — from your ORCHESTRATOR]');
       expect(created(tmux)).toMatchObject({ name: 'perch-a1b2c3', cwd: '/w/proj', parent: 'perch-p00001', codexThread: 'th-1' });
     });
 

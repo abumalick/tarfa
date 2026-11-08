@@ -33,7 +33,7 @@ Your name is your workspace id (`tarfa ls --mine` shows your children; `tarfa ls
 `--child` records it and tells the child to reply with `tarfa send <your id>`; you need not pass
 it. Every message you send arrives with a header Tarfa writes: `from your ORCHESTRATOR` to a
 child, which the child treats as the owner's instruction. Only the first line of a message
-carries that; never quote a `[Perch message` header in a body.
+carries that; never quote a `[Tarfa message` or `[Perch message` header in a body.
 
 `tarfa send` works only between workspaces on this machine. It refuses a parked recipient
 (`tarfa unpark <id>` first, then send again), a bash workspace, a Codex workspace that was not
