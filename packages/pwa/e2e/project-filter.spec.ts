@@ -177,3 +177,43 @@ test('the show-only selection survives a trip through hide mode', async ({ page 
   await page.getByRole('radio', { name: 'Show only' }).click();
   await expect(filter).toContainText('Only demo');
 });
+
+// A long project list should use the screen below the control, not stop halfway down it.
+test.describe('a long project list', () => {
+  let many: FakeAgent;
+  test.beforeAll(async () => {
+    many = await startFakeAgent(
+      Array.from({ length: 30 }, (_, i) => ({
+        machineId: 'agent-machine-id',
+        id: `p${i}`,
+        name: `p${i}`,
+        projectPath: `/home/u/workspace/project-${i}`,
+        command: 'bash',
+        createdAt: i + 1,
+        lastActivityAt: i + 1,
+        status: 'idle',
+      })),
+    );
+  });
+  test.afterAll(async () => {
+    await many.close();
+  });
+
+  test('the open menu reaches down to the bottom of the screen', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await seed(page, many);
+    await page.goto('/');
+    const filter = page.locator('summary[aria-label="Filter by project"]');
+    await filter.click();
+    const menu = page.getByRole('group', { name: 'Projects' });
+    await expect(menu).toBeVisible();
+    const box = (await menu.boundingBox())!;
+    expect(box.y + box.height).toBeGreaterThan(844 - 40);
+    expect(box.y + box.height).toBeLessThanOrEqual(844);
+
+    // Tapping the control again closes it (the tap lands on the backdrop laid over it).
+    const header = (await filter.boundingBox())!;
+    await page.mouse.click(header.x + header.width / 2, header.y + header.height / 2);
+    await expect(menu).toHaveCount(0);
+  });
+});
