@@ -113,6 +113,8 @@ export interface FakeAgent {
   // Whether the `workspaces` reply says Claude voice works on this machine (mutable; false, as
   // on a Mac or with no loopback, until a spec sets it).
   claudeVoice: boolean;
+  // Claude's last reply per workspace id, as the agent keeps it from the Stop hook (mutable).
+  lastReplies: Record<string, string>;
   close: () => Promise<void>;
 }
 
@@ -134,7 +136,7 @@ type FakeWorkspace = {
 
 // The default two-workspace set most specs rely on. Pass `workspacesOverride` to exercise a
 // different shape (e.g. a long-named session for the list-overflow guard) without disturbing it.
-const DEFAULT_WORKSPACES: FakeWorkspace[] = [
+export const DEFAULT_WORKSPACES: FakeWorkspace[] = [
   { machineId: 'agent-machine-id', id: 'perch-demo', name: 'demo', projectPath: '/home/u/workspace/demo', command: 'bash', createdAt: 1, lastActivityAt: 1, status: 'needs-feedback', agentAddress: 'demo-7f', github: { owner: 'Acme-Org', repo: 'acme-app', ownerType: 'org' } },
   { machineId: 'agent-machine-id', id: 'perch-other', name: 'other', projectPath: '/home/u/workspace/other', command: 'bash', createdAt: 2, lastActivityAt: 2, status: 'idle' },
 ];
@@ -165,6 +167,7 @@ export async function startFakeAgent(
   const pairings = new FilePairingStore(join(home, 'pairing.json'));
   let upgrades = 0;
   let claudeVoice = false;
+  const lastReplies: Record<string, string> = {};
   const sessions = new Set<NoiseClientConnection>();
   {
     const browserReceived: Array<{ session: string; message: Record<string, unknown> }> = [];
@@ -437,6 +440,9 @@ export async function startFakeAgent(
             });
             break;
           }
+          case 'lastReply':
+            send({ type: 'lastReply', workspaceId: String(msg.workspaceId), text: lastReplies[String(msg.workspaceId)] ?? null });
+            break;
           case 'ping':
             // Faithful to the real agent: answer the liveness probe so the client's heartbeat
             // keeps the connection alive.
@@ -496,6 +502,7 @@ export async function startFakeAgent(
       set claudeVoice(on: boolean) {
         claudeVoice = on;
       },
+      lastReplies,
       created,
       received,
       sendOutput: (workspaceId, data) => {

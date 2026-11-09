@@ -17,6 +17,7 @@
   import WorkspaceMenu from './WorkspaceMenu.svelte';
   import SharedFileConfirm from './SharedFileConfirm.svelte';
   import CopyOffer from './CopyOffer.svelte';
+  import ReadAloudPlayer from './ReadAloudPlayer.svelte';
   import { trackStatusInline, trackViewport, trackWide } from './viewport';
   import { attachTerminalScroll, type TerminalScroll } from './terminal-scroll';
   import { attachCopyOnSelect, type CopyOnSelect } from './copy-on-select';
@@ -408,6 +409,19 @@
       </div>
     {/if}
     {#if copied}<div class="copied-toast" role="status">{msg().terminal.copied}</div>{/if}
+    {#if store.readAloud}
+      <ReadAloudPlayer
+        player={store.readAloud}
+        onToggle={() => store.toggleReadAloud()}
+        onSkip={(s) => store.skipReadAloud(s)}
+        onClose={() => store.closeReadAloud()}
+      />
+    {:else if store.readAloudNotice}
+      <div class="read-aloud-notice" role="status">
+        <span>{store.readAloudNotice}</span>
+        <button type="button" aria-label={msg().readAloud.dismiss} onpointerdown={keepFocus} onclick={() => store.dismissReadAloudNotice()}>✕</button>
+      </div>
+    {/if}
   </div>
   <WorkspaceMenu
     bind:open={menuOpen}
@@ -455,6 +469,7 @@
     onSelectPreset={(id) => store.selectPreset(id)}
     onAddPreset={() => store.addDictationPreset()}
     onPickFile={pickFile}
+    onReadAloud={store.canReadAloud ? () => store.startReadAloud() : undefined}
 
     bind:ctrl
     bind:alt
@@ -580,6 +595,33 @@
      jsdom has no bidi/layout engine; the visual result is validated on-device. */
   .term.android :global(.xterm-rows span) {
     display: inline !important;
+  }
+  .read-aloud-notice {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 12px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.9rem;
+    touch-action: manipulation;
+  }
+  .read-aloud-notice span { flex: 1; }
+  .read-aloud-notice button {
+    min-width: 36px;
+    min-height: 36px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text);
+    touch-action: manipulation;
   }
   .copied-toast {
     position: absolute;

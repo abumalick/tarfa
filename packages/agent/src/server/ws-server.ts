@@ -39,6 +39,7 @@ import type { Workspace } from '@tarfa/contracts';
 import { ConnectionHandler } from './connection-handler';
 import { ViewerRegistry } from './viewer-registry';
 import { applyHookEvent, markSent } from '../application/apply-hook-event';
+import { LastReplies } from '../application/last-replies';
 import { sessionOfCodexThread } from '../application/agent-message';
 import { sendMessage } from '../application/send-message';
 import type { MessageDelivery } from '../ports/message-delivery-port';
@@ -154,6 +155,7 @@ export class WsServer {
   private readonly oscTurnEnded = new Set<string>();
   // Hooks posted by Codex thread, applied one after another in arrival order.
   private threadHooks: Promise<void> = Promise.resolve();
+  private readonly lastReplies = new LastReplies();
   // The panes showing a question or menu at the last poll.
   private asking = new Set<string>();
   // The last OSC 7501 record seen per pane, so only a change is applied (applyProgramStatus).
@@ -191,6 +193,7 @@ export class WsServer {
     this.sentDuringTool.delete(id);
     this.oscTurnEnded.delete(id);
     this.programSeen.delete(id);
+    this.lastReplies.forget(id);
   }
 
   // pollTitles logs and drops a workspace it saw go, but it runs only while a phone is connected
@@ -305,6 +308,7 @@ export class WsServer {
       dropWorkspaceState: (id: string) => this.dropWorkspaceState(id),
       broadcastClosed: (id: string) => this.broadcastClosed(id),
       messagedLast: this.messagedLast,
+      lastReplies: this.lastReplies,
     });
     this.handlers.add(handler);
     conn.onClose(() => {
@@ -329,9 +333,10 @@ export class WsServer {
       res.writeHead(401).end();
       return;
     }
-    let body = '';
     let bytes = 0;
     let refused = false;
+    // Joined only at the end: decoding chunk by chunk breaks a character split across two.
+    const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => {
       if (refused) return;
       bytes += chunk.length;
@@ -341,10 +346,11 @@ export class WsServer {
         req.destroy();
         return;
       }
-      body += chunk;
+      chunks.push(chunk);
     });
     req.on('end', () => {
       if (refused) return;
+      const body = Buffer.concat(chunks).toString('utf8');
       if (route === '/unpark') {
         void this.handleUnpark(body, res);
         return;
@@ -406,6 +412,7 @@ export class WsServer {
   private applyHook(sessionName: string, event: string, claude: unknown, agent: unknown): void {
     const statusBefore = this.deps.status.get(sessionName);
     const messagedBefore = this.messagedLast.has(sessionName);
+    this.lastReplies.record(sessionName, event, claude);
     applyHookEvent(
       {
         store: this.deps.status,

@@ -2179,6 +2179,150 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
     return { store, sent, deliver, bySent };
   }
 
+  describe('reading the last reply aloud', () => {
+    function fakeSpeech() {
+      const spoken: string[] = [];
+      const langs: string[] = [];
+      let cancels = 0;
+      return {
+        spoken,
+        langs,
+        get cancels() {
+          return cancels;
+        },
+        port: {
+          speak: (text: string, lang: string) => void (spoken.push(text), langs.push(lang)),
+          cancel: () => void cancels++,
+          unlock: () => undefined,
+        },
+      };
+    }
+    function withTimer() {
+      const timers: Array<() => void> = [];
+      return { timers, startTimer: (fn: () => void) => (timers.push(fn), () => undefined) };
+    }
+
+    it('is offered only for a machine whose agent names the feature, on a phone with a voice', () => {
+      const speech = fakeSpeech();
+      const { store } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      expect(store.canReadAloud).toBe(false);
+      store.setAgent('mac', { features: ['lastReply'] });
+      expect(store.canReadAloud).toBe(true);
+      const { store: voiceless } = buildKeyed();
+      voiceless.open(ws);
+      voiceless.setAgent('mac', { features: ['lastReply'] });
+      expect(voiceless.canReadAloud).toBe(false);
+    });
+
+    it('asks the agent for the reply and reads it', () => {
+      const speech = fakeSpeech();
+      const { store, deliver, bySent } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      expect(bySent('lastReply')).toEqual([{ type: 'lastReply', workspaceId: 'perch-a' }]);
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Done. All green.' });
+      expect(speech.spoken).toEqual(['Done.', 'All green.']);
+      expect(store.readAloud?.state).toBe('playing');
+    });
+
+    it('says there is nothing to read when the agent holds no reply', () => {
+      const speech = fakeSpeech();
+      const { store, deliver } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: null });
+      expect(store.readAloud).toBeNull();
+      expect(store.readAloudNotice).toBeTruthy();
+      store.dismissReadAloudNotice();
+      expect(store.readAloudNotice).toBeNull();
+    });
+
+    it('ignores a reply for another workspace', () => {
+      const speech = fakeSpeech();
+      const { store, deliver } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-b', text: 'Elsewhere.' });
+      expect(speech.spoken).toEqual([]);
+    });
+
+    it('gives up when the agent never answers', () => {
+      const speech = fakeSpeech();
+      const timer = withTimer();
+      const { store, deliver } = buildKeyed({ speech: speech.port, startTimer: timer.startTimer });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      timer.timers.at(-1)!();
+      expect(store.readAloudNotice).toBeTruthy();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Too late.' });
+      expect(speech.spoken).toEqual([]);
+    });
+
+    it('is not offered in a workspace that does not run Claude', () => {
+      const speech = fakeSpeech();
+      const { store } = buildKeyed({ speech: speech.port });
+      store.open({ ...ws, command: 'bash' });
+      store.setAgent('mac', { features: ['lastReply'] });
+      expect(store.canReadAloud).toBe(false);
+    });
+
+    it('reads with a voice for the language the reply is written in', () => {
+      const speech = fakeSpeech();
+      const { store, deliver } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Les tests passent et la branche est fusionnée.' });
+      expect(speech.langs).toEqual(['fr']);
+    });
+
+    it('drops a notice when the workspace is left', () => {
+      const speech = fakeSpeech();
+      const { store, deliver } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: null });
+      store.back();
+      expect(store.readAloudNotice).toBeNull();
+    });
+
+    it('a dropped machine cancels the request but not a reading already under way', () => {
+      const speech = fakeSpeech();
+      const { store, deliver } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Reading on.' });
+      store.setStatus('mac', 'offline');
+      expect(store.readAloud?.state).toBe('playing');
+      store.setStatus('mac', 'online');
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      store.setStatus('mac', 'offline');
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Too late.' });
+      expect(speech.spoken).not.toContain('Too late.');
+    });
+
+    it('stops reading when the workspace is left', () => {
+      const speech = fakeSpeech();
+      const { store, deliver } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Reading.' });
+      const before = speech.cancels;
+      store.back();
+      expect(speech.cancels).toBeGreaterThan(before);
+      expect(store.readAloud).toBeNull();
+    });
+  });
+
   it('loads a media preview in chunks inside the session', async () => {
     const { store, deliver, bySent } = buildKeyed();
     store.open(ws);

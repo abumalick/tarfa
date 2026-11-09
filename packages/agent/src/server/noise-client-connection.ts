@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type AgentMessage } from '@tarfa/contracts';
+import { AGENT_FEATURES, PROTOCOL_VERSION, type AgentMessage } from '@tarfa/contracts';
 import {
   DEVICE_REFUSED,
   IN_BAND_REFUSAL,
@@ -116,7 +116,7 @@ export class NoiseClientConnection implements ClientConnection {
       return;
     }
     if (message.type === 'authResult' && message.ok) {
-      const accepted = { ...message, agent: { protocol: PROTOCOL_VERSION, ...(this.options.agentVersion ? { version: this.options.agentVersion } : {}) } };
+      const accepted = { ...message, agent: { protocol: PROTOCOL_VERSION, ...(this.options.agentVersion ? { version: this.options.agentVersion } : {}), features: [AGENT_FEATURES.lastReply] } };
       message = accepted;
       if (!this.awaitingPhone) this.cancelDeadline();
       this.session.raiseCap(MAX_MESSAGE_BYTES);

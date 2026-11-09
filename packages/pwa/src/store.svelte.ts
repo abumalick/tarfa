@@ -1,5 +1,5 @@
 import type { AgentMessage, BrowserSession, ClientMessage, MachineStats, MediaResult, Workspace, WorkspaceStatus } from '@tarfa/contracts';
-import { imageMediaType, pdfMediaType, audioMediaType, runsClaude } from '@tarfa/contracts';
+import { AGENT_FEATURES, imageMediaType, pdfMediaType, audioMediaType, runsClaude } from '@tarfa/contracts';
 import { SvelteSet } from 'svelte/reactivity';
 import { agentTooOld, MIN_AGENT_VERSION } from './core/agent-skew';
 import type { ConnectionManager } from './core/connection-manager';
@@ -44,7 +44,10 @@ import type { Transcriber } from './core/ports/transcriber';
 import type { VoiceLink } from './core/claude-voice';
 import { resolveLanguage, type LanguageChoice } from './core/i18n/language';
 import { bytesToBase64 } from './core/base64';
-import { msg, setLanguage } from './i18n.svelte';
+import { language, msg, setLanguage } from './i18n.svelte';
+import { ReadAloud, type ReadAloudState } from './core/read-aloud';
+import { replyLanguage } from './core/reply-language';
+import type { SpeechPort } from './core/ports/speech';
 
 function phoneLanguages(): readonly string[] {
   return globalThis.navigator?.languages ?? [];
@@ -80,6 +83,8 @@ const RECONNECT_GRACE_MS = 25_000;
 // How long after the end of a Claude voice dictation the agent may take to answer before it
 // is taken not to support it: the last second of playback, the release and Claude's transcription.
 export const VOICE_REPLY_MS = 20_000;
+// How long the phone waits for the agent's `lastReply` before saying it got no answer.
+export const READ_ALOUD_REPLY_MS = 8_000;
 
 export class TarfaStore {
   view = $state<View>('list');
@@ -283,6 +288,13 @@ export class TarfaStore {
   // Machines seen offline since they were last online. Lets setStatus fire onReattach only on
   // a real drop-and-recover, not on the first connect (which has nothing stale to re-attach).
   private disconnected = new Set<string>();
+  // What each machine's agent says it answers beyond the protocol (authResult `features`).
+  private agentFeatures = $state<Record<string, string[]>>({});
+  // The open read-aloud player, mirrored from `readAloudPlayer` (null when closed).
+  readAloud = $state<{ state: ReadAloudState; position: number; duration: number } | null>(null);
+  readAloudNotice = $state<string | null>(null);
+  private readonly readAloudPlayer: ReadAloud | null = null;
+  private pendingReply: { machineId: string; workspaceId: string; cancel: () => void } | null = null;
   // Push-to-talk dictation state, mirrored from the SpeechToText controller for the UI.
   dictationState = $state<DictationState>('idle');
   dictationError = $state<string | null>(null);
@@ -321,6 +333,8 @@ export class TarfaStore {
       // that don't exercise logging; when absent, event recording and flushing are no-ops.
       connectionLog?: ConnectionLog;
       logMeta?: { ua?: string; shell?: string };
+      // The phone's own voice, for reading replies aloud; absent where the browser has none.
+      speech?: SpeechPort | null;
       // The oldest agent version this app accepts without a notice; tests inject their own.
       minAgentVersion?: string;
       // Milliseconds since the app was launched (navigation start); logged once as `boot` when
@@ -337,6 +351,7 @@ export class TarfaStore {
       origin?: string;
     },
   ) {
+    if (deps.speech) this.readAloudPlayer = new ReadAloud(deps.speech, () => this.syncReadAloud());
     deps.deviceKey?.().then(
       (info) => (this.deviceKey = info),
       (err: unknown) => this.failDeviceKey(err),
@@ -394,7 +409,8 @@ export class TarfaStore {
     this.machines = this.deps.settings.list();
   }
 
-  setAgent(machineId: string, agent: { version?: string } | undefined): void {
+  setAgent(machineId: string, agent: { version?: string; features?: string[] } | undefined): void {
+    this.agentFeatures = { ...this.agentFeatures, [machineId]: agent?.features ?? [] };
     this.agentTooOld = { ...this.agentTooOld, [machineId]: agentTooOld(agent?.version, this.deps.minAgentVersion ?? MIN_AGENT_VERSION) };
   }
 
@@ -411,6 +427,9 @@ export class TarfaStore {
       const { [machineId]: _dropped, ...rest } = this.machineStats;
       this.machineStats = rest;
       this.agentTooOld = { ...this.agentTooOld, [machineId]: false };
+      this.agentFeatures = { ...this.agentFeatures, [machineId]: [] };
+      // A reading already under way needs no connection; only a request waiting on this one is lost.
+      if (this.pendingReply?.machineId === machineId) this.cancelPendingReply();
     } else if (status === 'online') {
       this.reachedOnce[machineId] = true;
       this.deps.connectionLog?.push(machineId, 'online');
@@ -545,6 +564,15 @@ export class TarfaStore {
         this.onInjectedInput?.();
         return voice.settle(null);
       }
+      case 'lastReply': {
+        const pending = this.pendingReply;
+        if (pending?.machineId !== machineId || pending.workspaceId !== message.workspaceId) return;
+        pending.cancel();
+        this.pendingReply = null;
+        if (message.text === null) this.readAloudNotice = msg().readAloud.nothingToRead;
+        else this.readAloudPlayer?.start(message.text, replyLanguage(message.text, language()));
+        return;
+      }
       case 'detached':
         if (this.isActive(machineId, message.workspaceId) && message.reason === 'opened-elsewhere') {
           this.terminalState = 'moved';
@@ -628,6 +656,7 @@ export class TarfaStore {
   }
 
   open(workspace: Workspace, focus = false): void {
+    if (!this.isActive(workspace.machineId, workspace.id)) this.closeReadAloud();
     this.active = workspace;
     this.terminalState = 'live';
     this.autoFocus = focus;
@@ -846,12 +875,63 @@ export class TarfaStore {
   closeActive(): void {
     if (this.active) {
       this.send(this.active.machineId, { type: 'close', workspaceId: this.active.id });
+      this.closeReadAloud();
       this.active = null;
       this.view = 'list';
     }
   }
 
+  get canReadAloud(): boolean {
+    const active = this.active;
+    return !!this.readAloudPlayer && !!active && runsClaude(active.command) && (this.agentFeatures[active.machineId] ?? []).includes(AGENT_FEATURES.lastReply);
+  }
+
+  // Asks the active workspace's agent for Claude's last reply, which the player reads once it
+  // arrives. Called from the 🔊 tap, which is what lets the voice speak later.
+  startReadAloud(): void {
+    const active = this.active;
+    if (!this.canReadAloud || !active) return;
+    this.closeReadAloud();
+    // After the close, whose cancel would drop it.
+    this.deps.speech?.unlock();
+    const cancel = this.startTimer(() => {
+      this.pendingReply = null;
+      this.readAloudNotice = msg().readAloud.noAnswer;
+    }, READ_ALOUD_REPLY_MS);
+    this.pendingReply = { machineId: active.machineId, workspaceId: active.id, cancel };
+    this.send(active.machineId, { type: 'lastReply', workspaceId: active.id });
+  }
+
+  toggleReadAloud(): void {
+    this.readAloudPlayer?.toggle();
+  }
+
+  skipReadAloud(seconds: number): void {
+    this.readAloudPlayer?.skip(seconds);
+  }
+
+  closeReadAloud(): void {
+    this.cancelPendingReply();
+    this.readAloudNotice = null;
+    if (this.readAloudPlayer && this.readAloudPlayer.state !== 'idle') this.readAloudPlayer.stop();
+  }
+
+  private cancelPendingReply(): void {
+    this.pendingReply?.cancel();
+    this.pendingReply = null;
+  }
+
+  dismissReadAloudNotice(): void {
+    this.readAloudNotice = null;
+  }
+
+  private syncReadAloud(): void {
+    const player = this.readAloudPlayer;
+    this.readAloud = !player || player.state === 'idle' ? null : { state: player.state, position: player.position, duration: player.duration };
+  }
+
   back(): void {
+    this.closeReadAloud();
     if (this.active) this.send(this.active.machineId, { type: 'detach', workspaceId: this.active.id });
     this.active = null;
     this.view = 'list';

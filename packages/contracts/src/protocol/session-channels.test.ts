@@ -31,6 +31,25 @@ describe('session channels on the wire', () => {
     expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1.5 } })).toEqual({ type: 'authResult', ok: true });
   });
 
+  it('keeps the features an agent names, and drops a malformed list without losing the rest', () => {
+    expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1, version: '1.2.3', features: ['lastReply'] } })).toEqual({
+      type: 'authResult',
+      ok: true,
+      agent: { protocol: 1, version: '1.2.3', features: ['lastReply'] },
+    });
+    expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1, version: '1.2.3', features: 'lastReply' } })).toEqual({
+      type: 'authResult',
+      ok: true,
+      agent: { protocol: 1, version: '1.2.3' },
+    });
+  });
+
+  it('carries a request for the last reply and its answer', () => {
+    expect(parseClientMessage({ type: 'lastReply', workspaceId: 'w' })).toEqual({ type: 'lastReply', workspaceId: 'w' });
+    expect(parseAgentMessage({ type: 'lastReply', workspaceId: 'w', text: 'Done.' })).toEqual({ type: 'lastReply', workspaceId: 'w', text: 'Done.' });
+    expect(parseAgentMessage({ type: 'lastReply', workspaceId: 'w', text: null })).toEqual({ type: 'lastReply', workspaceId: 'w', text: null });
+  });
+
   it('keeps the agent version an agent names beside its protocol, and drops a malformed one', () => {
     expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1, version: '1.2.3' } })).toEqual({
       type: 'authResult',

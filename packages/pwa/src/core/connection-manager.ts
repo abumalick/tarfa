@@ -13,7 +13,7 @@ export interface ConnectionManagerDeps {
   onMessage: (machineId: string, message: AgentMessage) => void;
   onStatus: (machineId: string, status: ConnectionStatus) => void;
   onDiagnostic?: (machineId: string, diagnostic: ConnectionDiagnostic) => void;
-  onAgent?: (machineId: string, agent: { protocol: number; version?: string } | undefined) => void;
+  onAgent?: (machineId: string, agent: { protocol: number; version?: string; features?: string[] } | undefined) => void;
   // A phase of a connect (device key, socket open, handshake, an address failing) with its timing.
   onPhase?: (machineId: string, phase: string, detail: string) => void;
   // The agent said this entry's device key is enrolled (`all`: its token and pairing secret are to

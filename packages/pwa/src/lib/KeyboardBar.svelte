@@ -43,6 +43,7 @@
     onSelectPreset = () => {},
     onAddPreset = () => {},
     onPickFile,
+    onReadAloud,
     ctrl = $bindable('off'),
     alt = $bindable('off'),
     meta = $bindable('off'),
@@ -61,6 +62,8 @@
     // When wired (terminal view), shows an attach-file button backed by the OS file picker.
     // Omitted elsewhere (e.g. BrowserView) so the button doesn't appear where it has no target.
     onPickFile?: (file: File) => void;
+    // Shown only when the attached machine's agent can send the last reply (see store.canReadAloud).
+    onReadAloud?: () => void;
     ctrl?: ModifierState;
     alt?: ModifierState;
     meta?: ModifierState;
@@ -332,6 +335,9 @@
       onDictate();
     }}
     >{dictation === 'transcribing' ? '⏳' : dictation === 'error' ? '⚠️' : '🎤'}<span class="badge" aria-hidden="true">{preset.badge}</span></button>
+  {/if}
+  {#if onReadAloud}
+    <button type="button" aria-label={msg().readAloud.listen} use:press onclick={() => onReadAloud()}>🔊</button>
   {/if}
   {#if presetAnchor && preset}
     <DictationMenu

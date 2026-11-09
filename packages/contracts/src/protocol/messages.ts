@@ -103,6 +103,9 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('voiceStart'), workspaceId: z.string(), id: z.string() }),
   z.object({ type: z.literal('voiceChunk'), id: z.string(), data: z.string() }),
   z.object({ type: z.literal('voiceEnd'), id: z.string() }),
+  // The text of Claude's last reply in a workspace, read aloud on the phone. Sent only to an agent
+  // whose authResult names the `lastReply` feature.
+  z.object({ type: z.literal('lastReply'), workspaceId: z.string() }),
   z.object({ type: z.literal('resize'), workspaceId: z.string(), cols: dim, rows: dim }),
   // `remember` is set only when the command came from the Custom field: the agent then adds it
   // to the machine's launcher list. Additive, so an older agent just ignores it.
@@ -131,6 +134,8 @@ export type DetachReason = z.infer<typeof detachReasonSchema>;
 // it. Bumped only when a PWA must refuse an older agent.
 export const PROTOCOL_VERSION = 1;
 
+export const AGENT_FEATURES = { lastReply: 'lastReply' } as const;
+
 export const agentMessageSchema = z.discriminatedUnion('type', [
   // `credential` is what authenticated the session; `enrolled` says the device key is enrolled (written), so the
   // phone forgets its token and pairing secret. Both optional: an older agent sends neither.
@@ -142,7 +147,12 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
     credential: z.enum(['device', 'pairing', 'token']).optional().catch(undefined),
     enrolled: z.boolean().optional().catch(undefined),
     pushed: z.literal(true).optional().catch(undefined),
-    agent: z.object({ protocol: z.number().int(), version: z.string().optional() }).optional().catch(undefined),
+    // `features` names what this agent answers beyond the protocol, so the PWA offers a control
+    // only to an agent that supports it (a worktree agent shares a release's version number).
+    agent: z
+      .object({ protocol: z.number().int(), version: z.string().optional(), features: z.array(z.string()).optional().catch(undefined) })
+      .optional()
+      .catch(undefined),
   }),
   // `claudeVoice`: whether this machine can play a Claude voice dictation (see voiceStart).
   // An older agent omits it, and the PWA then treats Claude voice as unavailable there.
@@ -178,6 +188,8 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('attached'), workspaceId: z.string() }),
   z.object({ type: z.literal('output'), workspaceId: z.string(), data: z.string() }),
   z.object({ type: z.literal('fileStored'), workspaceId: z.string(), path: z.string() }),
+  // `text` is null when the agent holds no reply for that workspace (none since it started, or not Claude).
+  z.object({ type: z.literal('lastReply'), workspaceId: z.string(), text: z.string().nullable() }),
   z.object({ type: z.literal('voiceDone'), id: z.string(), ok: z.boolean(), error: z.string().optional() }),
   z.object({ type: z.literal('detached'), workspaceId: z.string(), reason: detachReasonSchema }),
   z.object({ type: z.literal('closed'), workspaceId: z.string() }),

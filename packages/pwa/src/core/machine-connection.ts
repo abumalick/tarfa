@@ -35,7 +35,7 @@ export interface MachineConnectionDeps {
   preferredAddress?: () => string | undefined;
   onAddressWorked?: (address: string) => void;
   // What the agent says of itself in an accepted authResult (absent from an older agent).
-  onAgent?: (agent: { protocol: number; version?: string } | undefined) => void;
+  onAgent?: (agent: { protocol: number; version?: string; features?: string[] } | undefined) => void;
   // One address failing and the next being tried, for the connection log.
   onPhase?: (phase: string, detail: string) => void;
   token: string;

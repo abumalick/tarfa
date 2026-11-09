@@ -16,6 +16,7 @@ import { deviceFingerprint } from '@tarfa/secure-channel';
 import type { DeviceIdentity } from './core/ports/device-identity';
 import { MediaRecorderAudio } from './adapters/media-recorder-audio';
 import { ElevenLabsTranscriber } from './adapters/elevenlabs-transcriber';
+import { webSpeech } from './adapters/web-speech';
 import { OpenRouterTranscriber } from './adapters/openrouter-transcriber';
 import { PresetTranscriber } from './core/preset-transcriber';
 import { ClaudeVoiceRecorder, ClaudeVoiceTranscriber } from './core/claude-voice';
@@ -157,6 +158,7 @@ store = new TarfaStore({
     ),
     claude: new ClaudeVoiceTranscriber(voiceLink),
   }),
+  speech: webSpeech(),
   connectionLog,
   logMeta,
   sinceLaunch: () => performance.now(),

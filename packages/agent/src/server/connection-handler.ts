@@ -38,6 +38,7 @@ import { makeDir } from '../application/make-dir';
 import { readFile } from '../application/read-file';
 import { storePastedFile } from '../application/store-pasted-file';
 import type { ClaudeVoice, VoiceSession } from '../application/claude-voice';
+import type { LastReplies } from '../application/last-replies';
 import { runsClaude } from '@tarfa/contracts';
 import type { FileWriterPort } from '../ports/file-writer-port';
 import type { ClientLogPort } from '../ports/client-log-port';
@@ -90,6 +91,8 @@ export interface ConnectionHandlerDeps {
   scopes?: ProcessScopePort;
   // Shared by every connection (one virtual mic per machine); absent where it can't work.
   claudeVoice?: Pick<ClaudeVoice, 'start' | 'available'>;
+  // WsServer's record of each workspace's last reply, read aloud on the phone.
+  lastReplies?: Pick<LastReplies, 'get'>;
 }
 
 // `cancelled` stops a dictation still in its checks, before it has a session to abort.
@@ -467,6 +470,10 @@ export class ConnectionHandler {
         if (voice?.id !== message.id) return;
         voice.ended = true;
         voice.session?.end();
+        return;
+      }
+      case 'lastReply': {
+        this.conn.send({ type: 'lastReply', workspaceId: message.workspaceId, text: this.deps.lastReplies?.get(message.workspaceId) ?? null });
         return;
       }
       case 'ping': {

@@ -399,6 +399,32 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   (`docs/SETUP-MACHINE.md`, step 11): `alsa-utils`, the user in `audio`, `snd-aloop` loaded at
   boot, a `~/.asoundrc` whose default capture is `plughw:Loopback,1` (Claude records from the
   default device), and `/voice` on in hold mode.
+- **🔊 reads Claude's last reply with the phone's own voice; no provider, no cost.** The agent
+  keeps each workspace's `last_assistant_message` from the `Stop`/`StopFailure` payload in memory
+  (`application/last-replies.ts`, capped at 64 000 characters, dropped with the workspace's state,
+  never logged), and answers `lastReply` with it, or `null`. Claude workspaces only (`runsClaude`).
+  The hooks route joins a body's chunks before decoding: decoding each chunk alone broke any
+  multibyte character split between two, which status never noticed and a voice reads out.
+  Things not to "simplify":
+  - **The PWA shows a control only for what the agent says it answers.** Every accepted
+    `authResult` names `agent.features` (`AGENT_FEATURES` in contracts); the 🔊 key needs
+    `lastReply` there and a `speechSynthesis` in the browser. A version compare cannot do this (a
+    worktree agent carries a release's version), and an older agent omits the list, so a PWA
+    deployed ahead of its agents shows nothing new. A new agent-side capability adds a feature
+    name the same way.
+  - **The player never uses the voice's pause/resume** (unreliable on iOS and Android) **nor its
+    boundary events** (iOS fires none). `core/read-aloud.ts` queues one utterance per sentence
+    (`core/speakable.ts`, markdown syntax dropped, content kept), pausing cancels and remembers
+    the sentence, and ±10 s jumps by sentences at an estimated 15 characters a second. A
+    generation token ignores the `end` events a cancel fires on what it dropped.
+  - **The tap speaks a silent utterance first** (`SpeechPort.unlock`): the reply arrives after
+    the gesture is over, and WebKit lets a page speak only once it spoke inside one.
+  - **The voice follows the reply's language, not the app's** (`core/reply-language.ts`: Arabic
+    by its script, English or French by their commonest words, else the app's language): a French
+    voice reading English is barely understandable.
+  - The player and its notice float over the terminal's bottom (`.term` is the positioned box),
+    never inside the keyboard bar, which clips. Leaving the workspace stops the voice; the machine
+    dropping only cancels a request still waiting, since a reading under way needs no connection.
 - **Connection-event log — a client→agent diagnostic that survives drops.** The PWA records
   connection lifecycle events (`connect`/`online`/`close`/`manual-reconnect` per machine —
   `manual-reconnect` = the user tapped Reconnect, `auto-reconnect` = a foreground/`online`

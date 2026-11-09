@@ -487,6 +487,63 @@ describe('WsServer (E2E, real tmux)', () => {
     }
   });
 
+  // Long enough to reach the agent in several chunks, with multibyte characters on every boundary.
+  it('answers lastReply with the message the last Stop hook carried, and null for another workspace', async () => {
+    const reply = `${'Réponse prête, صحيح. '.repeat(3000)}Fin.`;
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-hook-'));
+    dirs.push(home);
+    const config = testConfig(home);
+    server = new WsServer({
+      config,
+      hookToken: HOOK_TOKEN,
+      tmux: new TmuxAdapter(),
+      recent: new FileRecentStore(config.recentStorePath),
+      lister: new FsProjectLister(),
+      reader: new FsFileReader(),
+      resolvePath: systemPathResolver,
+      isDirectory: fsIsDirectory,
+      clock: systemClock,
+      ids: new RandomIdGenerator(),
+      pty: new NodePtyAdapter(),
+      status: new InMemoryStatusStore(),
+      writer: new FsFileWriter(),
+      browserDiscovery: noBrowserDiscovery,
+      browserCommands: noBrowserCommands,
+      hiddenFolders: noHiddenFolders,
+      launchers: noLaunchers,
+      detectInstalled: async () => [],
+      keyterms: noKeyterms,
+      clientLog: noClientLog,
+      workspaceLog: noWorkspaceLog,
+      parked: new FileParkedStore(config.parkedStorePath),
+      connectUpstream: noConnectUpstream,
+    });
+    await server.start();
+    const port = server.address().port;
+
+    const res = await fetch(`http://127.0.0.1:${port}/hooks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer hook-secret' },
+      body: JSON.stringify({ sessionName: 'perch-reply', event: 'Stop', claude: { last_assistant_message: reply } }),
+    });
+    expect(res.status).toBe(204);
+
+    const socket = new WebSocket(await clientUrl());
+    await new Promise((r) => socket.once('open', r));
+    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    await nextMessage(socket); // authResult
+
+    socket.send(JSON.stringify({ type: 'lastReply', workspaceId: 'perch-reply' }));
+    expect(await nextMessage(socket)).toEqual({ type: 'lastReply', workspaceId: 'perch-reply', text: reply });
+    socket.send(JSON.stringify({ type: 'lastReply', workspaceId: 'perch-other' }));
+    expect(await nextMessage(socket)).toEqual({ type: 'lastReply', workspaceId: 'perch-other', text: null });
+
+    server.dropWorkspaceState('perch-reply');
+    socket.send(JSON.stringify({ type: 'lastReply', workspaceId: 'perch-reply' }));
+    expect(await nextMessage(socket)).toEqual({ type: 'lastReply', workspaceId: 'perch-reply', text: null });
+    socket.close();
+  });
+
   it('delivers a hook-driven workspaceUpdated to a connected client', async () => {
     const home = await mkdtemp(join(tmpdir(), 'tarfa-hook-'));
     dirs.push(home);
