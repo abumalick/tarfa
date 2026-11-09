@@ -8,7 +8,8 @@ export type Paired = { ok: true; machine: MachineConfig } | { ok: false; reason:
 // The entry a pairing link makes. The phone keeps one entry per machine, known by its agent key:
 // a link naming a key the phone already has updates that entry (its addresses become the link's,
 // in the link's order), so scanning again after a failed attempt (an expired code) or after the
-// machine moved retries in place. A link naming an address that another key's entry holds is
+// machine moved retries in place; whether that entry takes it at once or only once the link has
+// connected is `pairingPlan`'s call. A link naming an address that another key's entry holds is
 // refused: taking it would point that entry's address at a key whoever made the link may hold. An
 // existing entry keeps its own name and default path; the link's path only fills one it lacks.
 export function pairedMachine(machines: MachineConfig[], link: PairingLink, newId: () => string): Paired {
