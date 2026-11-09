@@ -11,6 +11,14 @@ export function findMise(home: string, pathVar: string | undefined, exists: (pat
   return candidates.find(exists) ?? null;
 }
 
+// npm links the package's bin into <install>/bin; aube (a newer mise's npm backend) installs it
+// under <install>/node_modules, whose .bin/tarfa is a shell script node cannot run, so take the
+// package's entry there. The launcher and the `tarfa` wrapper try the same two paths.
+export function findInstalledCli(install: string, exists: (path: string) => boolean = existsSync): string | null {
+  if (!install) return null;
+  return [join(install, 'bin', 'tarfa'), join(install, 'node_modules', '@tarfa', 'cli', 'dist', 'cli.js')].find(exists) ?? null;
+}
+
 // Every call runs from $HOME, so no folder's mise.toml (untrusted, or pinning another node) takes part.
 export function miseCli(home: string) {
   const run = async (mise: string, args: string[], timeout: number): Promise<string> => {
@@ -26,9 +34,9 @@ export function miseCli(home: string) {
     async locate(mise: string, version: string): Promise<{ node: string; cli: string }> {
       const install = await run(mise, ['where', `npm:@tarfa/cli@${version}`], 60_000);
       const nodeHome = await run(mise, ['where', 'node'], 60_000);
-      const cli = join(install, 'bin', 'tarfa');
+      const cli = findInstalledCli(install);
       const node = join(nodeHome, 'bin', 'node');
-      if (!install || !existsSync(cli)) throw new Error(`mise knows no install of @tarfa/cli ${version} with a bin/tarfa`);
+      if (!cli) throw new Error(`mise knows no install of @tarfa/cli ${version} with a bin/tarfa or node_modules/@tarfa/cli/dist/cli.js`);
       if (!nodeHome || !existsSync(node)) throw new Error('mise knows no node');
       return { node, cli };
     },

@@ -22,8 +22,17 @@ fi
 if [ -n "$mise_bin" ]; then
   install="$("$mise_bin" --cd "$HOME" where npm:@tarfa/cli 2>/dev/null || true)"
   node_home="$("$mise_bin" --cd "$HOME" where node 2>/dev/null || true)"
-  if [ -n "$install" ] && [ -n "$node_home" ] && [ -x "$node_home/bin/node" ] && [ -f "$install/bin/tarfa" ]; then
-    exec "$node_home/bin/node" "$install/bin/tarfa" "$@"
+  # npm links the CLI into <install>/bin; aube (a newer mise's npm backend) leaves it in the
+  # package under node_modules, whose .bin/tarfa is a shell script node cannot run.
+  cli=""
+  for candidate in "$install/bin/tarfa" "$install/node_modules/@tarfa/cli/dist/cli.js"; do
+    if [ -n "$install" ] && [ -f "$candidate" ]; then
+      cli="$candidate"
+      break
+    fi
+  done
+  if [ -n "$cli" ] && [ -n "$node_home" ] && [ -x "$node_home/bin/node" ]; then
+    exec "$node_home/bin/node" "$cli" "$@"
   fi
 fi
 

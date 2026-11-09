@@ -86,8 +86,19 @@ check "a second copy of the wrapper on PATH ends in the same line, never a loop"
 H3="$(new_home h3)"
 rm -r "${H3}/install"
 out="$(cd "${SANDBOX}/project" && env -i HOME="${H3}" PATH="${H3}/.local/bin:/usr/bin:/bin" tarfa ls 2>&1)" && code=0 || code=$?
-check "a mise that names an install with no bin/tarfa is no install" \
+check "a mise that names an install with neither layout's entry is no install" \
   "tarfa: no installed @tarfa/cli found (mise use -g npm:@tarfa/cli)|exit=1" "${out}|exit=${code}"
+
+# Laid out by aube (a newer mise's npm backend): no bin/, a shell script in node_modules/.bin, and
+# the package's own entry under node_modules/@tarfa/cli.
+H4="$(new_home h4)"
+rm -r "${H4}/install/bin"
+mkdir -p "${H4}/install/node_modules/.bin" "${H4}/install/node_modules/@tarfa/cli/dist"
+printf '#!/bin/sh\n' > "${H4}/install/node_modules/.bin/tarfa"
+printf '// the installed cli\n' > "${H4}/install/node_modules/@tarfa/cli/dist/cli.js"
+out="$(cd "${SANDBOX}/project" && env -i HOME="${H4}" PATH="${H4}/.local/bin:/usr/bin:/bin" tarfa ls 2>&1)" && code=0 || code=$?
+check "runs the package's entry under its node where aube laid the install out" \
+  "node ${H4}/install/node_modules/@tarfa/cli/dist/cli.js ls | pwd=${PROJECT_REAL}|exit=0" "${out}|exit=${code}"
 
 if [ "${fails}" -gt 0 ]; then
   echo "${fails} check(s) failed"

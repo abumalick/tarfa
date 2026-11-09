@@ -49,7 +49,10 @@ describe('portOwner', () => {
     const lsof = '4242\n';
     expect(await owner('darwin', { lsof, ps: '/Users/u/.local/share/mise/installs/node/24/bin/node /Users/u/.local/share/mise/installs/npm-tarfa-cli/0.1.0/bin/tarfa serve\n' })).toBe('ours');
     expect(await owner('darwin', { lsof, ps: 'node /Users/u/workspace/tarfa/node_modules/.bin/tsx src/serve.ts\n' })).toBe('ours');
+    expect(await owner('darwin', { lsof, ps: '/Users/u/.local/share/mise/installs/node/24/bin/node /Users/u/.local/share/mise/installs/npm-tarfa-cli/0.1.3/node_modules/@tarfa/cli/dist/cli.js serve\n' })).toBe('ours');
+    expect(await owner('darwin', { lsof, ps: 'node /Users/u/.local/share/mise/installs/npm-tarfa-cli/0.1.3/node_modules/.bin/../.mise/@tarfa+cli@0.1.3/node_modules/@tarfa/cli/dist/cli.js serve\n' })).toBe('ours');
     expect(await owner('darwin', { lsof, ps: 'tarfa serve\n' })).toBe('ours');
+    expect(await owner('darwin', { lsof, ps: 'node /Users/u/.local/share/mise/installs/npm-tarfa-cli/0.1.3/node_modules/@tarfa/cli/dist/cli.js ls\n' })).toBe('other');
     expect(await owner('darwin', { lsof, ps: 'python3 -m http.server 8797\n' })).toBe('other');
     expect(await owner('darwin', { lsof, ps: 'node /srv/notarfa serve\n' })).toBe('other');
     expect(await owner('darwin', { lsof: '' })).toBe('other');

@@ -95,8 +95,20 @@ check "falls back to mise exec when where names no node" \
   "mise exec -- tarfa serve | env=${HOME5}/.tarfa/agent.env | token=from-state-env | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
 printf '%s\n' "${HOME5}/node" > "${HOME5}/where-node"
 rm "${HOME5}/cli/bin/tarfa"
-check "falls back to mise exec when the install has no bin/tarfa" \
+check "falls back to mise exec when the install has neither layout's entry" \
   "mise exec -- tarfa serve | env=${HOME5}/.tarfa/agent.env | token=from-state-env | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
+
+# Laid out by aube (a newer mise's npm backend): no bin/, a shell script in node_modules/.bin, and
+# the package's own entry under node_modules/@tarfa/cli.
+mkdir -p "${HOME5}/cli/node_modules/.bin" "${HOME5}/cli/node_modules/@tarfa/cli/dist"
+printf '#!/bin/sh\n' > "${HOME5}/cli/node_modules/.bin/tarfa"
+touch "${HOME5}/cli/node_modules/@tarfa/cli/dist/cli.js"
+check "runs the package's entry with its node where aube laid the install out" \
+  "node ${HOME5}/cli/node_modules/@tarfa/cli/dist/cli.js serve | env=${HOME5}/.tarfa/agent.env | path=${HOME5}/.local/bin:${HOME5}/.local/share/mise/shims:/usr/bin:/bin | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
+mkdir -p "${HOME5}/cli/bin"
+touch "${HOME5}/cli/bin/tarfa"
+check "prefers bin/tarfa when an install has both" \
+  "node ${HOME5}/cli/bin/tarfa serve | env=${HOME5}/.tarfa/agent.env | path=${HOME5}/.local/bin:${HOME5}/.local/share/mise/shims:/usr/bin:/bin | pwd=${HOME5_REAL}" "$(launch "${HOME5}")"
 
 HOME6="$(new_home h6)"
 mkdir -p "${HOME6}/other/bin" "${HOME6}/cli/bin" "${HOME6}/node/bin"

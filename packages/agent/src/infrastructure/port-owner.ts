@@ -16,8 +16,9 @@ const systemDeps: PortOwnerDeps = {
   readFile: (path) => readFile(path, 'utf8'),
 };
 
-// The launcher execs `node <install>/bin/tarfa serve`; a source checkout runs src/serve.ts.
-const AGENT_COMMAND = /\bsrc\/serve\.ts\b|(^|[\s/])tarfa serve(\s|$)/;
+// The launcher execs `node <install>/bin/tarfa serve`, or `node <install>/node_modules/@tarfa/cli/dist/cli.js serve`
+// where mise installs through aube; a source checkout runs src/serve.ts.
+const AGENT_COMMAND = /\bsrc\/serve\.ts\b|(^|[\s/])tarfa serve(\s|$)|\/@tarfa\/cli\/dist\/cli\.js serve(\s|$)/;
 
 function isFree(port: number): Promise<boolean> {
   return new Promise((resolve, reject) => {

@@ -20,6 +20,12 @@ installs with `--ignore-scripts`), so there is nothing to build. A **global node
 the `~/.local/bin/tarfa` wrapper and the service's launcher look node up from `$HOME`, never from
 the folder they are run in, so a project's own node never runs Tarfa.
 
+mise lays the install (`mise where npm:@tarfa/cli`) out in one of two ways, and every lookup
+(the launcher, the wrapper, `tarfa update`, the port check) takes either: npm's, with the CLI linked
+at `<install>/bin/tarfa`, or aube's (a newer mise's npm backend), with no `bin/` and the package
+under `<install>/node_modules/@tarfa/cli`, run as `node …/node_modules/@tarfa/cli/dist/cli.js`
+(its `node_modules/.bin/tarfa` is a shell script, which node cannot run).
+
 What a package install leaves on the machine:
 - `~/.tarfa/agent.env`: the agent's settings (`tarfa setup` writes it; the annotated example is `deploy/agent.env.example`
   in the repository). Every command reads it, in one order: `TARFA_AGENT_ENV`, then `~/.tarfa/agent.env`,
@@ -91,11 +97,12 @@ workspace pane must print `~/.local/bin/tarfa` (the wrapper); another path means
 first on PATH: a project's `tarfa`, a mise shim, or another install directory (setup and `tarfa apply`
 warn about it).
 
-**Before adopting a Mac**, check that node-pty's prebuild loads and its helper is executable (the
-paths are the layout the packaging test installs; adjust if `mise where` shows another):
+**Before adopting a Mac**, check that node-pty's prebuild loads and its helper is executable. This
+asks node where node-pty resolves from the package, so it works in either layout:
 ```sh
-"$(mise where node)/bin/node" -e "require('$(mise where npm:@tarfa/cli)/lib/node_modules/@tarfa/cli/node_modules/node-pty')"
-ls -l "$(mise where npm:@tarfa/cli)/lib/node_modules/@tarfa/cli/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper"
+pty="$("$(mise where node)/bin/node" -p "const p = require('path'); const i = '$(mise where npm:@tarfa/cli)'; const c = ['lib/node_modules/@tarfa/cli', 'node_modules/@tarfa/cli'].map((d) => p.join(i, d)).find((d) => require('fs').existsSync(d)); p.dirname(require.resolve('node-pty/package.json', { paths: [require('fs').realpathSync(c)] }))")"
+"$(mise where node)/bin/node" -e "require('$pty')"
+ls -l "$pty/prebuilds/darwin-arm64/spawn-helper"
 ```
 **Rolling back an adoption.** The original `deploy/agent.env` was kept, so the clone runs as before.
 Linux: copy the unit's `~/.config/systemd/user/tarfa-agent.service.bak-<time>` back over it, then

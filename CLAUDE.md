@@ -111,7 +111,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   (`packages/agent/templates/app.tarfa.agent.plist`), **systemd user unit + linger** on Ubuntu. Both invoke
   `deploy/run-agent.sh` (a source install) or the launcher `~/.tarfa/bin/tarfa-agent` (a package
   install: it sources `~/.tarfa/agent.env`, exports `TARFA_AGENT_ENV`, runs the checkout named by
-  `~/.tarfa/agent-source` when that still exists, else the installed package's `tarfa serve` run with the node `mise where` names (never `mise exec`, which installs every missing global tool first; `mise exec` only when `where` answers nothing), with mise's shims first on PATH; `run-agent.sh`
+  `~/.tarfa/agent-source` when that still exists, else the installed package's `tarfa serve` run with the node `mise where` names, from `<install>/bin/tarfa` (npm's layout) or `<install>/node_modules/@tarfa/cli/dist/cli.js` (aube's, a newer mise's npm backend, whose `.bin/tarfa` is a shell script node cannot run), as the wrapper, `tarfa update` and the macOS port check also do (never `mise exec`, which installs every missing global tool first; `mise exec` only when `where` answers nothing), with mise's shims first on PATH; `run-agent.sh`
   skips its own `deploy/agent.env` when `TARFA_AGENT_ENV` is set; `serve:agent` writes
   `agent-source` instead of flipping `agent-live` on such a machine). `tarfa apply` (package
   installs only) rewrites the launcher and unit if they differ, reinstalls the hooks, restarts and
@@ -168,7 +168,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   kept unless `--pwa` is given**; **a phone or hooks port held by anything but this user's
   agent is refused** (another Linux user's processes are invisible to `ss`/`lsof`; the agent is a
   listener in the `tarfa-agent`/`perch-agent` unit's cgroup, and on macOS one whose command is
-  `… tarfa serve`, which the launcher execs, or a checkout's `src/serve.ts`); and **an
+  `… tarfa serve` or `…/@tarfa/cli/dist/cli.js serve`, which the launcher execs, or a checkout's `src/serve.ts`); and **an
   existing serve handler on the same port and path is never replaced**; **an existing roster with
   token enrolment on is never published silently** (any phone address and no `--token-enrolment`
   → refused, an address already in agent.env included); **the `--tailscale none` operator line

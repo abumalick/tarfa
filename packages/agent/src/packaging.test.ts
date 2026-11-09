@@ -156,19 +156,28 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
       expect(await snapshot(home)).toEqual(homeBefore);
 
       // The wrapper setup installs runs the installed package under an explicit node, from any folder,
-      // laid out as mise's npm backend lays it out (<install>/bin/tarfa).
+      // in both layouts mise's npm backend makes: npm's (<install>/bin/tarfa) and aube's, where the
+      // package sits under <install>/node_modules behind a link and .bin/tarfa is a shell script.
       const miseStub = join(home, '.local', 'bin', 'mise');
       await mkdir(dirname(miseStub), { recursive: true });
-      await writeFile(
-        miseStub,
-        `#!/bin/sh\nif [ "$1" = "--cd" ] && [ "$3" = "where" ]; then case "$4" in npm:@tarfa/cli) echo "${prefix}" ;; node) echo "${dirname(nodeDir)}" ;; esac; exit 0; fi\nexit 1\n`,
-        { mode: 0o755 },
-      );
+      const stubMiseAt = (install: string) =>
+        writeFile(
+          miseStub,
+          `#!/bin/sh\nif [ "$1" = "--cd" ] && [ "$3" = "where" ]; then case "$4" in npm:@tarfa/cli) echo "${install}" ;; node) echo "${dirname(nodeDir)}" ;; esac; exit 0; fi\nexit 1\n`,
+          { mode: 0o755 },
+        );
       const wrapper = join(pkgDir, 'templates', 'tarfa-cli-wrapper.sh');
       const elsewhere = join(scratch, 'elsewhere');
       await mkdir(elsewhere);
-      const wrapped = await exec('sh', [wrapper, '--version'], { cwd: elsewhere, env: { HOME: home, PATH: '/usr/bin:/bin' } });
-      expect(wrapped.stdout.trim()).toBe(expected);
+      const runWrapped = async () => (await exec('sh', [wrapper, '--version'], { cwd: elsewhere, env: { HOME: home, PATH: '/usr/bin:/bin' } })).stdout.trim();
+      await stubMiseAt(prefix);
+      expect(await runWrapped()).toBe(expected);
+      const aube = join(scratch, 'aube-install');
+      await mkdir(join(aube, 'node_modules', '@tarfa'), { recursive: true });
+      await symlink(pkgDir, join(aube, 'node_modules', '@tarfa', 'cli'));
+      await stubMiseAt(aube);
+      expect(await runWrapped()).toBe(expected);
+      await stubMiseAt(prefix);
       expect((await exec(process.execPath, [bin, '--version'], { env: cleanEnv })).stdout.trim()).toBe(expected);
 
       // An unreachable registry is one line and changes nothing.
