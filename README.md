@@ -6,7 +6,12 @@
 
 Tarfa is a mobile-first PWA for watching and driving [Claude Code](https://claude.com/claude-code)
 sessions running in tmux on several machines, from a phone, over an end-to-end encrypted
-connection to each machine. Its app is published as Tarfa, at tarfa.app.
+connection to each machine. The app is served at [tarfa.app](https://tarfa.app).
+
+Tarfa was formerly called **Perch**. Its npm package is `@tarfa/cli`, the command
+is `tarfa`, and an agent keeps its state in `~/.tarfa`. A machine set up under the old name
+moves over with `tarfa setup` (`docs/DEPLOY.md`, "A machine set up as Perch"), keeping its
+agent key, so no phone pairs again; `perch` still runs `tarfa` for one release.
 
 It is shaped around one person's machines and habits, so expect to adapt it to your own
 setup; `docs/SETUP-MACHINE.md` walks through running it on a machine of your own.
