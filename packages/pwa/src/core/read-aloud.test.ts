@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ReadAloud, CHARS_PER_SECOND } from './read-aloud';
 import type { SpeechPort } from './ports/speech';
 
-type Queued = { text: string; start: () => void; end: () => void };
+type Queued = { text: string; start: () => void; end: () => void; error: (code: string) => void };
 
 class FakeSpeech implements SpeechPort {
   queue: Queued[] = [];
   spoken: string[] = [];
-  speak(text: string, _lang: string, events: { start: () => void; end: () => void }) {
+  speak(text: string, _lang: string, events: { start: () => void; end: () => void; error: (code: string) => void }) {
     this.queue.push({ text, ...events });
   }
   unlock() {}
@@ -144,5 +144,36 @@ describe('ReadAloud', () => {
     p.start('One. Two.', 'en');
     speech.startNext();
     expect(changes).toBeGreaterThanOrEqual(2);
+  });
+
+  it('stops and says why when the voice fails', () => {
+    const errors: string[] = [];
+    const p = new ReadAloud(speech, () => undefined, { onError: (code) => errors.push(code) });
+    p.start(text, 'en');
+    speech.queue[0]!.error('synthesis-failed');
+    expect(errors).toEqual(['synthesis-failed']);
+    expect(p.state).toBe('paused');
+    expect(speech.queue).toHaveLength(0);
+  });
+
+  it('says so when the voice never starts', () => {
+    const errors: string[] = [];
+    const timers: Array<() => void> = [];
+    const p = new ReadAloud(speech, () => undefined, { onError: (code) => errors.push(code), startTimer: (fn) => (timers.push(fn), () => undefined) });
+    p.start(text, 'en');
+    timers.at(-1)!();
+    expect(errors).toEqual(['no-start']);
+    expect(p.state).toBe('paused');
+  });
+
+  it('does not complain about a voice that started', () => {
+    const errors: string[] = [];
+    const timers: Array<() => void> = [];
+    const p = new ReadAloud(speech, () => undefined, { onError: (code) => errors.push(code), startTimer: (fn) => (timers.push(fn), () => undefined) });
+    p.start(text, 'en');
+    speech.startNext();
+    timers.at(-1)!();
+    expect(errors).toEqual([]);
+    expect(p.state).toBe('playing');
   });
 });

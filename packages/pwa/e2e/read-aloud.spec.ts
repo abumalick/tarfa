@@ -32,6 +32,15 @@ async function fakeVoice(page: Page) {
     Object.defineProperty(window, 'SpeechSynthesisUtterance', { value: Utterance });
     Object.defineProperty(window, 'speechSynthesis', {
       value: {
+        paused: false,
+        get speaking() {
+          return queue.length > 0;
+        },
+        get pending() {
+          return queue.length > 1;
+        },
+        getVoices: () => [],
+        resume() {},
         speak(u: U) {
           if (u.text.trim() === '') return;
           spoken.push(u.text);

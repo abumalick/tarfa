@@ -2263,6 +2263,19 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       expect(speech.spoken).toEqual([]);
     });
 
+    it('closes the player and says so when the voice stays silent', () => {
+      const speech = fakeSpeech();
+      const timer = withTimer();
+      const { store, deliver } = buildKeyed({ speech: speech.port, startTimer: timer.startTimer });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Silence.' });
+      timer.timers.at(-1)!();
+      expect(store.readAloud).toBeNull();
+      expect(store.readAloudNotice).toContain('did not start');
+    });
+
     it('is not offered in a workspace that does not run Claude', () => {
       const speech = fakeSpeech();
       const { store } = buildKeyed({ speech: speech.port });

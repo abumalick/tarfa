@@ -17,6 +17,7 @@ import type { DeviceIdentity } from './core/ports/device-identity';
 import { MediaRecorderAudio } from './adapters/media-recorder-audio';
 import { ElevenLabsTranscriber } from './adapters/elevenlabs-transcriber';
 import { webSpeech } from './adapters/web-speech';
+import { isIOSWebKit } from './lib/terminal-link';
 import { OpenRouterTranscriber } from './adapters/openrouter-transcriber';
 import { PresetTranscriber } from './core/preset-transcriber';
 import { ClaudeVoiceRecorder, ClaudeVoiceTranscriber } from './core/claude-voice';
@@ -158,7 +159,7 @@ store = new TarfaStore({
     ),
     claude: new ClaudeVoiceTranscriber(voiceLink),
   }),
-  speech: webSpeech(),
+  speech: webSpeech(isIOSWebKit(navigator.userAgent, navigator.maxTouchPoints)),
   connectionLog,
   logMeta,
   sinceLaunch: () => performance.now(),

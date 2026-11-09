@@ -351,7 +351,15 @@ export class TarfaStore {
       origin?: string;
     },
   ) {
-    if (deps.speech) this.readAloudPlayer = new ReadAloud(deps.speech, () => this.syncReadAloud());
+    if (deps.speech) {
+      this.readAloudPlayer = new ReadAloud(deps.speech, () => this.syncReadAloud(), {
+        startTimer: (fn, ms) => this.startTimer(fn, ms),
+        onError: (code) => {
+          this.readAloudPlayer?.stop();
+          this.readAloudNotice = code === 'no-start' ? msg().readAloud.voiceSilent : msg().readAloud.voiceFailed(code);
+        },
+      });
+    }
     deps.deviceKey?.().then(
       (info) => (this.deviceKey = info),
       (err: unknown) => this.failDeviceKey(err),

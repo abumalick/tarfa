@@ -4,6 +4,10 @@ import { speakableChunks } from './speakable';
 // A rough speaking rate: the voice says nothing of where it is, so positions are estimates.
 export const CHARS_PER_SECOND = 15;
 
+// How long a voice may take to start before the player says it is silent: a phone with no voice
+// for the language, or a browser that refused, often fires nothing at all.
+export const START_TIMEOUT_MS = 4_000;
+
 export type ReadAloudState = 'idle' | 'playing' | 'paused' | 'ended';
 
 // Plays a reply with the phone's voice, one utterance per chunk. It never uses the voice's own
@@ -21,7 +25,13 @@ export class ReadAloud {
   constructor(
     private readonly speech: SpeechPort,
     private readonly onChange: () => void = () => {},
+    private readonly options: {
+      // `no-start` when the voice stayed silent, else the browser's error code.
+      onError?: (code: string) => void;
+      startTimer?: (fn: () => void, ms: number) => () => void;
+    } = {},
   ) {}
+  private cancelWatch: (() => void) | null = null;
 
   get duration(): number {
     const last = this.chunks.length - 1;
@@ -78,12 +88,20 @@ export class ReadAloud {
     this.silence();
     const generation = this.generation;
     const last = this.chunks.length - 1;
+    let started = false;
+    this.cancelWatch = this.options.startTimer?.(() => {
+      if (generation === this.generation && !started) this.fail('no-start');
+    }, START_TIMEOUT_MS) ?? null;
     for (let i = this.index; i <= last; i++) {
       this.speech.speak(this.chunks[i]!, this.lang, {
         start: () => {
           if (generation !== this.generation) return;
+          started = true;
           this.index = i;
           this.onChange();
+        },
+        error: (code) => {
+          if (generation === this.generation) this.fail(code);
         },
         end: () => {
           if (generation !== this.generation || i !== last) return;
@@ -95,7 +113,15 @@ export class ReadAloud {
     this.set('playing');
   }
 
+  private fail(code: string): void {
+    this.silence();
+    this.set('paused');
+    this.options.onError?.(code);
+  }
+
   private silence(): void {
+    this.cancelWatch?.();
+    this.cancelWatch = null;
     this.generation++;
     this.speech.cancel();
   }

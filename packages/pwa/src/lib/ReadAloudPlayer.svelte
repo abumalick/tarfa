@@ -29,7 +29,9 @@
 <div class="player" role="region" aria-label={msg().readAloud.player} data-testid="read-aloud-player">
   <button type="button" aria-label={msg().readAloud.back} disabled={!canSkip} onpointerdown={keepFocus} onclick={() => onSkip(-10)}>↺10</button>
   <button type="button" class="main" aria-label={playing ? msg().readAloud.pause : msg().readAloud.play} onpointerdown={keepFocus} onclick={onToggle}
-    >{playing ? '⏸' : '▶'}</button>
+    ><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      {#if playing}<rect x="3" y="2" width="3.5" height="12" rx="1" /><rect x="9.5" y="2" width="3.5" height="12" rx="1" />{:else}<path d="M4 2.5v11a1 1 0 0 0 1.5.86l9-5.5a1 1 0 0 0 0-1.72l-9-5.5A1 1 0 0 0 4 2.5z" />{/if}
+    </svg></button>
   <button type="button" aria-label={msg().readAloud.forward} disabled={!canSkip} onpointerdown={keepFocus} onclick={() => onSkip(10)}>10↻</button>
   <span class="time" aria-hidden="true">{clock(player.state === 'ended' ? player.duration : player.position)} / {clock(player.duration)}</span>
   <button type="button" class="close" aria-label={msg().readAloud.close} onpointerdown={keepFocus} onclick={onClose}>✕</button>
@@ -71,8 +73,10 @@
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
-    font-size: 16px;
+    display: grid;
+    place-items: center;
   }
+  .main svg { fill: currentColor; }
   .close { background: transparent; }
   .time {
     font: 500 12px ui-monospace, monospace;
