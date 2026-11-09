@@ -417,8 +417,15 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     (`core/speakable.ts`, markdown syntax dropped, content kept), pausing cancels and remembers
     the sentence, and ±10 s jumps by sentences at an estimated 15 characters a second. A
     generation token ignores the `end` events a cancel fires on what it dropped.
-  - **The tap speaks a silent utterance first** (`SpeechPort.unlock`): the reply arrives after
-    the gesture is over, and WebKit lets a page speak only once it spoke inside one.
+  - **On iOS the tap speaks a silent utterance first** (`SpeechPort.unlock`): the reply arrives
+    after the gesture is over, and WebKit lets a page speak only once it spoke inside one.
+    Elsewhere it does not: Chrome drops a `speak()` that follows a `cancel()` too closely, so the
+    adapter cancels only what is speaking and holds a speak back 150 ms after a cancel.
+  - **Android's Chrome speaks only through Google's speech engine.** Measured on a Galaxy Tab
+    with Samsung's engine as the default and Google's absent: no voices, and an utterance that
+    never starts; with "Speech Services by Google" installed it speaks. The first utterance after
+    a browser start waits for the engine to start (4.2 s), so the player gives a silent voice
+    12 s (`START_TIMEOUT_MS`) before it says so, naming that app.
   - **The voice follows the reply's language, not the app's** (`core/reply-language.ts`: Arabic
     by its script, English or French by their commonest words, else the app's language): a French
     voice reading English is barely understandable.

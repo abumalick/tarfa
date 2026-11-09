@@ -5,8 +5,9 @@ import { speakableChunks } from './speakable';
 export const CHARS_PER_SECOND = 15;
 
 // How long a voice may take to start before the player says it is silent: a phone with no voice
-// for the language, or a browser that refused, often fires nothing at all.
-export const START_TIMEOUT_MS = 4_000;
+// for the language, or a browser that refused, often fires nothing at all. Android's first
+// utterance after a browser start waits on the speech engine's own start (measured: 4.2 s).
+export const START_TIMEOUT_MS = 12_000;
 
 export type ReadAloudState = 'idle' | 'playing' | 'paused' | 'ended';
 

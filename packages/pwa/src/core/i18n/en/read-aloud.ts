@@ -9,6 +9,6 @@ export const readAloud = {
   nothingToRead: 'No reply to read yet. Claude’s next reply can be read once it finishes.',
   noAnswer: 'The machine did not send the reply. Try again.',
   dismiss: 'Dismiss',
-  voiceSilent: 'The phone’s voice did not start. Check that a text-to-speech engine with a voice for this language is installed (Android: Settings → Text-to-speech output).',
+  voiceSilent: 'The phone’s voice did not start. On Android, Chrome needs Google’s speech engine: install “Speech Services by Google” from the Play Store, with a voice for this language.',
   voiceFailed: (code: string) => `The phone’s voice failed (${code}).`,
 };
