@@ -93,7 +93,7 @@ function build(
       store.statuses[id] = s;
     },
     onAgent: (id, agent) => store.setAgent(id, agent),
-    onCredentialsSpent: (id, scope) => store.forgetCredentials(id, scope),
+    onCredentialsSpent: (id) => store.forgetPairing(id),
     schedule: () => undefined,
   });
   const store = new TarfaStore({ settings, manager, aggregator, applyUpdate, startTimer, origin: 'https://pwa.example', ...prompts, ...log, ...ask });
@@ -101,7 +101,7 @@ function build(
 }
 
 const agentKey = generateAgentKeys().x25519.publicKey;
-const mac = { id: 'mac', name: 'Mac', addresses: ['wss://mac'], token: 't', agentKey };
+const mac = { id: 'mac', name: 'Mac', addresses: ['wss://mac'], agentKey };
 
 describe('TarfaStore pairing', () => {
   const link = pairingLink('https://pwa.example', {
@@ -116,7 +116,7 @@ describe('TarfaStore pairing', () => {
     store.start();
     store.goSettings();
     expect(store.pairFromLink(`  ${link}\n`)).toEqual({ name: 'dev' });
-    expect(store.machines).toEqual([expect.objectContaining({ name: 'dev', addresses: ['wss://box.example/abu'], token: '', pairing: 'S'.repeat(43) })]);
+    expect(store.machines).toEqual([expect.objectContaining({ name: 'dev', addresses: ['wss://box.example/abu'], pairing: 'S'.repeat(43) })]);
     expect(store.view).toBe('list');
   });
 
@@ -125,7 +125,7 @@ describe('TarfaStore pairing', () => {
     store.start();
     sockets['wss://mac']!.open();
     sockets['wss://mac']!.deliver({ type: 'authResult', ok: true, credential: 'token', enrolled: true });
-    expect(store.machines).toEqual([expect.objectContaining({ id: 'mac', token: '' })]);
+    expect(store.machines).toEqual([expect.objectContaining({ id: 'mac' })]);
   });
 
   it('refuses a pairing link made for another Tarfa, and stores nothing', () => {
@@ -186,7 +186,7 @@ describe('TarfaStore pairing', () => {
 
   it('says why a tapped pairing link was refused', () => {
     const alerts: string[] = [];
-    const other = { id: 'x', name: 'dev', addresses: ['wss://box.example/abu'], token: '', agentKey: generateAgentKeys().x25519.publicKey };
+    const other = { id: 'x', name: 'dev', addresses: ['wss://box.example/abu'], agentKey: generateAgentKeys().x25519.publicKey };
     const { store } = build([other], undefined, undefined, undefined, { confirm: () => true, alert: (m) => alerts.push(m) });
     store.start();
     expect(store.openPairingLink(link)).toBe(true);
@@ -201,7 +201,7 @@ describe('TarfaStore pairing', () => {
     const before = store.machines;
     store.refreshMachines();
     expect(store.machines).toBe(before);
-    const added = { id: 'dev', name: 'dev', addresses: ['wss://box.example/abu'], token: '', agentKey: generateAgentKeys().x25519.publicKey };
+    const added = { id: 'dev', name: 'dev', addresses: ['wss://box.example/abu'], agentKey: generateAgentKeys().x25519.publicKey };
     storage.write('tarfa.machines', JSON.stringify([mac, added]));
     store.refreshMachines();
     expect(store.machines.map((m) => m.id)).toEqual(['mac', 'dev']);
@@ -668,8 +668,8 @@ describe('TarfaStore', () => {
   it('updateMachine persists new url/token and reconnects via the manager', () => {
     const { store, sockets } = build([mac]);
     store.start();
-    store.updateMachine('mac', { addresses: ['wss://mac-new'], token: 't2' });
-    expect(store.machines).toEqual([{ ...mac, addresses: ['wss://mac-new'], token: 't2' }]);
+    store.updateMachine('mac', { addresses: ['wss://mac-new'] });
+    expect(store.machines).toEqual([{ ...mac, addresses: ['wss://mac-new'] }]);
     // setMachines reconnects with the new url → a socket for it now exists.
     expect(sockets['wss://mac-new']).toBeDefined();
   });
@@ -678,7 +678,7 @@ describe('TarfaStore', () => {
     const { store } = build([mac]);
     store.start();
     store.updateMachine('mac', { addresses: ['wss://mac-new'] });
-    expect(store.machines[0]).toEqual({ ...mac, addresses: ['wss://mac-new'], token: 't' });
+    expect(store.machines[0]).toEqual({ ...mac, addresses: ['wss://mac-new'] });
   });
 
   it('opens an existing workspace without auto-focusing the terminal', () => {
@@ -717,7 +717,7 @@ describe('TarfaStore', () => {
   });
 
   it('opens the created workspace when another machine already has a workspace with its id', () => {
-    const other = { ...mac, id: 'mini', name: 'Mini', addresses: ['wss://mini'], token: 't2' };
+    const other = { ...mac, id: 'mini', name: 'Mini', addresses: ['wss://mini'] };
     const { store, sockets } = build([mac, other]);
     store.start();
     for (const url of ['wss://mac', 'wss://mini']) {
@@ -743,7 +743,7 @@ describe('TarfaStore', () => {
   });
 
   it('ignores another machine closing or streaming a workspace with the open id', () => {
-    const other = { ...mac, id: 'mini', name: 'Mini', addresses: ['wss://mini'], token: 't2' };
+    const other = { ...mac, id: 'mini', name: 'Mini', addresses: ['wss://mini'] };
     const { store, sockets } = build([mac, other]);
     store.start();
     for (const url of ['wss://mac', 'wss://mini']) {
@@ -1063,12 +1063,6 @@ describe('TarfaStore folder picker', () => {
     const parsed = sockets['wss://mac']!.sent.map((s) => JSON.parse(s));
     expect(parsed).toContainEqual({ type: 'listRoots' });
     expect(parsed).toContainEqual({ type: 'getRecentPaths' });
-  });
-
-  it('goNewMachine switches to the newMachine view', () => {
-    const { store } = build();
-    store.goNewMachine();
-    expect(store.view).toBe('newMachine');
   });
 
   it('stores the roots a machine reports', () => {
@@ -1810,7 +1804,7 @@ describe('TarfaStore browser view', () => {
   });
 
   it('startBrowser sends on the chosen connection only', () => {
-    const { store, sockets } = build([mac, { ...mac, id: 'mini', name: 'Mini', addresses: ['wss://mini'], token: 't2' }]);
+    const { store, sockets } = build([mac, { ...mac, id: 'mini', name: 'Mini', addresses: ['wss://mini'] }]);
     store.start();
     sockets['wss://mac']!.open();
     sockets['wss://mini']!.open();
@@ -1864,7 +1858,7 @@ describe('TarfaStore browser view', () => {
   });
 });
 
-const mini = { id: 'mini', name: 'Mini', addresses: ['wss://mini'], token: 't', agentKey };
+const mini = { id: 'mini', name: 'Mini', addresses: ['wss://mini'], agentKey };
 
 describe('TarfaStore home view', () => {
   it('prompts to add a machine when none are configured, with no grace timer', () => {
@@ -1877,7 +1871,7 @@ describe('TarfaStore home view', () => {
 
   it('ignores an entry with no agent key, even one switched on: no socket, no grace timer, no alarm', () => {
     const timer = manualTimer();
-    const { store, sockets } = build([{ id: 'old', name: 'Old', addresses: ['wss://old'], token: 't', enabled: true }], undefined, timer.startTimer);
+    const { store, sockets } = build([{ id: 'old', name: 'Old', addresses: ['wss://old'], enabled: true }], undefined, timer.startTimer);
     store.start();
     expect(sockets).toEqual({});
     expect(store.homeView).toBe('add-machine');
@@ -1889,7 +1883,7 @@ describe('TarfaStore home view', () => {
 
   it('counts only the connectable machines beside an entry with no agent key', () => {
     const timer = manualTimer();
-    const { store, aggregator } = build([{ id: 'old', name: 'Old', addresses: ['wss://old'], token: 't' }, mac], undefined, timer.startTimer);
+    const { store, aggregator } = build([{ id: 'old', name: 'Old', addresses: ['wss://old'] }, mac], undefined, timer.startTimer);
     store.start();
     store.setStatus('mac', 'online');
     aggregator.apply('mac', { type: 'workspaces', workspaces: [] });
@@ -2511,8 +2505,8 @@ describe('TarfaStore device key', () => {
   });
 
   it('replaces an unreadable device key and reconnects the machines it connects', async () => {
-    const keyed = { id: 'r', name: 'R', addresses: ['ws://127.0.0.1:8/acct'], token: 't', agentKey };
-    const off = { id: 'd', name: 'D', addresses: ['ws://127.0.0.1:9/'], token: 't', agentKey, enabled: false };
+    const keyed = { id: 'r', name: 'R', addresses: ['ws://127.0.0.1:8/acct'], agentKey };
+    const off = { id: 'd', name: 'D', addresses: ['ws://127.0.0.1:9/'], agentKey, enabled: false };
     const replace = vi.fn(async () => fresh);
     const store = make(unreadable, replace, [keyed, off]);
     store.start();

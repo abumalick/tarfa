@@ -46,10 +46,10 @@ test('browser chip opens the view with a visibly sized canvas', async ({ page })
   expect(box.height).toBeGreaterThan(0);
 });
 
-// A phone paired by QR code holds no token: its device key authenticates the session, and the
+// A phone paired by QR code holds no secret once paired: its device key authenticates the session, and the
 // stream inside it must open all the same.
-test('a paired entry with no token opens the browser view', async ({ page }) => {
-  await openBrowserView(page, { token: '', pairing: await agent.newPairing() });
+test('a paired entry opens the browser view', async ({ page }) => {
+  await openBrowserView(page, { pairing: await agent.newPairing() });
   await expect(page.locator('.browser-view canvas')).toBeVisible();
   expect(agent.browserReceived.find((r) => r.message.type === 'auth')?.message).toEqual({ type: 'auth', token: '' });
 });

@@ -30,10 +30,12 @@ describe('FileDeviceStore', () => {
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ ...EMPTY_ROSTER, enrolment: false });
   });
 
-  it('keeps the enrolment mode, token enrolment off included', async () => {
+  it('keeps the enrolment mode, and writes token enrolment off whatever the change says', async () => {
     const store = new FileDeviceStore(path);
-    await store.update((r) => withEnrolmentMode(r, 'off'));
-    expect(enrolmentMode(await new FileDeviceStore(path).read())).toBe('off');
+    await store.update((r) => withEnrolmentMode(r, 'closed'));
+    expect(enrolmentMode(await new FileDeviceStore(path).read())).toBe('closed');
+    await store.update((r) => ({ ...withEnrolmentMode(r, 'open'), tokenEnrolment: true }));
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({ enrolment: true, tokenEnrolment: false });
   });
 
   it('serialises concurrent updates, from this process or another store on the same file', async () => {

@@ -16,7 +16,7 @@ the phone's device key, and streams its terminals. No agent listens off loopback
   tricky logic, not to restate code.
 - Toolchain via **mise** (`mise.toml` pins node 24 + pnpm 11). Package manager is **pnpm**
   (workspace monorepo). Any Python would use **uv** (none today).
-- **Never commit secrets.** Tokens live in `~/.tarfa/agent.env` (a source install: the gitignored `deploy/agent.env`) and in a password manager. `deploy/agent.env.example` is the template.
+- **Never commit secrets.** Machine settings live in `~/.tarfa/agent.env` (a source install: the gitignored `deploy/agent.env`), keys in `~/.tarfa`. `deploy/agent.env.example` is the template.
 
 ## Layout
 - `packages/contracts` (`@tarfa/contracts`) — the zod wire protocol and shared types.
@@ -104,7 +104,7 @@ Build each feature in its own git worktree; full runbook in `docs/WORKTREES.md`.
 
 ## Runtime & deployment
 See `docs/DEPLOY.md` for the full runbook. In short:
-- Each agent reads `~/.tarfa/agent.env` (a source install: `deploy/agent.env`) (`TARFA_TOKEN`, `TARFA_MACHINE_ID`,
+- Each agent reads `~/.tarfa/agent.env` (a source install: `deploy/agent.env`) (`TARFA_MACHINE_ID`,
   `TARFA_PROJECT_ROOTS`, `TARFA_PORT` for the loopback hooks listener, `TARFA_PHONE_PORT` for the
   phone port, `TARFA_PHONE_ADDRESSES` for where phones reach it) and
   runs as a service: **launchd** on macOS
@@ -131,8 +131,9 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   command"): agent.env, agent key, roster, service, hooks, a `tailscale serve`/`funnel` handler,
   then a restart and a phone-port check. Things not to "simplify": **every step is planned only
   when it changes something**, so a rerun is a no-op and the agent is restarted only after a
-  change; **the roster is written, token enrolment off, before the service first starts** (no
-  `devices.json` means enrolment on, and a Funnel port is public); **an installed unit counts
+  change; **the roster is written before the service first starts**, with `tokenEnrolment: false`
+  (an agent from before token enrolment was removed, brought back, reads a missing roster or an
+  absent field as "the token enrols", and a Funnel port is public); **an installed unit counts
   as current when it runs `<checkout>/deploy/run-agent.sh` or the launcher
   `~/.tarfa/bin/tarfa-agent`, with `KillMode=process`**, however
   it gets there (dev's runs it through `mise exec` from `WorkingDirectory`), so setup never
@@ -169,9 +170,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   agent is refused** (another Linux user's processes are invisible to `ss`/`lsof`; the agent is a
   listener in the `tarfa-agent`/`perch-agent` unit's cgroup, and on macOS one whose command is
   `… tarfa serve` or `…/@tarfa/cli/dist/cli.js serve`, which the launcher execs, or a checkout's `src/serve.ts`); and **an
-  existing serve handler on the same port and path is never replaced**; **an existing roster with
-  token enrolment on is never published silently** (any phone address and no `--token-enrolment`
-  → refused, an address already in agent.env included); **the `--tailscale none` operator line
+  existing serve handler on the same port and path is never replaced**; **the `--tailscale none` operator line
   takes its port from `--tailscale-port`, else the `--address` under the slug, else 443,
   and reads `funnel` when that port is already on Funnel** (`serve` would turn Funnel off for every
   agent on it; `--tailscale serve` on a Funnel port runs `tailscale funnel` for the same reason); and **a `systemctl --user` that cannot reach the manager stops setup** (without
@@ -228,7 +227,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   - **Roster and pairing-file reads a stranger can cause are limited** (`DiskReadLimiter`, 4 at
     once, 10 a minute). A limited read closes the socket as busy (`4429` "too many pending", which
     the phone retries), never as a verdict on its code: an unread pairing code may still be live,
-    and must not fall through to the token check. An enrolled key is answered
+    and must not be refused as unknown. An enrolled key is answered
     from the roster the monitor last read, so the owner's phones never wait on it.
   - **A taken phone port does not stop the agent:** it logs `no phone port` and keeps serving its
     hooks, since a second Linux user's agent left on the default would otherwise crash-loop.
@@ -801,40 +800,40 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     message sealed for another static key (`WrongStaticKeyError`) from any other failure; the
     agent closes it with 4003 "wrong agent key", and the PWA words it as final. "Agent key
     mismatch" is for an answer the pinned key did not make, which the real agent never sends.
-  - **Revocation is a deny list, not a deletion.** A lost phone may still hold the token (an
-    entry added by hand that has not connected since phones began forgetting it), and a deleted
-    key would re-enrol itself on it; `forget` is the explicit way back. Revoke also cannot stop
-    the token enrolling a *new* key: that takes `enrolment off`.
-  - **A phone forgets its token once its key is enrolled, and the `authResult` waits for the
-    roster.** `authResult` carries `credential` (device, pairing, token) and `enrolled`; on
-    `enrolled` the PWA drops the entry's token and pairing secret (`onCredentialsSpent`), so a
-    stolen agent key no longer collects the token from every phone. For a new device
-    `NoiseClientConnection` holds the `authResult` (and anything sent after it, in order) until
-    the roster write resolves: `enrolled` must mean written, or a phone whose enrolment failed
-    would be left with no credential. A key enrolled at the handshake that still sends the token
-    is refused with 4003 "token not needed", which the PWA answers by redialing without it;
-    don't make that refusal final. **That close travels outside the session, so anything on the
-    path can forge it:** the PWA only holds the token back, forgets it when the next session's
-    `authResult` says `enrolled`, and sends it again if that attempt is refused as not enrolled.
-    A pairing secret is likewise dropped on `enrolled` only, never just because the machine came
-    online. An unknown key that offers no credential is told it is not enrolled, whatever the
-    mode.
+  - **Revocation is a deny list, not a deletion,** so `tarfa devices` goes on naming a revoked
+    phone; `forget` drops it, and its key may then pair again.
+  - **There is no shared secret: a phone joins only with a `tarfa pair` code.** Token enrolment
+    (`TARFA_TOKEN`) was removed: an agent.env that still sets it starts, ignoring it with one
+    warning, and `tarfa setup` neither writes nor removes the line. An unknown key whose `auth`
+    carries anything but a live pairing code is refused "device not enrolled" before the handler
+    sees it; an enrolled key is served whatever its `auth` carries (an old PWA may still send a
+    token). The wire keeps its shape: `auth.token` carries the pairing code or nothing, and
+    `credential: 'token'` and the `token not needed` / `enrolment off` refusals stay parseable for
+    agents from before. Making a new device key (Settings, an unreadable key) therefore means
+    pairing each machine again.
+  - **A phone forgets its pairing code once its key is enrolled, and the `authResult` waits for
+    the roster.** `authResult` carries `credential` (device, pairing) and `enrolled`; unless it
+    says `enrolled: false` the PWA drops the entry's pairing code (`onCredentialsSpent`). For a
+    new device `NoiseClientConnection` holds the `authResult` (and anything sent after it, in
+    order) until the roster write resolves: `enrolled` must mean written, or a phone whose
+    enrolment failed would be left with no credential. A code is dropped on the session's
+    `authResult` only, never just because the machine came online. An entry stored by an older
+    PWA may hold a token: `SettingsStore.list` drops it, and the next write removes it.
   - **An enrolled IK key authenticates its session on its own** (`keyCredential`: `device` for a
     key enrolled at the handshake, `pairing` for one that just spent a code): a paired phone has
     no token. That makes the device key the phone's whole credential, which is why the
     extractable fallback above matters.
-  - **Enrolment has three modes, and `off` means token enrolment only.** `on`: the token or a
-    pairing code enrols a phone; `off`: only a pairing code (minted on the machine by its
-    operator, so an explicit authorisation); `closed`: nothing. `devices.json` keeps `enrolment`
-    as "any enrolment at all" (false = closed, its old meaning) and adds `tokenEnrolment`, so an
-    agent from before the modes still parses the file instead of failing closed. The agent
-    refuses a token at three places: the handshake (closed only), an unknown device's `auth`
-    **before the handler sees the token** (`refusesToken`, including a pairing-shaped secret it
-    does not know), and `enrol(device, via)` after `authResult`, which closes the session with
-    the refusal when the roster declines (a mode changed since the handshake); only a failed
-    write serves it unenrolled.
+  - **Enrolment is `open` (a pairing code enrols a phone) or `closed` (nothing does)**
+    (`tarfa devices enrolment open|closed`; the old `on`/`off` are refused with a pointer).
+    `devices.json` keeps `enrolment` as "any enrolment at all" and **always writes
+    `tokenEnrolment: false`** (`FileDeviceStore.update`), which no current agent reads: an agent
+    from before the removal, brought back with its agent.env's `TARFA_TOKEN`, would read an absent
+    field as "the token enrols". The agent refuses at the handshake (closed only), at an unknown
+    device's `auth` that carries no live code, and at `enrol(device)` after `authResult`, which
+    closes the session when the roster declines (closed since the handshake, or the id taken);
+    only a failed write serves it unenrolled.
   - **A pairing secret is spent atomically at `auth`** (`redeemPairing`, under the pairing file's
-    lock). Enrolment `off` still takes it; only `closed` refuses it. **It is spent by the first
+    lock). Only `closed` refuses it. **It is spent by the first
     `auth` that presents it, enrolled device or not**, and bound to that device's key (`usedBy`):
     an already-enrolled device needs no code, but one it left live would admit whoever else holds
     the link for ten minutes. The binding device presenting it again is not a second use; any
@@ -848,7 +847,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     answered without taking `pairing.json`'s lock, so made-up ones cannot keep `tarfa pair` out.
   - **The hooks have their own secret, kept off every command line.** `POST /hooks` takes a
     random secret the agent writes to `~/.tarfa/token` at each start (the path installed hooks
-    already read), never `TARFA_TOKEN`, which enrols phones. `POST /unpark`, `POST /close` and
+    already read). `POST /unpark`, `POST /close` and
     `POST /message` take the same secret, which the CLI reads from that file into a header in-process.
     `tarfa-hook.sh` gives curl the header through a file (process substitution) and the body on
     stdin, built with the `printf` builtin: any local user can read a process's argv.
@@ -870,7 +869,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   - **No process the agent starts gets a `TARFA_` variable** (`childEnv`, used by every
     `execFile` and the pty). A tmux server copies the environment of the client that starts it
     into its global environment, which every pane inherits; when the agent's own
-    `new-session` found no server, every workspace got `TARFA_TOKEN`. A new spawn site must use
+    `new-session` found no server, every workspace got the agent's settings. A new spawn site must use
     `childEnv()` too. The CLI reads the agent.env the service reads for every command, since a
     shell in a workspace has none of the agent's variables.
   - **An agent.env from before still starts.** `TARFA_RELAY_URLS` or `TARFA_RELAY_URL` is
@@ -890,8 +889,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
       fifth or any invalid one nulls the whole link. A link naming an address another key's entry
       holds is refused (`pairedMachine`, direct section). A link opened from outside the app is
       confirmed first, showing every host and the machine key's fingerprint that `tarfa pair`
-      prints beside the code, and a pending pairing secret is sent in preference to a token. A
-      full link must name this app's own origin (`readPairingLink`).
+      prints beside the code. A full link must name this app's own origin (`readPairingLink`).
     - **A pairing link tapped inside the app is paired by the running app**
       (`store.openPairingLink`, from the terminal's link handlers and a capture-phase click
       listener), never opened: on Android it opened another page context, which added the
@@ -911,9 +909,8 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     device hello carries `push`; when the agent finds the key enrolled it answers `authResult`
     (`pushed`) and the opening replies (workspaces, keyterms) without waiting for the
     phone's `auth`, which saves the round trips that followed the handshake. The phone still
-    sends its `auth`; the handler answers it with nothing (a token is still refused as not
-    needed). Things not to "simplify": **the phone asks only when its entry holds no token and
-    no pairing secret** — otherwise the pushed `enrolled` could make it forget a pairing code
+    sends its `auth`; the handler answers it with nothing. Things not to "simplify": **the phone
+    asks only when its entry holds no pairing secret** — otherwise the pushed `enrolled` could make it forget a pairing code
     before its `auth` burned it; **a pushed session keeps its auth deadline and its
     unauthenticated slot on the phone port until the phone's first frame** (message 1 can be
     replayed by whoever saw it, and its replies are unreadable, but each one would otherwise free

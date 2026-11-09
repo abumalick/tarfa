@@ -1,6 +1,5 @@
 import { parseAgentMessage, type AgentMessage, type ClientMessage } from '@tarfa/contracts';
 import type { CloseInfo, Socket, SocketFactory } from './ports/socket';
-import { REFUSAL } from '@tarfa/secure-channel';
 import { describeRefusal, type RefusalContext } from './refusal';
 import { en } from './i18n/en';
 
@@ -38,7 +37,8 @@ export interface MachineConnectionDeps {
   onAgent?: (agent: { protocol: number; version?: string; features?: string[] } | undefined) => void;
   // One address failing and the next being tried, for the connection log.
   onPhase?: (phase: string, detail: string) => void;
-  token: string;
+  // The entry's one-time pairing code until the agent says the device key is enrolled; '' after.
+  pairing: string;
   socketFactory: SocketFactory;
   onMessage: (message: AgentMessage) => void;
   onStatus: (status: ConnectionStatus) => void;
@@ -50,11 +50,9 @@ export interface MachineConnectionDeps {
   now?: () => number;
   // Names the machine and the credential in a refusal's message.
   refusalContext?: RefusalContext;
-  // `all`: the agent said, inside the session, that this phone's device key is enrolled; the
-  // entry's token and pairing secret are to be forgotten, and the connection sends neither from
-  // then on. `pairing`: an agent from before it said so accepted the pairing secret, which is
-  // spent.
-  onCredentialsSpent?: (scope: 'all' | 'pairing') => void;
+  // The agent accepted the pairing code (and, inside the session, did not say the key is not
+  // enrolled): the code is spent, to be forgotten, and the connection sends it no more.
+  onCredentialsSpent?: () => void;
   // Asked for on every (re)connect once authenticated, unless the agent already pushed the
   // replies with its authResult (`pushed`).
   openingRequests?: ClientMessage[];
@@ -120,14 +118,11 @@ export class MachineConnection {
   private readonly schedule: (fn: () => void, ms: number) => void;
   private readonly startTimer: (fn: () => void, ms: number) => () => void;
   private readonly now: () => number;
-  // What `auth` carries: the entry's credential until the agent says the device key is enrolled.
-  private token: string;
-  // The token held back after a "token not needed" close, until the agent confirms the key is
-  // enrolled (forgotten) or says it is not (sent again).
-  private withheld: string | null = null;
+  // What `auth` carries: the entry's pairing code until it is spent.
+  private pairing: string;
 
   constructor(private readonly deps: MachineConnectionDeps) {
-    this.token = deps.token;
+    this.pairing = deps.pairing;
     this.schedule = deps.schedule ?? ((fn, ms) => setTimeout(fn, ms));
     this.startTimer =
       deps.startTimer ??
@@ -192,7 +187,7 @@ export class MachineConnection {
       if (this.socket !== socket) return;
       cancelDeadline();
       this.opened = true;
-      socket.send(JSON.stringify({ type: 'auth', token: this.token } satisfies ClientMessage));
+      socket.send(JSON.stringify({ type: 'auth', token: this.pairing } satisfies ClientMessage));
     });
     socket.onError?.(() => {
       if (this.socket === socket) this.errored = true;
@@ -215,16 +210,7 @@ export class MachineConnection {
         // Auth failure is reported in `handle`; the close that follows is expected.
         return;
       }
-      let refusal = this.deps.refusalContext && !this.timedOut ? describeRefusal(info?.code, info?.reason, this.deps.refusalContext) : null;
-      // The close reason comes from outside the session, so whatever fronts the agent could send it:
-      // the token is held back for the next attempt, never forgotten on this alone.
-      if (refusal && info?.reason === REFUSAL.tokenNotNeeded && this.token) {
-        this.withheld = this.token;
-        this.token = '';
-      } else if (refusal && info?.reason === REFUSAL.notEnrolled && this.withheld !== null) {
-        this.restoreWithheld();
-        refusal = { ...refusal, final: false };
-      }
+      const refusal = this.deps.refusalContext && !this.timedOut ? describeRefusal(info?.code, info?.reason, this.deps.refusalContext) : null;
       // A failure of the phone's own device key would fail every address the same way.
       const local = info?.reason?.startsWith(DEVICE_KEY_FAILURE) ?? false;
       if (!refusal && !local && !this.opened && !this.timedOut && !this.isLastAddress()) {
@@ -350,9 +336,9 @@ export class MachineConnection {
     }
     if (message.type === 'authResult') {
       if (message.ok) {
-        if (message.enrolled === true) this.forgetCredentials();
-        else this.restoreWithheld();
-        if (message.enrolled === undefined && this.deps.refusalContext?.credential === 'pairing') this.deps.onCredentialsSpent?.('pairing');
+        // `enrolled: false`: the roster write failed, so the code is kept to try again. An agent
+        // that predates `enrolled` sends none, and took the code all the same.
+        if (this.pairing && message.enrolled !== false) this.forgetPairing();
         this.backoff = BASE_BACKOFF_MS;
         this.failCount = 0;
         this.everConnected = true;
@@ -376,16 +362,9 @@ export class MachineConnection {
     this.deps.onMessage(message);
   }
 
-  private forgetCredentials(): void {
-    this.token = '';
-    this.withheld = null;
-    this.deps.onCredentialsSpent?.('all');
-  }
-
-  private restoreWithheld(): void {
-    if (this.withheld === null) return;
-    this.token = this.withheld;
-    this.withheld = null;
+  private forgetPairing(): void {
+    this.pairing = '';
+    this.deps.onCredentialsSpent?.();
   }
 
   private startHeartbeat(socket: Socket): void {

@@ -12,14 +12,12 @@ export interface MachineConfig {
   // Where the agent is reached, tried in this order: its own listener, behind `tailscale serve`,
   // Funnel or a proxy. Stored normalized (`normalizeAddress`).
   addresses: string[];
-  token: string;
   defaultPath?: string; // root that relative New-workspace paths resolve against
   enabled?: boolean; // absent = enabled; false = user switched the machine off
   // The agent's X25519 public key (base64url), which the Noise session pins.
   agentKey: string;
-  // A one-time pairing secret from a pairing link, used in place of the token until this
-  // device's key is enrolled; cleared once the machine has accepted it. A paired entry has no
-  // token at all: its enrolled device key is what authenticates it from then on.
+  // A one-time pairing secret from a pairing link, presented until this device's key is enrolled;
+  // cleared once the machine has accepted it. Its enrolled device key authenticates it from then on.
   pairing?: string;
 }
 
@@ -68,7 +66,9 @@ export class SettingsStore {
     if (!raw) return [];
     try {
       const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as MachineConfig[]) : [];
+      // An entry from before token enrolment was removed may hold a token: dropped on read, and
+      // gone from storage at the next write.
+      return Array.isArray(parsed) ? (parsed as Array<MachineConfig & { token?: unknown }>).map(({ token: _, ...m }) => m) : [];
     } catch {
       return [];
     }
@@ -79,7 +79,7 @@ export class SettingsStore {
     this.persist(next);
   }
 
-  update(id: string, patch: { addresses: string[]; token?: string; defaultPath?: string; agentKey?: string }): void {
+  update(id: string, patch: { addresses: string[]; defaultPath?: string; agentKey?: string }): void {
     const machines = this.list();
     if (!machines.some((m) => m.id === id)) return;
     this.persist(
@@ -88,7 +88,6 @@ export class SettingsStore {
           ? {
               ...m,
               addresses: patch.addresses,
-              token: patch.token ?? m.token,
               defaultPath: patch.defaultPath ?? m.defaultPath,
               agentKey: patch.agentKey ?? m.agentKey,
             }
@@ -102,14 +101,6 @@ export class SettingsStore {
     const machines = this.list();
     if (!machines.some((m) => m.id === id && m.pairing)) return;
     this.persist(machines.map((m) => (m.id === id ? { ...m, pairing: undefined } : m)));
-  }
-
-  // Forgets the token and the pairing secret of an entry whose device key is enrolled: the key
-  // is its credential from then on.
-  forgetCredentials(id: string): void {
-    const machines = this.list();
-    if (!machines.some((m) => m.id === id && (m.pairing || m.token))) return;
-    this.persist(machines.map((m) => (m.id === id ? { ...m, token: '', pairing: undefined } : m)));
   }
 
   remove(id: string): void {

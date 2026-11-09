@@ -98,6 +98,6 @@ Tarfa:
 ## Security notes
 
 - CDP ports and stream servers bind 127.0.0.1 only. Nothing is exposed on the tailnet
-  directly; the browser view goes through the token-guarded Tarfa agent.
+  directly; the browser view goes through the Tarfa agent's authenticated session.
 - Saved `--restore` states hold live session cookies. Treat `~/.agent-browser/` like a
   credential store.

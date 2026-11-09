@@ -49,9 +49,8 @@ const utf8 = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
 
 class FakeGate implements DeviceGate {
   standings = new Map<string, DeviceStanding>();
-  enrolment: EnrolmentMode = 'on';
+  enrolment: EnrolmentMode = 'open';
   enrolled: Array<{ x25519: string; ed25519: string; name: string }> = [];
-  enrolledVia: Array<'pairing' | 'token'> = [];
   pairings = new Set<string>();
   // Secrets this gate knows are dead, and why.
   dead = new Map<string, Refusal>();
@@ -72,9 +71,8 @@ class FakeGate implements DeviceGate {
   }
   // Resolves an enrolment; replace to hold it or make it fail.
   enrolWrite: () => Promise<boolean> = async () => true;
-  async enrol(device: { x25519: string; ed25519: string; name: string }, via: 'pairing' | 'token') {
+  async enrol(device: { x25519: string; ed25519: string; name: string }) {
     this.enrolled.push(device);
-    this.enrolledVia.push(via);
     const written = await this.enrolWrite();
     if (written) this.standings.set(device.x25519, 'enrolled');
     return written;
@@ -141,6 +139,17 @@ async function ikHandshake(
   await initiator.readMessage2(readHandshakeFrame(socket.sent[0]!, 'ik'));
   const { send, recv } = initiator.split();
   return new SecureSession(send, recv);
+}
+
+// A live pairing code an unknown phone presents in its `auth`, as `tarfa pair` would mint it.
+const CODE = 'c'.repeat(43);
+
+// Sends `auth` with CODE, live in the gate, and waits for it to be spent and handed on.
+async function presentCode(socket: FakeFrameSocket, phone: SecureSession, gate: FakeGate): Promise<void> {
+  gate.pairings.add(CODE);
+  for (const frame of phone.seal(utf8({ type: 'auth', token: CODE }))) socket.deliver(frame);
+  await flush();
+  await flush();
 }
 
 // Plays an enrolled phone: handshakes against the connection and returns its end of the session.
@@ -257,7 +266,7 @@ describe('NoiseClientConnection', () => {
     expect(socket.closedWith).toEqual({ code: 4002, reason: 'authentication timeout' });
   });
 
-  it('cancels the deadline once the handler accepts the token', async () => {
+  it('cancels the deadline once the handler accepts the auth', async () => {
     const { socket, conn, received, timers, gate } = setup();
     const phone = await handshake(socket, gate);
     conn.send({ type: 'authResult', ok: true });
@@ -282,7 +291,7 @@ describe('NoiseClientConnection', () => {
     let write!: (ok: boolean) => void;
     gate.enrolWrite = () => new Promise((r) => (write = r));
     const phone = await ikHandshake(socket);
-    for (const frame of phone.seal(utf8({ type: 'auth', token: 't' }))) socket.deliver(frame);
+    await presentCode(socket, phone, gate);
     conn.send({ type: 'authResult', ok: true });
     await flush();
     expect(authenticated).toEqual([]);
@@ -381,9 +390,9 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     const device = generateDeviceKeys();
     gate.standings.set(device.x25519.publicKey, 'enrolled');
     const phone = await ikHandshake(socket, device);
-    deliver(socket, phone, { type: 'auth', token: 't' });
+    await presentCode(socket, phone, gate);
     deliver(socket, phone, { type: 'list' });
-    expect(received).toEqual([{ type: 'auth', token: 't' }, { type: 'list' }]);
+    expect(received).toEqual([{ type: 'auth', token: CODE }, { type: 'list' }]);
     expect(logs.join('\n')).toMatch(/device .* "test phone" enrolled/);
   });
 
@@ -418,7 +427,6 @@ describe('NoiseClientConnection with device keys (IK)', () => {
 
   it('tells a phone the machine is busy when spending its pairing code is turned away, never that the code failed', async () => {
     const { socket, received, gate } = setup();
-    gate.enrolment = 'off';
     gate.redeemPairing = () => Promise.reject(new DeviceGateBusy());
     const phone = await ikHandshake(socket);
     deliver(socket, phone, { type: 'auth', token: 's'.repeat(43) });
@@ -448,66 +456,64 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     expect(socket.closedWith).toEqual({ code: 4003, reason: 'device not enrolled' });
   });
 
-  it('lets an unknown device send only auth, and enrols it once the token is accepted', async () => {
+  it('lets an unknown device send only auth, and enrols it once its pairing code is accepted', async () => {
     const { socket, conn, received, gate } = setup();
     const device = generateDeviceKeys();
     const phone = await ikHandshake(socket, device);
-    deliver(socket, phone, { type: 'auth', token: 't' });
-    expect(received).toEqual([{ type: 'auth', token: 't' }]);
+    await presentCode(socket, phone, gate);
+    expect(received).toEqual([{ type: 'auth', token: CODE }]);
     expect(gate.enrolled).toEqual([]);
     conn.send({ type: 'authResult', ok: true });
     await flush();
     expect(gate.enrolled).toEqual([{ x25519: device.x25519.publicKey, ed25519: device.ed25519.publicKey, name: 'test phone' }]);
-    expect(gate.enrolledVia).toEqual(['token']);
     deliver(socket, phone, { type: 'list' });
     expect(received.at(-1)).toEqual({ type: 'list' });
   });
 
-  // The phone forgets its token once its key is enrolled, so `enrolled` must mean written: the
+  // The phone forgets its pairing code once its key is enrolled, so `enrolled` must mean written: the
   // authResult waits for the roster, and whatever the handler sends meanwhile follows it.
   it('answers authResult only once the enrolment is written, saying so, and keeps what follows in order', async () => {
     const { socket, conn, gate } = setup();
     let write!: (ok: boolean) => void;
     gate.enrolWrite = () => new Promise((r) => (write = r));
     const phone = await ikHandshake(socket);
-    deliver(socket, phone, { type: 'auth', token: 't' });
-    conn.send({ type: 'authResult', ok: true, credential: 'token' });
+    await presentCode(socket, phone, gate);
+    conn.send({ type: 'authResult', ok: true, credential: 'pairing' });
     conn.send({ type: 'workspaces', workspaces: [] });
     await flush();
     expect(replies(socket, phone)).toEqual([]);
     write(true);
     await flush();
     expect(replies(socket, phone)).toEqual([
-      { type: 'authResult', ok: true, credential: 'token', enrolled: true, agent: { protocol: 1, features: ['lastReply'] } },
+      { type: 'authResult', ok: true, credential: 'pairing', enrolled: true, agent: { protocol: 1, features: ['lastReply'] } },
       { type: 'workspaces', workspaces: [] },
     ]);
   });
 
-  it('says the key is not enrolled when the roster could not be written, so the phone keeps its token', async () => {
+  it('says the key is not enrolled when the roster could not be written, so the phone keeps its code', async () => {
     const { socket, conn, gate } = setup();
     gate.enrolWrite = async () => {
       throw new Error('devices.json is locked');
     };
     const phone = await ikHandshake(socket);
-    deliver(socket, phone, { type: 'auth', token: 't' });
-    conn.send({ type: 'authResult', ok: true, credential: 'token' });
+    await presentCode(socket, phone, gate);
+    conn.send({ type: 'authResult', ok: true, credential: 'pairing' });
     await flush();
-    expect(replies(socket, phone)).toEqual([{ type: 'authResult', ok: true, credential: 'token', enrolled: false, agent: { protocol: 1, features: ['lastReply'] } }]);
+    expect(replies(socket, phone)).toEqual([{ type: 'authResult', ok: true, credential: 'pairing', enrolled: false, agent: { protocol: 1, features: ['lastReply'] } }]);
   });
 
-  // The operator turned enrolment off (or closed it) between the phone's handshake and its auth:
-  // the token that authenticated this session may no longer enrol, so it does not get a session.
+  // The operator closed enrolment between the phone's handshake and its auth (or the device's id
+  // is taken): the code that authenticated this session does not enrol it, so it gets no session.
   it.each([
-    ['off', 'token', 'enrolment off'],
-    ['closed', 'token', 'enrolment closed'],
-    ['on', 'token', 'enrolment refused'],
-  ] as const)('closes the session when the roster declines the enrolment (mode %s, %s)', async (mode, _via, reason) => {
+    ['closed', 'enrolment closed'],
+    ['open', 'enrolment refused'],
+  ] as const)('closes the session when the roster declines the enrolment (mode %s)', async (mode, reason) => {
     const { socket, conn, gate, authenticated } = setup();
     const phone = await ikHandshake(socket);
-    deliver(socket, phone, { type: 'auth', token: 't' });
+    await presentCode(socket, phone, gate);
     gate.enrolment = mode;
     gate.enrolWrite = async () => false;
-    conn.send({ type: 'authResult', ok: true, credential: 'token' });
+    conn.send({ type: 'authResult', ok: true, credential: 'pairing' });
     conn.send({ type: 'workspaces', workspaces: [] });
     await flush();
     await flush();
@@ -524,7 +530,6 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     const logs: string[] = [];
     const limited: Array<{ key: string; text: string }> = [];
     const gate = new FakeGate();
-    gate.enrolment = 'off';
     const open = () => {
       const socket = new FakeFrameSocket();
       new NoiseClientConnection(socket, staticPrivate, {
@@ -541,7 +546,7 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     }
     const known = open();
     await handshake(known, gate);
-    expect(limited.map((l) => l.key)).toEqual(['handshake:unknown', 'token-off', 'handshake:unknown', 'token-off', 'handshake:unknown', 'token-off']);
+    expect(limited.map((l) => l.key)).toEqual(['handshake:unknown', 'no-code', 'handshake:unknown', 'no-code', 'handshake:unknown', 'no-code']);
     expect(logs).toHaveLength(1);
     expect(logs[0]).toMatch(/" enrolled$/);
   });
@@ -551,15 +556,15 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     let write!: (ok: boolean) => void;
     gate.enrolWrite = () => new Promise((r) => (write = r));
     const phone = await ikHandshake(socket);
-    deliver(socket, phone, { type: 'auth', token: 't' });
-    conn.send({ type: 'authResult', ok: true, credential: 'token' });
+    await presentCode(socket, phone, gate);
+    conn.send({ type: 'authResult', ok: true, credential: 'pairing' });
     deliver(socket, phone, { type: 'list' });
     deliver(socket, phone, { type: 'listKeyterms' });
     await flush();
-    expect(received).toEqual([{ type: 'auth', token: 't' }]);
+    expect(received).toEqual([{ type: 'auth', token: CODE }]);
     write(true);
     await flush();
-    expect(received).toEqual([{ type: 'auth', token: 't' }, { type: 'list' }, { type: 'listKeyterms' }]);
+    expect(received).toEqual([{ type: 'auth', token: CODE }, { type: 'list' }, { type: 'listKeyterms' }]);
   });
 
   it('drops what the phone sent behind its auth when the roster declines the enrolment', async () => {
@@ -567,14 +572,14 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     let write!: (ok: boolean) => void;
     gate.enrolWrite = () => new Promise((r) => (write = r));
     const phone = await ikHandshake(socket);
-    deliver(socket, phone, { type: 'auth', token: 't' });
-    conn.send({ type: 'authResult', ok: true, credential: 'token' });
+    await presentCode(socket, phone, gate);
+    conn.send({ type: 'authResult', ok: true, credential: 'pairing' });
     deliver(socket, phone, { type: 'create', name: 'x', path: '/', command: 'touch pwned' });
-    gate.enrolment = 'off';
+    gate.enrolment = 'closed';
     write(false);
     await flush();
     await flush();
-    expect(received).toEqual([{ type: 'auth', token: 't' }]);
+    expect(received).toEqual([{ type: 'auth', token: CODE }]);
     expect(socket.closedWith?.code).toBe(4003);
   });
 
@@ -584,11 +589,11 @@ describe('NoiseClientConnection with device keys (IK)', () => {
       throw new Error('devices.json is locked');
     };
     const phone = await ikHandshake(socket);
-    deliver(socket, phone, { type: 'auth', token: 't' });
-    conn.send({ type: 'authResult', ok: true, credential: 'token' });
+    await presentCode(socket, phone, gate);
+    conn.send({ type: 'authResult', ok: true, credential: 'pairing' });
     deliver(socket, phone, { type: 'list' });
     await flush();
-    expect(received).toEqual([{ type: 'auth', token: 't' }, { type: 'list' }]);
+    expect(received).toEqual([{ type: 'auth', token: CODE }, { type: 'list' }]);
   });
 
   it('holds what follows a redeemed pairing code until the enrolment is written', async () => {
@@ -622,11 +627,10 @@ describe('NoiseClientConnection with device keys (IK)', () => {
   });
 
   // A phone that paired, then lost its enrolment (forgotten, or the roster was reset), has no
-  // token to offer: it needs pairing again, whatever the enrolment mode says of the token.
-  it('refuses an unknown device that offers no credential as not enrolled, in every mode', async () => {
-    for (const mode of ['on', 'off'] as const) {
-      const { socket, received, gate } = setup();
-      gate.enrolment = mode;
+  // code to offer: it needs pairing again.
+  it('refuses an unknown device that offers no credential as not enrolled', async () => {
+    {
+      const { socket, received } = setup();
       const phone = await ikHandshake(socket);
       deliver(socket, phone, { type: 'auth', token: '' });
       await flush();
@@ -635,30 +639,30 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     }
   });
 
-  it('refuses the token from an unknown device while enrolment is off, before the handler sees it', async () => {
-    const { socket, received, gate } = setup();
-    gate.enrolment = 'off';
-    const phone = await ikHandshake(socket);
-    deliver(socket, phone, { type: 'auth', token: 't' });
-    await flush();
-    expect(received).toEqual([]);
-    expect(socket.closedWith).toEqual({ code: 4003, reason: 'enrolment off' });
-    expect(gate.enrolled).toEqual([]);
+  it('refuses anything but a pairing code from an unknown device, before the handler sees it', async () => {
+    for (const token of ['t', 'x'.repeat(64)]) {
+      const { socket, received, gate } = setup();
+      const phone = await ikHandshake(socket);
+      deliver(socket, phone, { type: 'auth', token });
+      await flush();
+      expect(received).toEqual([]);
+      expect(socket.closedWith).toEqual({ code: 4003, reason: 'device not enrolled' });
+      expect(gate.enrolled).toEqual([]);
+    }
   });
 
-  it('refuses a pairing-shaped secret it does not know while enrolment is off, rather than try it as a token', async () => {
+  it('refuses a pairing-shaped secret it never issued as not enrolled', async () => {
     const { socket, received, gate } = setup();
-    gate.enrolment = 'off';
     const phone = await ikHandshake(socket);
     deliver(socket, phone, { type: 'auth', token: 'q'.repeat(43) });
     await flush();
     expect(received).toEqual([]);
-    expect(socket.closedWith).toEqual({ code: 4003, reason: 'enrolment off' });
+    expect(socket.closedWith).toEqual({ code: 4003, reason: 'device not enrolled' });
+    expect(gate.enrolled).toEqual([]);
   });
 
-  it('still enrols a phone with a pairing code while enrolment is off', async () => {
+  it('enrols a phone with a pairing code', async () => {
     const { socket, conn, gate } = setup();
-    gate.enrolment = 'off';
     const secret = 'p'.repeat(43);
     gate.pairings.add(secret);
     const device = generateDeviceKeys();
@@ -669,7 +673,6 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     await flush();
     expect(socket.closedWith).toBeNull();
     expect(gate.enrolled.map((d) => d.x25519)).toEqual([device.x25519.publicKey]);
-    expect(gate.enrolledVia).toEqual(['pairing']);
   });
 
   it('serves an enrolled device whatever the enrolment mode', async () => {
@@ -692,10 +695,10 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     expect(gate.enrolled).toEqual([]);
   });
 
-  it('does not enrol a device whose token was refused', async () => {
+  it('does not enrol a device whose auth the handler refused', async () => {
     const { socket, conn, gate } = setup();
     const phone = await ikHandshake(socket);
-    deliver(socket, phone, { type: 'auth', token: 'wrong' });
+    await presentCode(socket, phone, gate);
     conn.send({ type: 'authResult', ok: false });
     await flush();
     expect(gate.enrolled).toEqual([]);
@@ -755,9 +758,9 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     gate.pairings.add(secret);
     let redeem!: (value: Redemption) => void;
     // The first redemption is held; the held auths are then redeemed by the gate as usual.
-    const usual = gate.redeemPairing.bind(gate);
+    // The same device presenting the code it spent is no second use (the gate's `mine`).
     gate.redeemPairing = () => {
-      gate.redeemPairing = usual;
+      gate.redeemPairing = async () => ({ redeemed: true, fresh: false });
       return new Promise((resolve) => { redeem = resolve; });
     };
     const phone = await ikHandshake(socket);
@@ -784,13 +787,14 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     expect(received).toEqual([]);
   });
 
-  it('does not authenticate a spent or unknown pairing secret; the handler then checks it as a token', async () => {
+  it('does not authenticate an unknown pairing secret, nor hand it to the handler', async () => {
     const { socket, conn, received, gate } = setup();
     const phone = await ikHandshake(socket);
     deliver(socket, phone, { type: 'auth', token: 'q'.repeat(43) });
     await flush();
     expect(conn.keyCredential).toBeUndefined();
-    expect(received).toEqual([{ type: 'auth', token: 'q'.repeat(43) }]);
+    expect(received).toEqual([]);
+    expect(socket.closedWith).toEqual({ code: 4003, reason: 'device not enrolled' });
     expect(gate.enrolled).toEqual([]);
   });
 

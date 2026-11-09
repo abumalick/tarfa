@@ -15,18 +15,16 @@ const entry = (over: Partial<MachineConfig> = {}): MachineConfig => ({
   id: 'm1',
   name: 'dev',
   addresses: [...link.urls],
-  token: '',
   agentKey: link.agentKey,
   ...over,
 });
 
 describe('pairedMachine', () => {
-  it('adds an entry named after the machine, with every address in order, the one-time secret and no token', () => {
+  it('adds an entry named after the machine, with every address in order, the one-time secret', () => {
     expect(pairedMachine([], link, () => 'id1')).toEqual({ ok: true, machine: {
       id: 'id1',
       name: 'dev',
       addresses: link.urls,
-      token: '',
       agentKey: link.agentKey,
       pairing: link.secret,
     } });
@@ -38,7 +36,7 @@ describe('pairedMachine', () => {
   });
 
   it('updates the entry with the same agent key, taking the link\'s addresses, instead of adding a second one', () => {
-    const existing = entry({ name: 'my dev', addresses: ['wss://old.example/'], token: 'tok', enabled: false });
+    const existing = entry({ name: 'my dev', addresses: ['wss://old.example/'], enabled: false });
     expect(pairedMachine([existing], link, () => 'unused')).toEqual({
       ok: true,
       machine: { ...existing, addresses: link.urls, pairing: link.secret, enabled: true },
@@ -94,7 +92,7 @@ describe('acceptPairingLink', () => {
 
   it('asks the owner with the pairing question, then returns the entry to add', () => {
     const p = prompts(true);
-    expect(acceptPairingLink([], link, p)).toEqual({ id: 'id1', name: 'dev', addresses: link.urls, token: '', agentKey: link.agentKey, pairing: link.secret });
+    expect(acceptPairingLink([], link, p)).toEqual({ id: 'id1', name: 'dev', addresses: link.urls, agentKey: link.agentKey, pairing: link.secret });
     expect(p.asked).toEqual([pairingQuestion(link)]);
     expect(p.alerts).toEqual([]);
   });
@@ -107,7 +105,7 @@ describe('acceptPairingLink', () => {
 
   it('says why a link is refused, without asking', () => {
     const p = prompts(true);
-    const existing = entry({ token: 'tok', agentKey: 'A'.repeat(43) });
+    const existing = entry({ agentKey: 'A'.repeat(43) });
     expect(acceptPairingLink([existing], link, p)).toBeNull();
     expect(p.alerts).toEqual([expect.stringContaining('another key for dev')]);
     expect(p.asked).toEqual([]);

@@ -103,10 +103,10 @@ const keyInfo = async (load: Promise<DeviceIdentity>) => {
 
 let store: TarfaStore;
 const manager = new ConnectionManager({
-  secureSocketFactory: (agentKey, token, onPhase) =>
+  secureSocketFactory: (agentKey, pairing, onPhase) =>
     noiseSocketFactory(browserFrameSocketFactory, agentKey, {
       device: deviceIdentity,
-      token,
+      pairing,
       deviceName: deviceName(navigator.userAgent),
       onPhase,
     }),
@@ -116,7 +116,7 @@ const manager = new ConnectionManager({
   onDiagnostic: (id, diagnostic) => store.setConnectionError(id, diagnostic),
   onAgent: (id, agent) => store.setAgent(id, agent),
   onPhase: (id, phase, detail) => store.logPhase(id, phase, detail),
-  onCredentialsSpent: (id, scope) => store.forgetCredentials(id, scope),
+  onCredentialsSpent: (id) => store.forgetPairing(id),
 });
 
 // Durable connection-event log: buffers lifecycle events (with online/visibility context) and

@@ -6,7 +6,7 @@ import { failOnCspViolation } from './csp';
 failOnCspViolation(test);
 
 // A pairing link carries a one-time secret in its fragment. Opening it (or pasting it) adds the
-// machine entry and connects with the secret in place of a token; the secret must never reach a
+// machine entry and connects with the secret; the secret must never reach a
 // request, stay in the address bar, or outlive the machine accepting it.
 
 let agent: FakeAgent;
@@ -51,11 +51,11 @@ test('opening a pairing link adds the machine, connects with the secret, and for
   expect(asked).toEqual([expect.stringContaining('Pair with dev box through 127.0.0.1')]);
   expect(agent.received.find((m) => m.type === 'auth')).toEqual({ type: 'auth', token: SECRET });
   await expect.poll(async () => (await stored(page))[0]?.pairing).toBeUndefined();
-  expect(await stored(page)).toEqual([expect.objectContaining({ name: 'dev box', token: '', agentKey: agent.agentKey })]);
+  expect(await stored(page)).toEqual([expect.objectContaining({ name: 'dev box', agentKey: agent.agentKey })]);
   expect(urls.filter((url) => url.includes(SECRET))).toEqual([]);
   expect(await page.evaluate(() => history.length)).toBeGreaterThan(0);
 
-  // Reconnecting later carries no secret and no token: the enrolled device key is the credential.
+  // Reconnecting later carries no secret: the enrolled device key is the credential.
   agent.received.length = 0;
   await page.reload();
   await expect(page.getByText('demo', { exact: true })).toBeVisible();

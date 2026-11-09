@@ -159,7 +159,7 @@ There is no repository, no pnpm and no compiler: `node-pty` ships prebuilds and 
 no lifecycle scripts. A global node 24 is required, because the `tarfa` wrapper and the service's
 launcher find node from `$HOME`, never from the folder they run in.
 
-`tarfa setup` writes `~/.tarfa/agent.env` (`600`; a token only if there is none), the launcher
+`tarfa setup` writes `~/.tarfa/agent.env` (`600`), the launcher
 `~/.tarfa/bin/tarfa-agent` and the `~/.local/bin/tarfa` wrapper, installs and starts the user unit with
 linger, and installs the status hooks, without prompting; it is safe to rerun and changes only what
 differs. If you run tmux as its own service (step 5), add its drop-in first:
@@ -171,8 +171,8 @@ printf '[Unit]\nAfter=tmux-server.service\nWants=tmux-server.service\n' \
 systemctl --user daemon-reload
 ```
 
-It also writes `~/.tarfa/devices.json` with token enrolment off, so only a `tarfa pair` code adds
-a phone. With Tailscale on the machine, `--tailscale serve` (tailnet only) or `--tailscale funnel`
+It also writes `~/.tarfa/devices.json`, the roster of phones; only a `tarfa pair` code adds one.
+With Tailscale on the machine, `--tailscale serve` (tailnet only) or `--tailscale funnel`
 (public, the phone needs no VPN) also publishes the phone port and records its address for
 `tarfa pair` (step 8). `tarfa setup --help` explains the flags and the Tailscale admin settings.
 The `tarfa-spawn` and `tarfa-orchestrate` skills live in the repository, not the package: link them
@@ -245,8 +245,8 @@ install from the browser menu). Then pair:
 - **Android:** open the link anywhere; it goes straight into the installed app. Chrome asks once
   whether the app may reach your local network (a tailnet address): allow it.
 
-A code works once, for 10 minutes; `tarfa pair` makes another. `tarfa setup` leaves token
-enrolment off, so only a `tarfa pair` code adds a phone:
+A code works once, for 10 minutes; `tarfa pair` makes another. Only a `tarfa pair` code adds a
+phone:
 
 ```bash
 tarfa devices                 # your phones; revoke a lost one by id or key

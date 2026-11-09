@@ -46,8 +46,8 @@ export function startDeviceGate(deps: DeviceGateDeps): AgentDeviceGate {
     pairings: deps.pairings,
     now: () => new Date(),
     onChange: wrote,
-    onEnrolled: (device, via) => {
-      log(`device enrolled: ${device.id} "${device.name}" (${via === 'pairing' ? 'pairing code' : 'token'})`);
+    onEnrolled: (device) => {
+      log(`device enrolled: ${device.id} "${device.name}" (pairing code)`);
       server.broadcastDeviceEnrolled(device);
     },
   });

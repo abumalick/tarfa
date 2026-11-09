@@ -3,17 +3,17 @@ import type { DeviceStorePort } from '../ports/device-store-port';
 import type { PairingStorePort } from '../ports/pairing-store-port';
 import { redeemPairing } from './pairing';
 import type { DeviceGate, Redemption } from '../ports/device-gate-port';
-import { enrolDevice, enrolmentMode, mayEnrol, standingOf, type DeviceRoster, type EnrolmentMode } from './device-roster';
+import { enrolDevice, enrolmentMode, standingOf, type DeviceRoster, type EnrolmentMode } from './device-roster';
 
 export interface RosterDevicesDeps {
   store: DeviceStorePort;
-  // The pairing secrets `tarfa pair` handed out; each proves an enrolment like the token, once.
+  // The pairing secrets `tarfa pair` handed out; each admits one phone, once.
   pairings: PairingStorePort;
   now: () => Date;
   // Called after this agent wrote the roster, so the gate's copy knows a new device at once.
   onChange: () => void;
   // Called once the roster holds a device it did not hold before.
-  onEnrolled?: (device: { id: string; name: string; at: string; x25519: string }, via: 'pairing' | 'token') => void;
+  onEnrolled?: (device: { id: string; name: string; at: string; x25519: string }) => void;
 }
 
 // The agent's device gate, over ~/.tarfa/devices.json.
@@ -25,17 +25,17 @@ export class RosterDevices implements DeviceGate {
     return { standing: standingOf(roster, x25519), enrolment: enrolmentMode(roster) };
   }
 
-  async enrol(device: { x25519: string; ed25519: string; name: string }, via: 'pairing' | 'token'): Promise<boolean> {
-    // Enrolment may have been closed or turned off between the handshake and the credential.
+  async enrol(device: { x25519: string; ed25519: string; name: string }): Promise<boolean> {
+    // Enrolment may have been closed between the handshake and the pairing code.
     let known = true;
     const roster = await this.deps.store.update((current) => {
       known = standingOf(current, device.x25519) !== 'unknown';
-      return mayEnrol(current, via) ? enrolDevice(current, device, this.deps.now()) : current;
+      return current.enrolment ? enrolDevice(current, device, this.deps.now()) : current;
     });
     this.deps.onChange();
     const entry = known ? undefined : roster.devices.find((d) => d.x25519 === device.x25519);
     try {
-      if (entry) this.deps.onEnrolled?.({ id: entry.id, name: entry.name, at: entry.enrolledAt, x25519: entry.x25519 }, via);
+      if (entry) this.deps.onEnrolled?.({ id: entry.id, name: entry.name, at: entry.enrolledAt, x25519: entry.x25519 });
     } catch {
       // Telling of it is best-effort: the device is enrolled whatever happens to the notice.
     }
@@ -44,7 +44,7 @@ export class RosterDevices implements DeviceGate {
 
   // Spends a pairing secret for the device (X25519 key) about to be enrolled, binding it to that
   // device. Atomic across processes, so two phones racing with one code cannot both get in. A
-  // secret this agent never issued (or has forgotten) gives no reason: it may be a token after all.
+  // secret this agent never issued (or has forgotten) gives no reason.
   async redeemPairing(secret: string, device: string): Promise<Redemption> {
     if (!(await this.deps.store.read()).enrolment) return { redeemed: false, reason: REFUSAL.enrolmentClosed };
     const outcome = await this.spend(secret, device);

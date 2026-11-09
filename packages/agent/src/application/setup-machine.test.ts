@@ -63,7 +63,6 @@ function fresh(over: Partial<SetupState> = {}): SetupState {
     service: { kind: 'systemd', template: TEMPLATE, installed: null, enabled: false },
     envPath: '/home/u/.tarfa/agent.env',
     envText: null,
-    newToken: 'generated-token',
     hasKey: false,
     roster: 'absent',
     hooksCurrent: false,
@@ -104,7 +103,7 @@ function applied(f: SetupFlags, s: SetupState): SetupState {
   for (const step of plan(f, s)) {
     if (step.kind === 'write-env') next = { ...next, envText: step.text };
     if (step.kind === 'create-key') next = { ...next, hasKey: true };
-    if (step.kind === 'write-roster') next = { ...next, roster: step.mode };
+    if (step.kind === 'write-roster') next = { ...next, roster: 'open' };
     if (step.kind === 'write-launcher') next = { ...next, launcher: { ...next.launcher, installed: step.text } };
     if (step.kind === 'install-unit') next = { ...next, service: { ...next.service, installed: step.text, enabled: true } };
     if (step.kind === 'install-hooks') next = { ...next, hooksCurrent: true };
@@ -123,7 +122,7 @@ describe('planSetup', () => {
       fresh({
         envText: OLD_ENV,
         hasKey: true,
-        roster: 'off',
+        roster: 'open',
         hooksCurrent: false,
         legacyService: true,
         stateDir: 'legacy',
@@ -190,17 +189,17 @@ describe('planSetup', () => {
       'restart',
       'check-listener',
     ]);
-    expect(steps.find((s) => s.kind === 'write-roster')).toEqual({ kind: 'write-roster', mode: 'off' });
+    expect(steps.find((s) => s.kind === 'write-roster')).toEqual({ kind: 'write-roster' });
     expect(steps.find((s) => s.kind === 'install-unit')).toMatchObject({ text: CLONE_UNIT });
     expect(steps.find((s) => s.kind === 'tailscale-serve')).toEqual({ kind: 'tailscale-serve', port: 10000, path: '/abu', target: TARGET, funnel: true });
     expect(steps.find((s) => s.kind === 'check-listener')).toEqual({ kind: 'check-listener', port: 8797 });
   });
 
-  it('writes the agent.env a fresh machine needs, with a new token and the roots colon-separated', () => {
+  it('writes the agent.env a fresh machine needs, with no token and the roots colon-separated', () => {
     const env = plan(flags({ defaultPath: '/home/u/workspace' }), fresh()).find((s) => s.kind === 'write-env');
     const values = parseEnvFile(env!.kind === 'write-env' ? env!.text : '');
+    expect(values).not.toHaveProperty('TARFA_TOKEN');
     expect(values).toMatchObject({
-      TARFA_TOKEN: 'generated-token',
       TARFA_MACHINE_ID: 'dev',
       TARFA_PROJECT_ROOTS: '/home/u/workspace:/home/u/other',
       TARFA_DEFAULT_PATH: '/home/u/workspace',
@@ -220,7 +219,9 @@ describe('planSetup', () => {
     expect(plan(f, applied(f, fresh())).map((s) => s.kind)).toEqual(['pair']);
   });
 
-  it('keeps an existing token, other lines and an existing PWA origin', () => {
+  // An agent.env from before still holds TARFA_TOKEN; the agent ignores it, and setup leaves it
+  // as it leaves every line it does not set, so rerunning on a set-up machine changes nothing.
+  it('keeps an old token line, other lines and an existing PWA origin', () => {
     const envText = 'TARFA_TOKEN=old\n# a comment\nTARFA_MACHINE_ID=dev\nTARFA_PWA_ORIGIN=https://staging.example:8443\nOTHER=1\n';
     const env = plan(flags(), fresh({ envText })).find((s) => s.kind === 'write-env');
     const text = env!.kind === 'write-env' ? env!.text : '';
@@ -238,12 +239,6 @@ describe('planSetup', () => {
     const kinds = plan(flags(), fresh({ hasKey: true, roster: 'closed' })).map((s) => s.kind);
     expect(kinds).not.toContain('create-key');
     expect(kinds).not.toContain('write-roster');
-  });
-
-  it('changes an existing roster only when --token-enrolment asks', () => {
-    expect(plan(flags({ tokenEnrolment: 'on' }), fresh({ roster: 'off' }))).toContainEqual({ kind: 'write-roster', mode: 'on' });
-    expect(plan(flags({ tokenEnrolment: 'off' }), fresh({ roster: 'off' })).map((s) => s.kind)).not.toContain('write-roster');
-    expect(plan(flags({ tokenEnrolment: 'on' }), fresh())).toContainEqual({ kind: 'write-roster', mode: 'on' });
   });
 
   it('leaves an installed unit alone when it runs the checkout through run-agent.sh with KillMode=process', () => {
@@ -335,18 +330,6 @@ describe('planSetup', () => {
     expect(steps).toContainEqual({ kind: 'print', line: 'tailscale funnel --bg --https=10000 --set-path=/bob http://127.0.0.1:8798' });
   });
 
-  it('refuses to publish an address while token enrolment is on, unless asked to keep it', () => {
-    const f = flags({ tailscale: 'none', slug: 'bob', phonePort: 8798, addresses: [`wss://${HOST}:10000/bob`] });
-    expect(errorOf(f, fresh({ tailscale: null, roster: 'on' }))).toMatch(/--token-enrolment off.*--token-enrolment on/s);
-    expect(errorOf(flags(), fresh({ roster: 'on' }))).toMatch(/--token-enrolment off/);
-    expect(plan({ ...f, tokenEnrolment: 'off' }, fresh({ tailscale: null, roster: 'on' }))).toContainEqual({ kind: 'write-roster', mode: 'off' });
-    expect(plan({ ...f, tokenEnrolment: 'on' }, fresh({ tailscale: null, roster: 'on' })).map((s) => s.kind)).not.toContain('write-roster');
-    expect(plan(flags({ tailscale: 'none', slug: undefined }), fresh({ tailscale: null, roster: 'on' })).map((s) => s.kind)).not.toContain('write-roster');
-    expect(plan(f, fresh({ tailscale: null }))).toContainEqual({ kind: 'write-roster', mode: 'off' });
-    const envText = `TARFA_TOKEN=t\nTARFA_PHONE_ADDRESSES=wss://${HOST}/bob\n`;
-    expect(errorOf(flags({ tailscale: 'none', slug: undefined }), fresh({ tailscale: null, roster: 'on', envText }))).toMatch(/--token-enrolment off/);
-  });
-
   describe('Tailscale checks', () => {
     const cases: Array<[string, Partial<TailscaleStatus> | null, RegExp]> = [
       ['not installed or not running', null, /tailscale up/],
@@ -420,12 +403,6 @@ describe('planSetup', () => {
       expect(result).toMatchObject({ checks: expect.arrayContaining([expect.stringMatching(/internet/)]) });
     });
 
-    it('warns when a public port would be published with token enrolment on', () => {
-      const result = planSetup(flags({ tokenEnrolment: 'on' }), fresh({ roster: 'on' }));
-      expect(result).toMatchObject({ checks: expect.arrayContaining([expect.stringMatching(/tarfa devices enrolment off/)]) });
-      expect(planSetup(flags(), fresh({ roster: 'off' }))).not.toMatchObject({ checks: expect.arrayContaining([expect.stringMatching(/warning/)]) });
-    });
-
     it('turns Funnel on for an entry already served on the tailnet only', () => {
       const serve: ServeConfig = { ...SERVED, AllowFunnel: {} };
       expect(plan(flags(), fresh({ serve })).find((s) => s.kind === 'tailscale-serve')).toMatchObject({ funnel: true });
@@ -437,7 +414,7 @@ describe('planSetup, the launcher and the package install', () => {
   const pkgConverged = (): Partial<SetupState> => ({
     envText: applied(flags(), pkg({ serve: SERVED })).envText,
     hasKey: true,
-    roster: 'off',
+    roster: 'open',
     hooksCurrent: true,
     phonePortOwner: 'ours',
     hooksPortOwner: 'ours',
@@ -460,7 +437,7 @@ describe('planSetup, the launcher and the package install', () => {
     const adopted = pkg({
       envText: 'TARFA_TOKEN=t\nTARFA_MACHINE_ID=dev\nTARFA_PROJECT_ROOTS=/home/u/workspace:/home/u/other\nTARFA_PHONE_PORT=8797\nTARFA_PHONE_ADDRESSES=wss://dev.example.ts.net:10000/abu\nTARFA_PWA_ORIGIN=https://tarfa.app\n',
       hasKey: true,
-      roster: 'off',
+      roster: 'open',
       hooksCurrent: true,
       phonePortOwner: 'ours',
       hooksPortOwner: 'ours',
@@ -476,7 +453,7 @@ describe('planSetup, the launcher and the package install', () => {
       launcher: { path: LAUNCHER, template: LAUNCHER_TEXT, installed: '#!/bin/sh\nold\n' },
       service: { kind: 'systemd', template: TEMPLATE, installed: LAUNCHER_UNIT, enabled: true },
       hasKey: true,
-      roster: 'off',
+      roster: 'open',
       hooksCurrent: true,
       serve: SERVED,
       envText: applied(flags(), pkg({ serve: SERVED })).envText,
@@ -539,7 +516,7 @@ describe('planSetup, the launcher and the package install', () => {
   // The agent's startup move refuses when ~/.perch and ~/.tarfa both hold something, so nothing
   // may be written under ~/.tarfa before the move.
   it('moves ~/.perch before anything is written under ~/.tarfa', () => {
-    const order = kinds(flags(), pkg({ stateDir: 'legacy', legacyService: true, hasKey: true, roster: 'off' }));
+    const order = kinds(flags(), pkg({ stateDir: 'legacy', legacyService: true, hasKey: true, roster: 'open' }));
     const move = order.indexOf('move-state');
     expect(move).toBeGreaterThanOrEqual(0);
     for (const kind of ['write-env', 'write-launcher', 'install-unit', 'install-hooks', 'create-key', 'write-roster'] as const) {
@@ -575,7 +552,6 @@ describe('parseSetupFlags', () => {
         '--pwa', 'https://self.example/',
         '--pair',
         '--dry-run',
-        '--token-enrolment', 'on',
       ]),
     ).toEqual({
       machineId: 'dev',
@@ -590,7 +566,6 @@ describe('parseSetupFlags', () => {
       pair: true,
       dryRun: true,
       adopt: false,
-      tokenEnrolment: 'on',
     });
   });
 
@@ -622,7 +597,7 @@ describe('parseSetupFlags', () => {
     ['a root bash would split', ['--machine-id', 'dev', '--project-roots', '/home/u/My Projects']],
     ['a root bash would expand', ['--machine-id', 'dev', '--project-roots', '/home/$USER']],
     ['a default path bash would run', [...base, '--default-path', '/home/u/`id`']],
-    ['a bad token enrolment', [...base, '--token-enrolment', 'closed']],
+    ['the removed token enrolment flag', [...base, '--token-enrolment', 'off']],
     ['a flag missing its value', [...base, '--slug']],
   ];
   for (const [name, argv] of invalid) {
@@ -633,9 +608,9 @@ describe('parseSetupFlags', () => {
 });
 
 describe('describeStep', () => {
-  it('never shows a generated token', () => {
-    const env = plan(flags(), fresh()).find((s) => s.kind === 'write-env')!;
-    expect(describeStep(env, '/repo/deploy/agent.env')).not.toContain('generated-token');
+  it('never shows an old token line it keeps', () => {
+    const env = plan(flags(), fresh({ envText: 'TARFA_TOKEN=old-secret\n' })).find((s) => s.kind === 'write-env')!;
+    expect(describeStep(env, '/repo/deploy/agent.env')).not.toContain('old-secret');
   });
 });
 
@@ -656,7 +631,7 @@ describe('planSetup: the CLI wrapper and adopting a clone', () => {
       repo: null,
       envText: applied(flags(), fresh({ install: 'package', repo: null, serve: SERVED })).envText,
       hasKey: true,
-      roster: 'off',
+      roster: 'open',
       hooksCurrent: true,
       phonePortOwner: 'ours',
       hooksPortOwner: 'ours',

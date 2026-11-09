@@ -21,10 +21,9 @@ const deviceKeyFailure = (err: unknown): DeviceKeyError | undefined => {
 
 export interface DeviceOptions {
   device: () => Promise<DeviceIdentity>;
-  // The machine's bearer token, or the one-time pairing secret of a paired entry; empty once a
-  // paired phone's secret is spent. Only whether there is one matters here: the credential itself
-  // travels inside the session, in `auth`.
-  token: string;
+  // The entry's one-time pairing code; empty once it is spent. Only whether there is one matters
+  // here: the code itself travels inside the session, in `auth`.
+  pairing: string;
   deviceName: string;
   // Each phase of a connect with the time since the attempt began, for the connection log:
   // `device-key`, `ws-open` and `handshake`.
@@ -107,9 +106,9 @@ export function noiseSocketFactory(inner: FrameSocketFactory, agentKey: string, 
               encodeDeviceHello({
                 sig: identity.ed25519Public,
                 name: options.deviceName,
-                // Only with no credential to present: the agent must see a token or pairing code
-                // (to refuse or burn it) before telling the phone it may forget it.
-                ...(options.token === '' ? { push: true as const } : {}),
+                // Only with no code to present: the agent must see a pairing code (to spend or burn
+                // it) before telling the phone it may forget it.
+                ...(options.pairing === '' ? { push: true as const } : {}),
               });
             frames.send(handshakeFrame(await initiator.writeMessage1(hello), 'ik'));
           } catch (err) {

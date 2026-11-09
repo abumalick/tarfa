@@ -14,9 +14,6 @@ import { addPairing } from '@tarfa/cli/src/application/pairing.ts';
 import { revokeDevice } from '@tarfa/cli/src/application/device-roster.ts';
 import type { FrameSocket } from '@tarfa/cli/src/ports/frame-socket.ts';
 
-// The machine token a seeded entry carries (`machineEntry`), as the agent's TARFA_TOKEN.
-const TOKEN = 'secret';
-
 // A 1×1 transparent PNG, served as an in-session media read.
 const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
@@ -50,7 +47,7 @@ function mediaFor(path: string): { type: string; bytes: Buffer } | null {
 // One client connection inside its Noise session, as the message switch sees it.
 interface Conn {
   // What the transport proved (the real `ClientConnection.keyCredential`): an enrolled device key,
-  // or a pairing code spent just now. `auth` then needs no token.
+  // or a pairing code spent just now. Nothing else authenticates.
   readonly keyCredential?: 'device' | 'pairing';
   send: (message: unknown) => void;
   refuse: (reason: string) => void;
@@ -141,21 +138,23 @@ export const DEFAULT_WORKSPACES: FakeWorkspace[] = [
   { machineId: 'agent-machine-id', id: 'perch-other', name: 'other', projectPath: '/home/u/workspace/other', command: 'bash', createdAt: 2, lastActivityAt: 2, status: 'idle' },
 ];
 
-// A machine entry for this fake, as a pairing would store it; `seedMachine` writes it before the
-// page loads.
-export function machineEntry(agent: FakeAgent, overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return { id: 'test', name: 'Test', addresses: [agent.url], token: TOKEN, agentKey: agent.agentKey, ...overrides };
+// A machine entry for this fake, as a pairing link stores it: with a live pairing code, which the
+// first connect spends to enrol the page's device key (pass `pairing: undefined` for none).
+// `seedMachine` writes it before the page loads.
+export async function machineEntry(agent: FakeAgent, overrides: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  const pairing = 'pairing' in overrides ? {} : { pairing: await agent.newPairing() };
+  return { id: 'test', name: 'Test', addresses: [agent.url], agentKey: agent.agentKey, ...pairing, ...overrides };
 }
 
 export async function seedMachine(page: Page, agent: FakeAgent, overrides: Record<string, unknown> = {}): Promise<void> {
-  await page.addInitScript((m) => localStorage.setItem('tarfa.machines', JSON.stringify([m])), machineEntry(agent, overrides));
+  await page.addInitScript((m) => localStorage.setItem('tarfa.machines', JSON.stringify([m])), await machineEntry(agent, overrides));
 }
 
 // A fake agent behind the real agent's phone path: its phone listener (upgrades on any path, the
 // admission bounds) and its device gate over roster and pairing files in a scratch directory,
 // each socket served by the agent's own NoiseClientConnection, so every spec runs the IK handshake, the
 // device hello and enrolment in WebKit. Only the messages inside the session are canned. A seeded
-// entry enrols its fresh device key with the token on first connect.
+// entry enrols its fresh device key with its pairing code on first connect.
 export async function startFakeAgent(
   workspacesOverride?: FakeWorkspace[],
   browserSessionsOverride?: Array<{ name: string }>,
@@ -223,16 +222,13 @@ export async function startFakeAgent(
             // Faithful to the real agent's handler: auth returns ONLY authResult (with the side
             // channels it serves). Workspaces are sent in response to an explicit `list` — so the
             // E2E exercises the client actually requesting the list on connect. The session adds
-            // `enrolled` once the roster is written, and the PWA then forgets the token.
+            // `enrolled` once the roster is written, and the PWA then forgets the pairing code.
             const byKey = conn.keyCredential;
-            const isToken = msg.token === TOKEN;
-            if (byKey === 'device' && isToken) {
-              conn.refuse(REFUSAL.tokenNotNeeded);
-            } else if (authed) {
+            if (authed) {
               break;
-            } else if (byKey || isToken) {
+            } else if (byKey) {
               authed = true;
-              send({ type: 'authResult', ok: true, credential: byKey ?? 'token' });
+              send({ type: 'authResult', ok: true, credential: byKey });
             } else {
               send({ type: 'authResult', ok: false });
               conn.close();
@@ -261,7 +257,7 @@ export async function startFakeAgent(
           case 'browser': {
             // The browser protocol inside the stream. Faithful to the real agent, its opening
             // `auth` is admitted whatever its token (the session is already authenticated, and
-            // a paired phone holds no token); anything else first closes it. `authResult` then
+            // a paired phone holds none); anything else first closes it. `authResult` then
             // piping — one `url` and one canned `frame` stand in for it.
             const stream = String(msg.stream);
             const session = streams.get(stream);

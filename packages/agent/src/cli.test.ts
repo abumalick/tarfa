@@ -34,7 +34,7 @@ describe('tarfa CLI (real tmux)', () => {
     const home = await mkdtemp(join(tmpdir(), 'tarfa-cli-home-'));
     const project = await mkdtemp(join(tmpdir(), 'tarfa-cli-proj-'));
     tmpDirs.push(home, project);
-    const env = { TARFA_MACHINE_ID: 'test', TARFA_TOKEN: 'test-token', TARFA_PROJECT_ROOTS: tmpdir(), TARFA_AGENT_ENV: join(home, 'agent.env') };
+    const env = { TARFA_MACHINE_ID: 'test', TARFA_PROJECT_ROOTS: tmpdir(), TARFA_AGENT_ENV: join(home, 'agent.env') };
 
     const createdJson = await run(['create', project, 'sleep 30'], env, home);
     const ws = JSON.parse(createdJson) as { id: string; projectPath: string; status: string };
@@ -61,7 +61,7 @@ describe('tarfa CLI (real tmux)', () => {
     const home = await mkdtemp(join(tmpdir(), 'tarfa-cli-home-'));
     const project = await mkdtemp(join(tmpdir(), 'tarfa-cli-proj-'));
     tmpDirs.push(home, project);
-    const env = { TARFA_MACHINE_ID: 'test', TARFA_TOKEN: 'test-token', TARFA_PROJECT_ROOTS: tmpdir(), TARFA_AGENT_ENV: join(home, 'agent.env') };
+    const env = { TARFA_MACHINE_ID: 'test', TARFA_PROJECT_ROOTS: tmpdir(), TARFA_AGENT_ENV: join(home, 'agent.env') };
 
     const ws = JSON.parse(await run(['create', project, 'sleep 30'], env, home)) as { id: string };
     sessions.push(ws.id);
@@ -195,7 +195,7 @@ describe('tarfa devices', () => {
   it('lists enrolled devices with their fingerprint, name and date, and the enrolment setting', async () => {
     const { home, env, ids } = await withPhones();
     const out = await run(['devices'], env, home);
-    expect(out).toContain('enrolment: on');
+    expect(out).toContain('enrolment: open');
     expect(out).toContain(`${ids[0]}  phone 0  enrolled 2026-09-24`);
     expect(out).toContain(`${ids[1]}  phone 1  enrolled 2026-09-24`);
     // The full key names a device when two share an id.
@@ -208,7 +208,6 @@ describe('tarfa devices', () => {
     const { home, env, store, ids } = await withPhones();
     const revoked = await run(['devices', 'revoke', ids[0]!.slice(0, 4)], env, home);
     expect(revoked).toContain(`revoked ${ids[0]} (phone 0)`);
-    expect(revoked).toContain('whoever holds the token can still enrol a new key');
     const roster = await store.read();
     expect(roster.devices.map((d) => d.id)).toEqual([ids[1]]);
     expect(roster.revoked.map((d) => d.id)).toEqual([ids[0]]);
@@ -223,24 +222,24 @@ describe('tarfa devices', () => {
     await expect(run(['devices', 'revoke'], env, home)).rejects.toThrow(/usage/);
   });
 
-  it('sets enrolment on, off (pairing codes only) or closed, and lists it', async () => {
+  it('opens or closes enrolment, and lists it', async () => {
     const { home, env, store } = await withPhones();
-    expect(await run(['devices', 'enrolment', 'off'], env, home)).toContain('enrolment: off');
-    expect(enrolmentMode(await store.read())).toBe('off');
-    expect(await run(['devices'], env, home)).toContain('enrolment: off (only a pairing code from `tarfa pair` enrols a phone)');
-    await run(['devices', 'enrolment', 'closed'], env, home);
+    expect(await run(['devices', 'enrolment', 'closed'], env, home)).toContain('enrolment: closed');
     expect(enrolmentMode(await store.read())).toBe('closed');
     expect(await run(['devices'], env, home)).toContain('enrolment: closed (no new phone can enrol)');
-    await run(['devices', 'enrolment', 'on'], env, home);
-    expect(enrolmentMode(await store.read())).toBe('on');
+    expect(await run(['devices', 'enrolment', 'open'], env, home)).toContain('enrolment: open');
+    expect(enrolmentMode(await store.read())).toBe('open');
+    expect(await run(['devices'], env, home)).toContain('enrolment: open (a pairing code from `tarfa pair` enrols a phone)');
     await expect(run(['devices', 'enrolment', 'maybe'], env, home)).rejects.toThrow(/usage/);
     await expect(run(['devices', 'enrolment'], env, home)).rejects.toThrow(/usage/);
   });
 
-  it('warns after a revoke only while the token can still enrol a new key', async () => {
-    const { home, env, ids } = await withPhones();
-    await run(['devices', 'enrolment', 'off'], env, home);
-    expect(await run(['devices', 'revoke', ids[0]!], env, home)).not.toContain('token');
+  it('refuses the old token modes, naming the ones left', async () => {
+    const { home, env, store } = await withPhones();
+    for (const mode of ['on', 'off']) {
+      await expect(run(['devices', 'enrolment', mode], env, home)).rejects.toThrow(/token enrolment is gone.*enrolment open/);
+    }
+    expect(enrolmentMode(await store.read())).toBe('open');
   });
 });
 
@@ -252,7 +251,7 @@ describe('tarfa pair (arguments and agent.env)', () => {
     await writeFile(envPath, envText);
     return { home, env: { TARFA_AGENT_ENV: envPath } };
   }
-  const base = 'TARFA_MACHINE_ID=box\nTARFA_TOKEN=t\nTARFA_PHONE_ADDRESSES=wss://box.example.ts.net\n';
+  const base = 'TARFA_MACHINE_ID=box\nTARFA_PHONE_ADDRESSES=wss://box.example.ts.net\n';
 
   it('mints a pairing link for the phone address, reading the agent.env the service reads', async () => {
     const { home, env } = await machine(`${base}TARFA_PWA_ORIGIN=https://pwa.example:8443\n`);
@@ -287,7 +286,7 @@ describe('tarfa pair (arguments and agent.env)', () => {
   });
 
   it('names the pairing after the host when the machine id is the generic "local"', async () => {
-    const { home, env } = await machine('TARFA_MACHINE_ID=local\nTARFA_TOKEN=t\nTARFA_PHONE_ADDRESSES=wss://box.example.ts.net\nTARFA_PWA_ORIGIN=https://pwa.example:8443\n');
+    const { home, env } = await machine('TARFA_MACHINE_ID=local\nTARFA_PHONE_ADDRESSES=wss://box.example.ts.net\nTARFA_PWA_ORIGIN=https://pwa.example:8443\n');
     const out = await run(['pair'], env, home);
     const pairing = parsePairingLink(out.split('\n').find((line) => line.startsWith('https://'))!)!;
     expect(pairing.name).toBe(hostname().split('.')[0]);
@@ -301,13 +300,13 @@ describe('tarfa pair (arguments and agent.env)', () => {
   });
 
   it('refuses a machine with no TARFA_PHONE_ADDRESSES, pointing at tarfa setup', async () => {
-    const { home, env } = await machine('TARFA_MACHINE_ID=box\nTARFA_TOKEN=t\nTARFA_RELAY_URLS=wss://relay.example\n');
+    const { home, env } = await machine('TARFA_MACHINE_ID=box\nTARFA_RELAY_URLS=wss://relay.example\n');
     await expect(run(['pair'], env, home)).rejects.toThrow(/TARFA_PHONE_ADDRESSES.*tarfa setup/);
   });
 
   it('mints a link with every TARFA_PHONE_ADDRESSES address, in order', async () => {
     const { home, env } = await machine(
-      'TARFA_MACHINE_ID=dev\nTARFA_TOKEN=t\nTARFA_DEFAULT_PATH=/home/u/workspace\n' +
+      'TARFA_MACHINE_ID=dev\nTARFA_DEFAULT_PATH=/home/u/workspace\n' +
         'TARFA_PHONE_ADDRESSES=wss://dev.example.ts.net:10000/abu,wss://dev.example.ts.net:8443/abu\n',
     );
     const out = await run(['pair'], env, home);
@@ -319,7 +318,7 @@ describe('tarfa pair (arguments and agent.env)', () => {
   });
 
   it('refuses a TARFA_PHONE_ADDRESSES address a phone would refuse', async () => {
-    const { home, env } = await machine('TARFA_MACHINE_ID=box\nTARFA_TOKEN=t\nTARFA_PHONE_ADDRESSES=ws://dev.example.ts.net/abu\n');
+    const { home, env } = await machine('TARFA_MACHINE_ID=box\nTARFA_PHONE_ADDRESSES=ws://dev.example.ts.net/abu\n');
     await expect(run(['pair'], env, home)).rejects.toThrow(/TARFA_PHONE_ADDRESSES/);
   });
 });
@@ -397,11 +396,11 @@ describe('tarfa setup (fake service and Tailscale)', () => {
     expect(m.calls).toEqual(['install-unit roster=present', 'serve 10000/abu http://127.0.0.1:8797 funnel=true', 'restart', 'check']);
     const values = parseEnvFile(await readFile(m.envPath, 'utf8'));
     expect(values).toMatchObject({ TARFA_MACHINE_ID: 'dev', TARFA_PHONE_ADDRESSES: `wss://${HOST}:10000/abu`, TARFA_PWA_ORIGIN: 'https://tarfa.app' });
-    expect(values.TARFA_TOKEN).toMatch(/^[0-9a-f]{64}$/);
+    expect(values).not.toHaveProperty('TARFA_TOKEN');
     // What run-agent.sh does with it: bash reads back exactly what was written.
     const sourced = await promisify(execFile)('bash', ['-c', '. "$1"; printf %s "$TARFA_PHONE_ADDRESSES|$TARFA_PROJECT_ROOTS"', '_', m.envPath], { env: {} });
     expect(sourced.stdout).toBe(`wss://${HOST}:10000/abu|/home/u/workspace`);
-    expect(enrolmentMode(await new FileDeviceStore(join(m.home, '.tarfa', 'devices.json')).read())).toBe('off');
+    expect(enrolmentMode(await new FileDeviceStore(join(m.home, '.tarfa', 'devices.json')).read())).toBe('open');
     expect(JSON.parse(await readFile(join(m.home, '.tarfa', 'agent-key.json'), 'utf8'))).toHaveProperty('x25519');
     expect(await readFile(join(m.home, '.claude', 'settings.json'), 'utf8')).toContain('tarfa-hook.sh');
 
@@ -417,7 +416,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
     const legacy = join(m.home, '.perch');
     await mkdir(legacy, { mode: 0o700 });
     const key = await loadOrCreateAgentKeys(join(legacy, 'relay-key.json'));
-    await new FileDeviceStore(join(legacy, 'devices.json')).update((roster) => withEnrolmentMode(roster, 'off'));
+    await new FileDeviceStore(join(legacy, 'devices.json')).update((roster) => withEnrolmentMode(roster, 'open'));
 
     await run(['setup', ...FLAGS], m.env, m.home, m.io);
     expect(m.calls).toEqual(['stop-legacy', 'install-unit roster=present', 'restart', 'check', 'serve 10000/abu http://127.0.0.1:8797 funnel=true', 'remove-legacy']);
@@ -496,7 +495,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       const legacy = join(m.home, '.perch');
       await mkdir(legacy, { mode: 0o700 });
       const key = await loadOrCreateAgentKeys(join(legacy, 'relay-key.json'));
-      await new FileDeviceStore(join(legacy, 'devices.json')).update((roster) => withEnrolmentMode(roster, 'off'));
+      await new FileDeviceStore(join(legacy, 'devices.json')).update((roster) => withEnrolmentMode(roster, 'open'));
 
       await run(['setup', ...FLAGS], m.env, m.home, m.io);
       expect(m.calls.slice(0, 2)).toEqual(['stop-legacy', 'install-unit roster=present launcher=present']);
@@ -608,7 +607,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       const state = join(m.home, '.tarfa');
       await mkdir(state, { mode: 0o700 });
       await loadOrCreateAgentKeys(join(state, 'agent-key.json'));
-      await new FileDeviceStore(join(state, 'devices.json')).update((roster) => withEnrolmentMode(roster, 'off'));
+      await new FileDeviceStore(join(state, 'devices.json')).update((roster) => withEnrolmentMode(roster, 'open'));
       await writeFile(join(state, 'parked.json'), '{"parked":[1]}');
       await writeFile(join(state, 'live.json'), '{"live":[2]}');
       const keep = ['agent-key.json', 'devices.json', 'parked.json', 'live.json'];
@@ -840,7 +839,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
     it('refuses before changing anything on a machine never set up, or with no roster', async () => {
       const never = await machine(null, { kind: 'package' });
       await expect(run(['apply'], {}, never.home, never.io)).rejects.toThrow(/failed: check: no agent config.*tarfa setup/);
-      const m = await machine('TARFA_MACHINE_ID=dev\nTARFA_TOKEN=t\n', { kind: 'package' });
+      const m = await machine('TARFA_MACHINE_ID=dev\n', { kind: 'package' });
       await expect(run(['apply'], {}, m.home, m.io)).rejects.toThrow(/failed: check: no device roster.*tarfa setup/);
       await expect(stat(LAUNCHER(m.home))).rejects.toThrow();
     });

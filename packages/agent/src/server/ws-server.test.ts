@@ -111,12 +111,13 @@ const harnesses: WebSocketServer[] = [];
 
 // Phones reach the agent on its phone port, in a Noise session. These tests hand the server a
 // plaintext client over a local socket of their own, to exercise what it does with a client.
-async function clientUrl(): Promise<string> {
+// A plaintext client for an enrolled phone, or with `stranger` one no key authenticated.
+async function clientUrl(stranger = false): Promise<string> {
   const target = server!;
   const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   harnesses.push(wss);
   await new Promise((r) => wss.once('listening', r));
-  wss.on('connection', (socket) => target.accept(new PlainClientConnection(socket)));
+  wss.on('connection', (socket) => target.accept(new PlainClientConnection(socket, { stranger })));
   return `ws://127.0.0.1:${(wss.address() as AddressInfo).port}`;
 }
 
@@ -178,7 +179,6 @@ function testConfig(home: string, overrides: Partial<AgentConfig> = {}): AgentCo
   return {
     stateDir: home,
     machineId: 'test',
-    token: 'secret',
     port: 0,
     phonePort: 0,
     phoneAddresses: [],
@@ -205,7 +205,7 @@ function testConfig(home: string, overrides: Partial<AgentConfig> = {}): AgentCo
   };
 }
 
-// The hooks-only secret the agent writes for tarfa-hook.sh; deliberately not TARFA_TOKEN.
+// The hooks-only secret the agent writes for tarfa-hook.sh.
 const HOOK_TOKEN = 'hook-secret';
 
 function makeServerDeps(config: AgentConfig, clientLog: ClientLogPort) {
@@ -276,7 +276,7 @@ describe('WsServer (E2E, real tmux)', () => {
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
 
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     const authResult = await nextMessage(socket);
     expect(authResult).toMatchObject({ type: 'authResult', ok: true });
 
@@ -293,7 +293,7 @@ describe('WsServer (E2E, real tmux)', () => {
     });
   });
 
-  it('serves a phone socket only through the Noise session, token check unchanged', async () => {
+  it('serves a phone socket only through the Noise session, to an enrolled key', async () => {
     const home = await mkdtemp(join(tmpdir(), 'perch-phone-socket-'));
     dirs.push(home);
     const config = testConfig(home);
@@ -302,8 +302,9 @@ describe('WsServer (E2E, real tmux)', () => {
     // Stands in for the phone port: a socket the agent did not accept on its own listener.
     const outside = new WebSocketServer({ port: 0, host: '127.0.0.1' });
     await new Promise((r) => outside.once('listening', r));
+    const known = generateDeviceKeys();
     const devices = {
-      check: async () => ({ standing: 'unknown' as const, enrolment: 'on' as const }),
+      check: async (key: string) => ({ standing: key === known.x25519.publicKey ? ('enrolled' as const) : ('unknown' as const), enrolment: 'open' as const }),
       enrol: async () => true,
       redeemPairing: async () => ({ redeemed: false as const }),
       burnPairing: async () => false,
@@ -313,22 +314,21 @@ describe('WsServer (E2E, real tmux)', () => {
     );
     const url = `ws://127.0.0.1:${(outside.address() as AddressInfo).port}`;
     try {
-      // Plaintext, even with the right token, is refused before anything is parsed.
+      // Plaintext is refused before anything is parsed.
       const plain = new WebSocket(url);
       await new Promise((r) => plain.once('open', r));
       const plainClosed = new Promise<number>((r) => plain.once('close', (code) => r(code)));
-      plain.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+      plain.send(JSON.stringify({ type: 'auth', token: '' }));
       expect(await plainClosed).toBe(4002);
 
       const stranger = await noiseClient(url, keys.x25519.publicKey);
       const strangerClosed = new Promise<void>((r) => stranger.socket.once('close', () => r()));
       stranger.send({ type: 'auth', token: 'wrong' });
-      expect(await stranger.next()).toMatchObject({ type: 'authResult', ok: false });
-      // The agent hangs up on a failed auth, freeing its unauthenticated slot.
+      // An unknown key with no pairing code is refused, freeing its unauthenticated slot.
       await strangerClosed;
 
-      const client = await noiseClient(url, keys.x25519.publicKey);
-      client.send({ type: 'auth', token: 'secret' });
+      const client = await noiseClient(url, keys.x25519.publicKey, known);
+      client.send({ type: 'auth', token: '' });
       expect(await client.next()).toMatchObject({ type: 'authResult', ok: true });
       client.send({ type: 'list' });
       expect(((await client.next()) as { type: string }).type).toBe('workspaces');
@@ -355,7 +355,7 @@ describe('WsServer (E2E, real tmux)', () => {
     }
   });
 
-  it('enrols a phone on its first token-authenticated IK session, and closes it once revoked', async () => {
+  it('enrols a phone on its first paired IK session, and closes it once revoked', async () => {
     const home = await mkdtemp(join(tmpdir(), 'perch-ik-'));
     dirs.push(home);
     const config = testConfig(home);
@@ -372,18 +372,20 @@ describe('WsServer (E2E, real tmux)', () => {
     const url = `ws://127.0.0.1:${(outside.address() as AddressInfo).port}`;
     const phone = generateDeviceKeys();
     try {
+      const code = 'c'.repeat(43);
+      await pairings.update((list) => addPairing(list, code, new Date()));
       const first = await noiseClient(url, keys.x25519.publicKey, phone);
-      first.send({ type: 'auth', token: 'secret' });
-      // The answer waits for the roster: `enrolled` tells the phone it can forget the token.
-      expect(await first.next()).toMatchObject({ type: 'authResult', ok: true, credential: 'token', enrolled: true });
+      first.send({ type: 'auth', token: code });
+      // The answer waits for the roster: `enrolled` tells the phone it can forget the code.
+      expect(await first.next()).toMatchObject({ type: 'authResult', ok: true, credential: 'pairing', enrolled: true });
       expect((await store.read()).devices.map((d) => d.x25519)).toEqual([phone.x25519.publicKey]);
       first.socket.close();
 
-      // Sending the token again once enrolled is refused, so a phone that kept it drops it.
+      // An enrolled phone that still sends a token from before is served by its key.
       const stale = await noiseClient(url, keys.x25519.publicKey, phone);
-      const staleClosed = new Promise<[number, string]>((r) => stale.socket.once('close', (code, reason) => r([code, reason.toString()])));
       stale.send({ type: 'auth', token: 'secret' });
-      expect(await staleClosed).toEqual([4003, 'token not needed']);
+      expect(await stale.next()).toMatchObject({ type: 'authResult', ok: true, credential: 'device' });
+      stale.socket.close();
 
       const again = await noiseClient(url, keys.x25519.publicKey, phone);
       again.send({ type: 'auth', token: '' });
@@ -400,8 +402,8 @@ describe('WsServer (E2E, real tmux)', () => {
       refused.send(handshakeFrame(await initiator.writeMessage1(encodeDeviceHello({ sig: phone.ed25519.publicKey, name: 'p' })), 'ik'));
       expect(await refusedClosed).toBe(4003);
 
-      // A second phone pairs with a one-time secret instead of the token, then reconnects with
-      // no token at all: its enrolled key is what authenticates it.
+      // A second phone pairs with a one-time secret, then reconnects with no secret at all: its
+      // enrolled key is what authenticates it.
       const secret = 's'.repeat(43);
       await pairings.update((list) => addPairing(list, secret, new Date()));
       const paired = generateDeviceKeys();
@@ -409,7 +411,7 @@ describe('WsServer (E2E, real tmux)', () => {
       pairing.send({ type: 'auth', token: secret });
       expect(await pairing.next()).toMatchObject({ type: 'authResult', ok: true });
       await vi.waitFor(async () => expect((await store.read()).devices.map((d) => d.x25519)).toContain(paired.x25519.publicKey), LOADED_WAIT);
-      expect((await pairings.read()).map((p) => p.usedAt !== undefined)).toEqual([true]);
+      expect((await pairings.read()).map((p) => p.usedAt !== undefined)).toEqual([true, true]);
       pairing.socket.close();
       const tokenless = await noiseClient(url, keys.x25519.publicKey, paired);
       tokenless.send({ type: 'auth', token: '' });
@@ -466,8 +468,10 @@ describe('WsServer (E2E, real tmux)', () => {
     outside.on('connection', (socket) => live.acceptPhoneSocket(wsFrameSocket(socket), b64url.decode(keys.x25519.privateKey), { devices }));
     const url = `ws://127.0.0.1:${(outside.address() as AddressInfo).port}`;
     try {
+      const ownerCode = 'o'.repeat(43);
+      await pairings.update((list) => addPairing(list, ownerCode, new Date()));
       const owner = await noiseClient(url, keys.x25519.publicKey, generateDeviceKeys());
-      owner.send({ type: 'auth', token: 'secret' });
+      owner.send({ type: 'auth', token: ownerCode });
       expect(await owner.next()).toMatchObject({ type: 'authResult', ok: true, enrolled: true });
 
       const secret = 's'.repeat(43);
@@ -530,7 +534,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     socket.send(JSON.stringify({ type: 'lastReply', workspaceId: 'perch-reply' }));
@@ -582,7 +586,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     const updated = new Promise<AgentMessage>((resolve) => {
@@ -650,7 +654,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     let broadcast = false;
@@ -719,7 +723,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     let broadcast = false;
@@ -782,7 +786,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     const updated = new Promise<AgentMessage>((resolve) => {
@@ -848,7 +852,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     const renamed = new Promise<AgentMessage>((resolve) => {
@@ -918,7 +922,7 @@ describe('WsServer (E2E, real tmux)', () => {
     await server.start();
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
     const updates: boolean[] = [];
     socket.on('message', (raw) => {
@@ -979,7 +983,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     const closed = new Promise<AgentMessage>((resolve) => {
@@ -1061,12 +1065,12 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const closer = new WebSocket(await clientUrl());
     await new Promise((r) => closer.once('open', r));
-    closer.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    closer.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(closer); // authResult
 
     const observer = new WebSocket(await clientUrl());
     await new Promise((r) => observer.once('open', r));
-    observer.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    observer.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(observer); // authResult
 
     // Let the poller record the session as present before closing it.
@@ -1277,14 +1281,6 @@ describe('WsServer (E2E, real tmux)', () => {
       body: JSON.stringify({ sessionName: 'perch-x', event: 'Stop' }),
     });
     expect(wrong.status).toBe(401);
-    // TARFA_TOKEN enrols phones; a hook leaking its secret must not leak that one, so it is no
-    // hooks credential.
-    const machineToken = await fetch(`http://127.0.0.1:${port}/hooks`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${config.token}` },
-      body: JSON.stringify({ sessionName: 'perch-x', event: 'Stop' }),
-    });
-    expect(machineToken.status).toBe(401);
     // A hook body is a few kilobytes; anything past the cap is refused, not buffered.
     const huge = await fetch(`http://127.0.0.1:${port}/hooks`, {
       method: 'POST',
@@ -1326,7 +1322,7 @@ describe('WsServer (E2E, real tmux)', () => {
     await server.start();
     const port = server.address().port;
 
-    const socket = new WebSocket(await clientUrl());
+    const socket = new WebSocket(await clientUrl(true));
     await new Promise((r) => socket.once('open', r));
     socket.send(JSON.stringify({ type: 'auth', token: 'wrong' }));
     const authResult = await nextMessage(socket);
@@ -1378,7 +1374,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     let stream = '';
@@ -1452,7 +1448,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     const tmux = new TmuxAdapter();
@@ -1537,7 +1533,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     const tmux = new TmuxAdapter();
@@ -1600,7 +1596,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     socket.send(JSON.stringify({ type: 'setStatus', workspaceId: name, status: 'parked' }));
@@ -1660,7 +1656,7 @@ describe('WsServer (E2E, real tmux)', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     const closedForParked: string[] = [];
@@ -1797,7 +1793,7 @@ describe('WsServer waiting-on-parent push', () => {
     const socket = new WebSocket(await clientUrl());
     sockets.push(socket);
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket);
     const updates: Array<Extract<AgentMessage, { type: 'workspaceUpdated' }>['workspace']> = [];
     socket.on('message', (raw) => {
@@ -1867,7 +1863,7 @@ describe('WsServer waiting-on-parent push', () => {
     const socket = new WebSocket(await clientUrl());
     sockets.push(socket);
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket);
     socket.on('message', (raw) => {
       const msg = JSON.parse(raw.toString()) as AgentMessage;
@@ -1989,7 +1985,7 @@ describe('WsServer waiting-on-parent push', () => {
     const socket = new WebSocket(await clientUrl());
     sockets.push(socket);
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket);
     socket.send(JSON.stringify({ type: 'list' }));
     const list = await nextMessage(socket);
@@ -2030,7 +2026,7 @@ describe('WsServer poll ticks', () => {
     await server.start();
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket);
 
     await vi.waitFor(() => expect(calls).toBeGreaterThan(0), LOADED_WAIT);
@@ -2064,7 +2060,7 @@ describe('WsServer poll ticks', () => {
     await server.start();
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket);
 
     await vi.waitFor(() => expect(calls).toBeGreaterThan(2), LOADED_WAIT);
@@ -2140,7 +2136,7 @@ describe('WsServer browser-session polling', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     const pushed: AgentMessage[] = [];
@@ -2231,7 +2227,7 @@ describe('WsServer browser-session cascade', () => {
 
     const socket = new WebSocket(await clientUrl());
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket); // authResult
 
     // Let the poller record the session as present before it disappears.
@@ -2274,7 +2270,7 @@ describe('WsServer browser-session cascade', () => {
 
     const terminal = new WebSocket(await clientUrl());
     await new Promise((r) => terminal.once('open', r));
-    terminal.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    terminal.send(JSON.stringify({ type: 'auth', token: '' }));
 
     const closed = new Promise<void>((resolve) => {
       terminal.on('message', (raw) => {
@@ -2364,7 +2360,7 @@ describe('WsServer stats push', () => {
     const socket = new WebSocket(await clientUrl());
     sockets.push(socket);
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket);
     return socket;
   }
@@ -2580,7 +2576,7 @@ describe('WsServer POST /message', () => {
     const socket = new WebSocket(await clientUrl());
     sockets.push(socket);
     await new Promise((r) => socket.once('open', r));
-    socket.send(JSON.stringify({ type: 'auth', token: 'secret' }));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
     await nextMessage(socket);
     // Not simply the next frame: a poll tick may broadcast another workspace first.
     const pushed = new Promise<AgentMessage>((resolve) => {

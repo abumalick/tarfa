@@ -90,8 +90,8 @@ describe('SettingsStore', () => {
   it('adds and lists machines, persisting to storage', () => {
     const storage = memStorage();
     const store = new SettingsStore(storage);
-    store.add({ id: 'mac', name: 'MacBook', addresses: ['wss://mac.ts.net/'], token: 't1', agentKey });
-    store.add({ id: 'mini', name: 'Mini PC', addresses: ['wss://mini.ts.net/'], token: 't2', agentKey });
+    store.add({ id: 'mac', name: 'MacBook', addresses: ['wss://mac.ts.net/'], agentKey });
+    store.add({ id: 'mini', name: 'Mini PC', addresses: ['wss://mini.ts.net/'], agentKey });
     expect(store.list().map((m) => m.id)).toEqual(['mac', 'mini']);
     // a fresh store over the same storage sees the persisted machines
     expect(new SettingsStore(storage).list()).toHaveLength(2);
@@ -99,64 +99,74 @@ describe('SettingsStore', () => {
 
   it('replaces an existing machine with the same id on add', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'Old', addresses: ['wss://old/'], token: 't', agentKey });
-    store.add({ id: 'mac', name: 'New', addresses: ['wss://new/'], token: 't', agentKey });
+    store.add({ id: 'mac', name: 'Old', addresses: ['wss://old/'], agentKey });
+    store.add({ id: 'mac', name: 'New', addresses: ['wss://new/'], agentKey });
     expect(store.list()).toHaveLength(1);
     expect(store.list()[0]?.name).toBe('New');
   });
 
-  it('updates the addresses and token of an existing machine, preserving id, name and key', () => {
+  it('updates the addresses of an existing machine, preserving id, name and key', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'MacBook', addresses: ['wss://old/'], token: 'old', agentKey });
-    store.update('mac', { addresses: ['wss://a/', 'wss://b/x'], token: 'new' });
-    expect(store.list()).toEqual([{ id: 'mac', name: 'MacBook', addresses: ['wss://a/', 'wss://b/x'], token: 'new', agentKey }]);
+    store.add({ id: 'mac', name: 'MacBook', addresses: ['wss://old/'], agentKey });
+    store.update('mac', { addresses: ['wss://a/', 'wss://b/x'] });
+    expect(store.list()).toEqual([{ id: 'mac', name: 'MacBook', addresses: ['wss://a/', 'wss://b/x'], agentKey }]);
   });
 
-  it('keeps the existing token and agent key when update omits them', () => {
+  it('keeps the existing agent key when update omits it', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'MacBook', addresses: ['wss://old/'], token: 'keepme', agentKey });
+    store.add({ id: 'mac', name: 'MacBook', addresses: ['wss://old/'], agentKey });
     store.update('mac', { addresses: ['wss://new/'] });
-    expect(store.list()[0]).toEqual({ id: 'mac', name: 'MacBook', addresses: ['wss://new/'], token: 'keepme', agentKey });
+    expect(store.list()[0]).toEqual({ id: 'mac', name: 'MacBook', addresses: ['wss://new/'], agentKey });
     const other = generateAgentKeys().x25519.publicKey;
     store.update('mac', { addresses: ['wss://new/'], agentKey: other });
     expect(store.list()[0]?.agentKey).toBe(other);
   });
 
+  // Token enrolment is gone: an entry from before keeps working by its key, and its token is dropped.
+  it('drops the token an older entry stored, from the list and from storage at the next write', () => {
+    const storage = memStorage();
+    storage.write('tarfa.machines', JSON.stringify([{ id: 'mac', name: 'MacBook', addresses: ['wss://a/'], token: 'old-secret', agentKey }]));
+    const store = new SettingsStore(storage);
+    expect(store.list()).toEqual([{ id: 'mac', name: 'MacBook', addresses: ['wss://a/'], agentKey }]);
+    store.setEnabled('mac', true);
+    expect(storage.read('tarfa.machines')).not.toContain('old-secret');
+  });
+
   it('leaves other machines untouched on update', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't1', agentKey });
-    store.add({ id: 'mini', name: 'Mini', addresses: ['wss://mini/'], token: 't2', agentKey });
-    store.update('mac', { addresses: ['wss://mac2/'], token: 't1b' });
+    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey });
+    store.add({ id: 'mini', name: 'Mini', addresses: ['wss://mini/'], agentKey });
+    store.update('mac', { addresses: ['wss://mac2/'] });
     expect(store.list()).toEqual([
-      { id: 'mac', name: 'Mac', addresses: ['wss://mac2/'], token: 't1b', agentKey },
-      { id: 'mini', name: 'Mini', addresses: ['wss://mini/'], token: 't2', agentKey },
+      { id: 'mac', name: 'Mac', addresses: ['wss://mac2/'], agentKey },
+      { id: 'mini', name: 'Mini', addresses: ['wss://mini/'], agentKey },
     ]);
   });
 
   it('is a no-op when updating an unknown id', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't', agentKey });
-    store.update('ghost', { addresses: ['wss://nope/'], token: 'x' });
-    expect(store.list()).toEqual([{ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't', agentKey }]);
+    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey });
+    store.update('ghost', { addresses: ['wss://nope/'] });
+    expect(store.list()).toEqual([{ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey }]);
   });
 
   it('round-trips an optional default path through add and list', () => {
     const storage = memStorage();
     const store = new SettingsStore(storage);
-    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't', agentKey, defaultPath: '/home/u/ws' });
+    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey, defaultPath: '/home/u/ws' });
     expect(new SettingsStore(storage).list()[0]?.defaultPath).toBe('/home/u/ws');
   });
 
   it('updates the default path of an existing machine', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't', agentKey, defaultPath: '/old' });
+    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey, defaultPath: '/old' });
     store.update('mac', { addresses: ['wss://mac/'], defaultPath: '/new' });
     expect(store.list()[0]?.defaultPath).toBe('/new');
   });
 
   it('clears the default path when update passes an empty string', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't', agentKey, defaultPath: '/old' });
+    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey, defaultPath: '/old' });
     store.update('mac', { addresses: ['wss://mac/'], defaultPath: '' });
     expect(store.list()[0]?.defaultPath).toBe('');
   });
@@ -176,7 +186,7 @@ describe('SettingsStore', () => {
 
   it('removes a machine by id', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'M', addresses: ['wss://m/'], token: 't', agentKey });
+    store.add({ id: 'mac', name: 'M', addresses: ['wss://m/'], agentKey });
     store.remove('mac');
     expect(store.list()).toEqual([]);
   });
@@ -190,7 +200,7 @@ describe('SettingsStore', () => {
   it('round-trips the enabled flag through setEnabled', () => {
     const storage = memStorage();
     const store = new SettingsStore(storage);
-    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't', agentKey });
+    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey });
     store.setEnabled('mac', false);
     expect(new SettingsStore(storage).list()[0]?.enabled).toBe(false);
     store.setEnabled('mac', true);
@@ -199,14 +209,14 @@ describe('SettingsStore', () => {
 
   it('is a no-op when setEnabled targets an unknown id', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't', agentKey });
+    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey });
     store.setEnabled('ghost', false);
-    expect(store.list()).toEqual([{ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't', agentKey }]);
+    expect(store.list()).toEqual([{ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey }]);
   });
 
   it('preserves the enabled flag through an unrelated update', () => {
     const store = new SettingsStore(memStorage());
-    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], token: 't', agentKey });
+    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey });
     store.setEnabled('mac', false);
     store.update('mac', { addresses: ['wss://mac2/'] });
     expect(store.list()[0]?.enabled).toBe(false);

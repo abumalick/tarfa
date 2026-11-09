@@ -51,7 +51,7 @@ describe('startDeviceGate', () => {
   it('logs a newly enrolled device and tells the connected phones', async () => {
     const { gate, enrolled, logs } = setup(EMPTY_ROSTER);
     const phone = generateDeviceKeys();
-    await gate.devices.enrol({ x25519: phone.x25519.publicKey, ed25519: phone.ed25519.publicKey, name: 'Pixel' }, 'pairing');
+    await gate.devices.enrol({ x25519: phone.x25519.publicKey, ed25519: phone.ed25519.publicKey, name: 'Pixel' });
     const id = deviceFingerprint(phone.x25519.publicKey);
     expect(enrolled).toEqual([expect.objectContaining({ id, name: 'Pixel', x25519: phone.x25519.publicKey })]);
     expect(logs).toContain(`device enrolled: ${id} "Pixel" (pairing code)`);

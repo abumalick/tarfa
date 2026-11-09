@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseEnvFile, setEnvValue } from './agent-env';
 
 const FILE = `# Tarfa agent
-TARFA_TOKEN=abc123
+TARFA_STATS=off
 TARFA_MACHINE_ID="dev box"
 export TARFA_PORT=8787
 # TARFA_PHONE_ADDRESSES=wss://commented.example
@@ -11,7 +11,7 @@ export TARFA_PORT=8787
 
 describe('parseEnvFile', () => {
   it('reads assignments, quoted or exported, and skips comments', () => {
-    expect(parseEnvFile(FILE)).toEqual({ TARFA_TOKEN: 'abc123', TARFA_MACHINE_ID: 'dev box', TARFA_PORT: '8787' });
+    expect(parseEnvFile(FILE)).toEqual({ TARFA_STATS: 'off', TARFA_MACHINE_ID: 'dev box', TARFA_PORT: '8787' });
   });
 
   it("reads single quotes literally, as bash would", () => {

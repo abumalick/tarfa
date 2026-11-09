@@ -53,7 +53,7 @@ function fakeDevices() {
     redeems: 0,
     async check() {
       devices.checks++;
-      return { standing: 'unknown', enrolment: 'on' };
+      return { standing: 'unknown', enrolment: 'open' };
     },
     async enrol() {
       return true;
@@ -77,7 +77,7 @@ describe('limitedDevices', () => {
     const roster: DeviceRoster = { ...EMPTY_ROSTER, tokenEnrolment: false, devices: [device('phone')] };
     const limiter = new DiskReadLimiter(clock().now, 0, 0);
     const devices = limitedDevices(inner, limiter, () => roster);
-    expect(await devices.check('phone')).toEqual({ standing: 'enrolled', enrolment: 'off' });
+    expect(await devices.check('phone')).toEqual({ standing: 'enrolled', enrolment: 'open' });
     expect(inner.checks).toBe(0);
   });
 
@@ -85,7 +85,7 @@ describe('limitedDevices', () => {
     const inner = fakeDevices();
     const limiter = new DiskReadLimiter(clock().now, 4, 1);
     const devices = limitedDevices(inner, limiter, () => null);
-    expect(await devices.check('stranger')).toEqual({ standing: 'unknown', enrolment: 'on' });
+    expect(await devices.check('stranger')).toEqual({ standing: 'unknown', enrolment: 'open' });
     await expect(devices.check('stranger')).rejects.toBeInstanceOf(DeviceGateBusy);
     expect(inner.checks).toBe(1);
   });

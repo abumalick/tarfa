@@ -25,7 +25,7 @@ async function pair(page: Page, baseURL: string): Promise<void> {
 }
 
 test('an unknown key with no credential is refused by the agent, and not redialed', async ({ page }) => {
-  await seedMachine(page, agent, { token: '' });
+  await seedMachine(page, agent, { pairing: undefined });
   await page.goto('/');
   await expect(page.getByTestId('home-refusal')).toHaveText('This phone is not enrolled on Test — run `tarfa pair` there to pair it again');
   expect(agent.received).toEqual([]);
@@ -35,7 +35,7 @@ test('an unknown key with no credential is refused by the agent, and not rediale
   expect(agent.upgrades).toBe(upgrades);
 });
 
-test('a paired key is admitted on its own: no token', async ({ page, baseURL }) => {
+test('a paired key is admitted on its own: no code', async ({ page, baseURL }) => {
   await pair(page, baseURL!);
   agent.received.length = 0;
   await page.reload();

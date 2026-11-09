@@ -17,7 +17,6 @@ const machine = (id: string, defaultPath?: string): MachineConfig => ({
   id,
   name: id,
   addresses: [`wss://${id}`],
-  token: 't',
   agentKey: 'k',
   defaultPath,
 });

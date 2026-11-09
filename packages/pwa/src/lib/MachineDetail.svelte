@@ -23,7 +23,6 @@
   const initial = untrack(() => machine);
   let addresses = $state((initial.addresses ?? []).join('\n'));
   let addressError = $state('');
-  let token = $state('');
   let defaultPath = $state(initial.defaultPath ?? '');
   let agentKey = $state(initial.agentKey ?? '');
   let keyError = $state('');
@@ -53,7 +52,6 @@
     }
     store.updateMachine(machine.id, {
       addresses: parsed,
-      token: token || undefined,
       defaultPath: defaultPath || undefined,
       // Sent only when changed.
       agentKey: key === initial.agentKey ? undefined : key,
@@ -110,10 +108,6 @@
       </label>
       <p class="hint">{msg().settings.addressesHint}</p>
       {#if addressError}<p class="diag" role="alert">{addressError}</p>{/if}
-      <label>
-        {msg().settings.token}
-        <input data-testid="edit-token" bind:value={token} type="password" placeholder={msg().settings.tokenKeep} />
-      </label>
       <label>
         {msg().settings.agentKey}
         <input

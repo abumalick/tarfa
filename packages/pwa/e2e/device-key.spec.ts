@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { pairingLink } from '@tarfa/secure-channel';
 import { seedMachine, startFakeAgent, type FakeAgent } from './fake-agent';
 
 // Playwright's WebKit stores CryptoKeys in IndexedDB, which a real iPhone may refuse. These
@@ -63,7 +64,7 @@ test('without IndexedDB, a machine refuses to connect and names the cause', asyn
   expect(agent.received.filter((m) => m.type === 'auth')).toEqual([]);
 });
 
-test('an unreadable stored device key can be replaced from Settings, and the machine reconnects', async ({ page }) => {
+test('an unreadable stored device key can be replaced from Settings, and the machine paired again', async ({ page, baseURL }) => {
   await seed(page);
   await page.goto('/');
   await expect(page.getByText('demo', { exact: true })).toBeVisible();
@@ -94,5 +95,13 @@ test('an unreadable stored device key can be replaced from Settings, and the mac
   await page.getByRole('button', { name: 'Make a new device key' }).first().click();
   await expect(page.getByTestId('device-key')).toContainText('X25519 stored key');
   await expect(page.getByRole('button', { name: 'Make a new device key' })).toHaveCount(0);
-  await expect.poll(() => agent.received.filter((m) => m.type === 'auth').length).toBeGreaterThan(0);
+  // A new key is a new phone to the agent: nothing enrols it but a fresh pairing code (the seeded
+  // entry's code, put back by the init script at each load, was spent by the old key).
+  await page.getByRole('button', { name: 'Back' }).first().click();
+  await expect(page.getByTestId('home-refusal')).toContainText('run `tarfa pair` on Test');
+  page.on('dialog', (dialog) => void dialog.accept());
+  // A fresh load, as opening a link does: the app reads the fragment only when it starts.
+  await page.goto('about:blank');
+  await page.goto(pairingLink(baseURL!, { urls: [agent.url], agentKey: agent.agentKey, secret: await agent.newPairing(), name: 'Test' }));
+  await expect(page.getByText('demo', { exact: true })).toBeVisible();
 });

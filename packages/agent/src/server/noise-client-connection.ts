@@ -23,7 +23,7 @@ import type { FrameSocket } from '../ports/frame-socket';
 
 const SECURE_CHANNEL_FAILED = 4002;
 const BUSY = IN_BAND_REFUSAL + 429;
-// Until the handler has accepted the token, a socket would otherwise hold one of the phone port's
+// Until the handler has accepted `auth`, a socket would otherwise hold one of the phone port's
 // unauthenticated slots until an idle timeout.
 const AUTH_TIMEOUT_MS = 10_000;
 // Until `auth` is accepted the phone sends one small message: nothing that has proven nothing may
@@ -35,7 +35,7 @@ const MAX_AUTH_ATTEMPTS = 3;
 // `auth` until the `authResult`, so the queue only ever holds a prober's traffic.
 const MAX_HELD_MESSAGES = 16;
 
-// A pairing secret's shape (32 bytes, base64url), so a token is not looked up as one needlessly.
+// A pairing secret's shape (32 bytes, base64url): anything else is not looked up.
 const PAIRING_SECRET = /^[A-Za-z0-9_-]{43}$/;
 
 export interface NoiseClientConnectionOptions {
@@ -57,9 +57,8 @@ export interface NoiseClientConnectionOptions {
 type State =
   | { kind: 'handshake' }
   | { kind: 'checking' }
-  // An unknown device: only `auth` reaches the handler, and a successful one enrols it.
-  // `tokenEnrols`: whether the token may enrol it, or only a pairing code.
-  | { kind: 'enrolling'; hello: DeviceHello; tokenEnrols: boolean }
+  // An unknown device: only `auth` with a pairing code is taken, and a successful one enrols it.
+  | { kind: 'enrolling'; hello: DeviceHello }
   | { kind: 'open' }
   | { kind: 'failed' };
 
@@ -107,7 +106,7 @@ export class NoiseClientConnection implements ClientConnection {
   }
 
   // An accepted `auth` is answered with whether the device key is now enrolled: the phone drops
-  // its token or pairing secret on `enrolled`, so for a new device the answer waits for the
+  // its pairing secret on `enrolled`, so for a new device the answer waits for the
   // roster to be written.
   send(message: AgentMessage): void {
     if (!this.session || this.state.kind === 'failed') return;
@@ -245,7 +244,7 @@ export class NoiseClientConnection implements ClientConnection {
       return;
     }
     this.keyAuth = standing === 'enrolled' ? 'device' : null;
-    this.state = standing === 'enrolled' ? { kind: 'open' } : { kind: 'enrolling', hello, tokenEnrols: enrolment === 'on' };
+    this.state = standing === 'enrolled' ? { kind: 'open' } : { kind: 'enrolling', hello };
     if (standing === 'enrolled' && hello.push && this.keyAuthenticatedListeners.length > 0 && this.options.pushBudget?.take(key)) {
       this.awaitingPhone = true;
       this.keyAuthenticatedListeners.forEach((l) => l());
@@ -308,21 +307,22 @@ export class NoiseClientConnection implements ClientConnection {
   private route(raw: unknown): void {
     if (this.state.kind === 'failed') return;
     const message = raw as { type?: unknown; token?: unknown } | null;
-    // An unknown device may send `auth` and nothing else, and one with no credential at all (a
-    // phone whose enrolment was lost since it paired) can only be told to pair again.
-    if (this.state.kind === 'enrolling' && (message?.type !== 'auth' || message.token === '')) {
+    // `auth` carries the pairing secret in its `token` field, or nothing.
+    const pairing = message?.type === 'auth' && typeof message.token === 'string' && PAIRING_SECRET.test(message.token);
+    // An unknown device may send `auth` with a pairing code and nothing else; one without (a phone
+    // whose enrolment was lost since it paired) can only be told to pair again.
+    if (this.state.kind === 'enrolling' && !pairing) {
+      this.logRefusal('no-code', `phone: device ${deviceFingerprint(this.deviceKey!)} not enrolled and sent no pairing code`);
       this.fail(REFUSAL.notEnrolled, DEVICE_REFUSED);
       return;
     }
-    // A pairing secret in place of the token is spent before the handler answers: for a new
-    // device, so the `authResult ok` that enrols it is backed by a secret nobody else can use
-    // again; for an enrolled one, which needs no code, so the link admits nobody after it.
-    const pairing = message?.type === 'auth' && typeof message.token === 'string' && PAIRING_SECRET.test(message.token);
+    // A pairing secret is spent before the handler answers: for a new device, so the
+    // `authResult ok` that enrols it is backed by a secret nobody else can use again; for an
+    // enrolled one, which needs no code, so the link admits nobody after it.
     if (pairing && (this.state.kind === 'enrolling' || this.keyAuth !== null)) {
       this.spendPairing(message.token as string, raw);
       return;
     }
-    if (this.refusesToken()) return;
     this.listeners.forEach((l) => l(raw));
   }
 
@@ -336,21 +336,20 @@ export class NoiseClientConnection implements ClientConnection {
       const held = this.held ?? [];
       this.held = null;
       if (this.state.kind === 'failed') return;
-      // A code this agent knows is dead (spent, or expired): say
-      // so. An unknown one may be a token after all, so the handler checks it.
-      if (!redemption.redeemed && redemption.reason) {
-        this.logRefusal(redemption.reason, `phone: device ${fingerprint} refused: ${redemption.reason}`);
-        this.fail(redemption.reason, DEVICE_REFUSED);
+      // A code this agent knows is dead (spent, or expired): say so. One it never issued (or
+      // forgot) admits nothing either, unless this session already spent a good one.
+      if (!redemption.redeemed && (redemption.reason || this.keyAuth === null)) {
+        const reason = redemption.reason ?? REFUSAL.notEnrolled;
+        this.logRefusal(reason, `phone: device ${fingerprint} refused: ${reason}`);
+        this.fail(reason, DEVICE_REFUSED);
         return;
       }
-      if (!redemption.redeemed && this.refusesToken()) return;
       this.listeners.forEach((l) => l(auth));
       held.forEach((raw) => this.drain(raw));
     };
     const failed = () => resume({ redeemed: false });
     if (this.state.kind === 'enrolling') {
-      // Turned away unread, the code may still be live: not a verdict on it, nor a reason to try
-      // it as a token.
+      // Turned away unread, the code may still be live: not a verdict on it.
       this.options.devices
         .redeemPairing(secret, key)
         .then(resume, (err) => (err instanceof DeviceGateBusy ? this.fail(REFUSAL.tooManyPending, BUSY) : failed()));
@@ -363,26 +362,15 @@ export class NoiseClientConnection implements ClientConnection {
     }
   }
 
-  // An unknown device whose `auth` is about to be checked as a token, while only a pairing code
-  // may enrol it: refused here, so the token never gets as far as the handler.
-  private refusesToken(): boolean {
-    if (this.state.kind !== 'enrolling' || this.state.tokenEnrols || this.keyAuth !== null) return false;
-    this.logRefusal('token-off', `phone: device ${deviceFingerprint(this.deviceKey!)} refused: token enrolment is off`);
-    this.fail(REFUSAL.enrolmentOff, DEVICE_REFUSED);
-    return true;
-  }
-
   // `declined`: the roster would not take the device (enrolment turned off or closed since the
   // handshake, or its id taken), so the credential that authenticated this session no longer
   // admits it. `failed`: the write itself failed; the session goes on unenrolled, and the phone
   // keeps its credential to try again.
   private async enrol(hello: DeviceHello): Promise<'enrolled' | 'declined' | 'failed'> {
     const key = this.deviceKey!;
-    // Only a redeemed pairing secret authenticates an unknown key before `authResult`.
-    const via = this.keyAuth === 'pairing' ? 'pairing' : 'token';
     this.state = { kind: 'open' };
     try {
-      const enrolled = await this.options.devices.enrol({ x25519: key, ed25519: hello.sig, name: hello.name }, via);
+      const enrolled = await this.options.devices.enrol({ x25519: key, ed25519: hello.sig, name: hello.name });
       this.options.log?.(
         enrolled
           ? `phone: enrolled device ${deviceFingerprint(key)} "${hello.name}"`
@@ -399,7 +387,6 @@ export class NoiseClientConnection implements ClientConnection {
     try {
       const { enrolment } = await this.options.devices.check(this.deviceKey!);
       if (enrolment === 'closed') return REFUSAL.enrolmentClosed;
-      if (enrolment === 'off' && this.keyAuth !== 'pairing') return REFUSAL.enrolmentOff;
     } catch {
       // Named generically below.
     }

@@ -51,9 +51,9 @@ function harness() {
   const phaseReporters: Array<(phase: string, detail: string) => void> = [];
   const spent: string[] = [];
   const manager = new ConnectionManager({
-    secureSocketFactory: (key, token, onPhase) => {
+    secureSocketFactory: (key, pairing, onPhase) => {
       phaseReporters.push(onPhase);
-      secureFor.push(`${key} ${token}`);
+      secureFor.push(`${key} ${pairing}`);
       return (url) => {
         const f = fakeSocket();
         sockets[url] = f;
@@ -72,14 +72,14 @@ function harness() {
   return { manager, aggregator, sockets, messages, statuses, secureFor, secureFakes, diagnostics, phases, phaseReporters, spent };
 }
 
-const mac = { id: 'mac', name: 'Mac', addresses: ['wss://mac'], token: 't1', agentKey };
-const mini = { id: 'mini', name: 'Mini', addresses: ['wss://mini'], token: 't2', agentKey };
+const mac = { id: 'mac', name: 'Mac', addresses: ['wss://mac'], agentKey };
+const mini = { id: 'mini', name: 'Mini', addresses: ['wss://mini'], agentKey };
 
 describe('ConnectionManager keyed machines', () => {
   it('connects a machine through the secure factory for its key', () => {
     const h = harness();
     h.manager.setMachines([{ ...mini, addresses: ['wss://box.example/abu'] }]);
-    expect(h.secureFor).toEqual([`${agentKey} ${mini.token}`]);
+    expect(h.secureFor).toEqual([`${agentKey} `]);
     expect(Object.keys(h.sockets)).toEqual(['wss://box.example/abu']);
   });
 
@@ -138,7 +138,7 @@ describe('ConnectionManager keyed machines', () => {
     expect(phases).toEqual(['mini list 740ms', 'mini list 100ms']);
   });
 
-  it('authenticates with the pairing secret while the entry holds one, even beside a token', () => {
+  it('authenticates with the pairing secret while the entry holds one', () => {
     const h = harness();
     h.manager.setMachines([{ ...mini, pairing: 'S'.repeat(43) }]);
     expect(h.secureFor).toEqual([`${agentKey} ${'S'.repeat(43)}`]);
@@ -158,12 +158,12 @@ describe('ConnectionManager keyed machines', () => {
 
   it("words a refusal with the entry's name and what it connects with", () => {
     const h = harness();
-    h.manager.setMachines([{ ...mini, token: '', pairing: 'S'.repeat(43) }, mac]);
+    h.manager.setMachines([{ ...mini, pairing: 'S'.repeat(43) }, mac]);
     h.secureFakes[0]!.fireClose({ code: 4403, reason: 'enrolment refused' });
     h.secureFakes[1]!.fireClose({ code: 4403, reason: 'enrolment refused' });
     expect(h.diagnostics).toEqual([
       ['mini', 'Pairing refused: the code has expired, was already used, or is not valid for this machine — run `tarfa pair` on Mini for a new one'],
-      ['mac', 'Mac refused the token — check the token in this entry'],
+      ['mac', 'Pairing refused: the code has expired, was already used, or is not valid for this machine — run `tarfa pair` on Mac for a new one'],
     ]);
   });
 
@@ -217,7 +217,7 @@ describe('ConnectionManager', () => {
     const h = harness();
     h.manager.setMachines([mac, mini]);
     h.sockets['wss://mac']!.open();
-    expect(JSON.parse(h.sockets['wss://mac']!.sent[0]!)).toEqual({ type: 'auth', token: 't1' });
+    expect(JSON.parse(h.sockets['wss://mac']!.sent[0]!)).toEqual({ type: 'auth', token: '' });
     expect(Object.keys(h.sockets)).toEqual(['wss://mac', 'wss://mini']);
   });
 
@@ -282,7 +282,7 @@ describe('ConnectionManager', () => {
     h.sockets['wss://mac']!.socket.close(); // machine drops (schedule is a no-op here)
     h.manager.reconnect('mac');
     h.sockets['wss://mac']!.open();
-    expect(JSON.parse(h.sockets['wss://mac']!.sent[0]!)).toEqual({ type: 'auth', token: 't1' });
+    expect(JSON.parse(h.sockets['wss://mac']!.sent[0]!)).toEqual({ type: 'auth', token: '' });
   });
 
   it('does not open a connection for a disabled machine', () => {
@@ -313,7 +313,7 @@ describe('ConnectionManager', () => {
     h.manager.setMachines([mac]);
     expect(h.sockets['wss://mac']).toBeDefined();
     h.sockets['wss://mac']!.open();
-    expect(JSON.parse(h.sockets['wss://mac']!.sent[0]!)).toEqual({ type: 'auth', token: 't1' });
+    expect(JSON.parse(h.sockets['wss://mac']!.sent[0]!)).toEqual({ type: 'auth', token: '' });
   });
 
   it('clears workspaces when a machine is removed', () => {

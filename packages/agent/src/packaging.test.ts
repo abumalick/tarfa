@@ -127,7 +127,6 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
       await mkdir(join(home, '.tarfa'), { mode: 0o700 });
       const agentEnv = join(home, '.tarfa', 'agent.env');
       const settings = {
-        TARFA_TOKEN: 'pack-test-token',
         TARFA_MACHINE_ID: 'pack-test',
         TARFA_PROJECT_ROOTS: home,
         TARFA_PORT: String(hooksPort),
@@ -149,7 +148,7 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
       const dry = await exec(
         bin,
         ['setup', '--machine-id', 'pack-test', '--project-roots', home, '--phone-port', String(phonePort), '--tailscale', 'none', '--dry-run'],
-        { env: { ...serveEnv, TARFA_PORT: undefined, TARFA_PHONE_PORT: undefined, TARFA_TOKEN: undefined, TARFA_MACHINE_ID: undefined, TARFA_PROJECT_ROOTS: undefined } },
+        { env: { ...serveEnv, TARFA_PORT: undefined, TARFA_PHONE_PORT: undefined, TARFA_MACHINE_ID: undefined, TARFA_PROJECT_ROOTS: undefined } },
       );
       expect(dry.stdout).toContain(join(home, '.tarfa', 'bin', 'tarfa-agent'));
       expect(dry.stdout).toContain(join(home, '.tarfa', 'agent.env'));
@@ -198,7 +197,7 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
       const stubBin = join(scratch, 'stubbin');
       await Promise.all([join(adoptHome, '.config', 'systemd', 'user'), join(clone, 'deploy'), stubBin].map((d) => mkdir(d, { recursive: true })));
       await writeFile(join(clone, 'deploy', 'run-agent.sh'), '#!/usr/bin/env bash\n');
-      await writeFile(join(clone, 'deploy', 'agent.env'), `TARFA_TOKEN=t\nTARFA_MACHINE_ID=adopt-test\nTARFA_PROJECT_ROOTS=${adoptHome}\nTARFA_PORT=${await freePort()}\nTARFA_PHONE_PORT=${await freePort()}\n`, { mode: 0o600 });
+      await writeFile(join(clone, 'deploy', 'agent.env'), `TARFA_MACHINE_ID=adopt-test\nTARFA_PROJECT_ROOTS=${adoptHome}\nTARFA_PORT=${await freePort()}\nTARFA_PHONE_PORT=${await freePort()}\n`, { mode: 0o600 });
       await symlink(clone, join(clone, 'deploy', 'agent-live'));
       await writeFile(join(adoptHome, '.config', 'systemd', 'user', 'tarfa-agent.service'), `[Service]\nExecStart=/usr/bin/env bash ${clone}/deploy/run-agent.sh\nKillMode=process\n`);
       for (const tool of ['systemctl', 'loginctl']) await writeFile(join(stubBin, tool), '#!/bin/sh\nexit 1\n', { mode: 0o755 });

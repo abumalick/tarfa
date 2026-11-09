@@ -3,7 +3,7 @@ import { clientLogBatchSchema } from './client-log';
 
 // The side channels that ride the machine's own connection instead of a second HTTP request
 // or socket: media previews, the browser view and the connection-log flush. That connection is
-// the end-to-end Noise session, so nothing leaves it in plaintext and the token never has to
+// the end-to-end Noise session, so nothing leaves it in plaintext and no secret has to
 // authenticate anything a proxy in front of the phone port can see.
 
 // Ids are chosen by the PWA to match replies to requests; bounded so a peer cannot make the

@@ -52,8 +52,8 @@ user the agent runs as. The agent listens only on loopback, for its hooks and it
 whatever publishes the phone port sees only ciphertext, and the agent checks every phone's key
 itself against its own roster (`tarfa devices`). A Funnel address is public: the agent bounds
 unauthenticated sockets, and only an enrolled key or a live pairing code gets past the
-handshake. Use a strong random token per machine, and keep
-enrolment by token off once your phones are paired (`tarfa devices enrolment off`).
+handshake. A phone joins only with a one-time `tarfa pair` code, and
+`tarfa devices enrolment closed` stops even that once your phones are paired.
 
 ## Development
 

@@ -77,7 +77,7 @@ test.describe('crowded rows', () => {
   test('no row and no page overflows', async ({ page }) => {
     await page.addInitScript(
       (entries) => localStorage.setItem('tarfa.machines', JSON.stringify(entries)),
-      [machineEntry(dev, { id: 'dev', name: 'dev' }), machineEntry(mac, { id: 'mac', name: 'mac' })],
+      [await machineEntry(dev, { id: 'dev', name: 'dev' }), await machineEntry(mac, { id: 'mac', name: 'mac' })],
     );
     await page.goto('/');
     await page.getByRole('button', { name: 'Show 1 child workspace' }).click();

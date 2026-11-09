@@ -24,7 +24,6 @@ export interface SetupFlags {
   pwa?: string;
   pair: boolean;
   dryRun: boolean;
-  tokenEnrolment?: 'on' | 'off';
   adopt?: boolean;
 }
 
@@ -61,8 +60,6 @@ export interface SetupState {
   // Where agent.env is (or will be) and what it holds; for an adoption, what it will hold once copied.
   envPath: string;
   envText: string | null;
-  // Used only when agent.env holds no TARFA_TOKEN.
-  newToken: string;
   hasKey: boolean;
   roster: 'absent' | EnrolmentMode;
   hooksCurrent: boolean;
@@ -96,7 +93,7 @@ export type SetupStep =
   | { kind: 'copy-env'; from: string; to: string }
   | { kind: 'write-env'; text: string; changes: string[] }
   | { kind: 'create-key' }
-  | { kind: 'write-roster'; mode: EnrolmentMode }
+  | { kind: 'write-roster' }
   | { kind: 'write-launcher'; path: string; text: string }
   | { kind: 'remove-agent-live'; path: string }
   | { kind: 'install-unit'; text: string; backup?: true }
@@ -167,15 +164,6 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
 
   const addresses = [...(derived ? [derived] : []), ...flags.addresses];
   if (addresses.length > MAX_ADDRESSES) return { error: `a machine takes at most ${MAX_ADDRESSES} addresses (got ${addresses.length})` };
-  // A roster that already offers token enrolment is never published silently: the owner says
-  // whether to keep it.
-  const published = addresses.length > 0 || Boolean(withLegacyEnv(parseEnvFile(state.envText ?? '')).TARFA_PHONE_ADDRESSES);
-  if (published && state.roster === 'on' && flags.tokenEnrolment === undefined) {
-    return {
-      error: 'token enrolment is on in ~/.tarfa/devices.json, and this run gives phones an address: pass --token-enrolment off to switch it off (pairing codes only), or --token-enrolment on to keep it on deliberately',
-    };
-  }
-
   // The swap from the service's old name: stop the old agent, move ~/.perch while nothing holds
   // it, then the steps below install and start the new one. Never both at once: two agents would
   // share one hooks port and one state directory.
@@ -188,14 +176,9 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
   const env = planEnv(flags, state, addresses);
   if (env) steps.push(env);
   if (!state.hasKey) steps.push({ kind: 'create-key' });
-  // Before the service can start: a missing roster means token enrolment on, which a published
-  // phone port must not offer.
-  if (state.roster === 'absent') steps.push({ kind: 'write-roster', mode: flags.tokenEnrolment ?? 'off' });
-  else if (flags.tokenEnrolment && state.roster !== flags.tokenEnrolment) steps.push({ kind: 'write-roster', mode: flags.tokenEnrolment });
-  const mode = state.roster === 'absent' ? (flags.tokenEnrolment ?? 'off') : (flags.tokenEnrolment ?? state.roster);
-  if (mode === 'on' && checks.some((line) => line.includes('internet') || line.includes('Funnel allowed'))) {
-    checks.push('warning: token enrolment is on, so whoever holds TARFA_TOKEN can enrol a phone on a public port: run `tarfa devices enrolment off` (or pass --token-enrolment off)');
-  }
+  // Before the service can start: an agent from before token enrolment was removed (a rollback)
+  // reads a missing roster as "the token enrols", and the roster written says it does not.
+  if (state.roster === 'absent') steps.push({ kind: 'write-roster' });
   // A package install always runs the launcher; a checkout keeps running itself until its unit
   // already runs the launcher (adopted), which setup never rewrites back to the checkout.
   const { kind: unitKind, installed } = state.service;
@@ -240,7 +223,6 @@ function planEnv(flags: SetupFlags, state: SetupState, addresses: string[]): Set
   const before = legacy.text;
   const values = parseEnvFile(before);
   const wanted: Array<[string, string, string?]> = [];
-  if (!values.TARFA_TOKEN) wanted.push(['TARFA_TOKEN', state.newToken, '(generated)']);
   wanted.push(['TARFA_MACHINE_ID', flags.machineId], ['TARFA_PROJECT_ROOTS', flags.projectRoots.join(':')]);
   if (flags.defaultPath) wanted.push(['TARFA_DEFAULT_PATH', flags.defaultPath]);
   wanted.push(['TARFA_PHONE_PORT', String(flags.phonePort)]);
@@ -348,7 +330,7 @@ export function describeStep(step: SetupStep, envPath: string): string {
     case 'create-key':
       return 'create the agent key (~/.tarfa/agent-key.json)';
     case 'write-roster':
-      return `write ~/.tarfa/devices.json with enrolment ${step.mode}${step.mode === 'off' ? ' (pairing codes only)' : ''}`;
+      return 'write ~/.tarfa/devices.json (phones join with a `tarfa pair` code)';
     case 'write-launcher':
       return `write the launcher the service runs (${step.path})`;
     case 'install-unit':
@@ -368,7 +350,7 @@ export function describeStep(step: SetupStep, envPath: string): string {
   }
 }
 
-const VALUE_FLAGS = new Set(['--machine-id', '--project-roots', '--default-path', '--phone-port', '--slug', '--tailscale', '--tailscale-port', '--address', '--pwa', '--token-enrolment']);
+const VALUE_FLAGS = new Set(['--machine-id', '--project-roots', '--default-path', '--phone-port', '--slug', '--tailscale', '--tailscale-port', '--address', '--pwa']);
 const BOOLEAN_FLAGS = new Set(['--pair', '--dry-run', '--adopt']);
 
 function portNumber(text: string): number | null {
@@ -426,8 +408,6 @@ export function parseSetupFlags(argv: string[]): SetupFlags | { error: string } 
       return { error: `--pwa must be the http(s) origin phones open the app at (got ${single.get('--pwa')})` };
     }
   }
-  const tokenEnrolment = single.get('--token-enrolment');
-  if (tokenEnrolment !== undefined && tokenEnrolment !== 'on' && tokenEnrolment !== 'off') return { error: '--token-enrolment takes on or off' };
 
   return {
     machineId,
@@ -442,6 +422,5 @@ export function parseSetupFlags(argv: string[]): SetupFlags | { error: string } 
     pair: set.has('--pair'),
     dryRun: set.has('--dry-run'),
     adopt: set.has('--adopt'),
-    ...(tokenEnrolment !== undefined ? { tokenEnrolment } : {}),
   };
 }

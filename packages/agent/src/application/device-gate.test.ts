@@ -37,13 +37,13 @@ function setup(roster?: DeviceRoster) {
   const pairings = new MemoryPairingStore(addPairing([], SECRET, new Date(0)));
   let changes = 0;
   let now = new Date(0);
-  const enrolled: Array<{ id: string; name: string; at: string; x25519: string; via: string }> = [];
+  const enrolled: Array<{ id: string; name: string; at: string; x25519: string }> = [];
   const devices = new RosterDevices({
     store,
     pairings,
     now: () => now,
     onChange: () => (changes += 1),
-    onEnrolled: (device, via) => enrolled.push({ ...device, via }),
+    onEnrolled: (device) => enrolled.push(device),
   });
   return { store, pairings, devices, enrolled, changes: () => changes, at: (ms: number) => (now = new Date(ms)) };
 }
@@ -57,9 +57,9 @@ describe('RosterDevices', () => {
   it('enrols a device and reports the change', async () => {
     const { devices, changes } = setup();
     const p = phone();
-    expect(await devices.check(p.x25519)).toEqual({ standing: 'unknown', enrolment: 'on' });
-    await devices.enrol(p, 'token');
-    expect(await devices.check(p.x25519)).toEqual({ standing: 'enrolled', enrolment: 'on' });
+    expect(await devices.check(p.x25519)).toEqual({ standing: 'unknown', enrolment: 'open' });
+    await devices.enrol(p);
+    expect(await devices.check(p.x25519)).toEqual({ standing: 'enrolled', enrolment: 'open' });
     expect(changes()).toBe(1);
   });
 
@@ -67,18 +67,18 @@ describe('RosterDevices', () => {
     const { devices, store } = setup();
     store.roster = withEnrolmentMode(store.roster, 'closed');
     const p = phone();
-    await devices.enrol(p, 'pairing');
+    await devices.enrol(p);
     expect(await devices.check(p.x25519)).toEqual({ standing: 'unknown', enrolment: 'closed' });
   });
 
   it('tells of a device it newly enrolled, once, and of no refused one', async () => {
     const { devices, enrolled, store } = setup();
     const p = phone();
-    await devices.enrol(p, 'pairing');
-    await devices.enrol(p, 'pairing');
-    expect(enrolled).toEqual([{ id: deviceFingerprint(p.x25519), name: 'p', at: new Date(0).toISOString(), x25519: p.x25519, via: 'pairing' }]);
+    await devices.enrol(p);
+    await devices.enrol(p);
+    expect(enrolled).toEqual([{ id: deviceFingerprint(p.x25519), name: 'p', at: new Date(0).toISOString(), x25519: p.x25519 }]);
     store.roster = withEnrolmentMode(store.roster, 'closed');
-    await devices.enrol(phone(), 'pairing');
+    await devices.enrol(phone());
     expect(enrolled).toHaveLength(1);
   });
 
@@ -94,22 +94,12 @@ describe('RosterDevices', () => {
       },
     });
     const p = phone();
-    expect(await devices.enrol(p, 'token')).toBe(true);
-  });
-
-  it('enrols with a pairing code but not the token while enrolment is off', async () => {
-    const { devices } = setup(withEnrolmentMode(EMPTY_ROSTER, 'off'));
-    const byToken = phone();
-    const paired = phone();
-    await devices.enrol(byToken, 'token');
-    await devices.enrol(paired, 'pairing');
-    expect((await devices.check(byToken.x25519)).standing).toBe('unknown');
-    expect(await devices.check(paired.x25519)).toEqual({ standing: 'enrolled', enrolment: 'off' });
+    expect(await devices.enrol(p)).toBe(true);
   });
 });
 
 describe('RosterDevices pairing', () => {
-  // Every `auth` from an unknown device with a pairing-shaped token asks to spend it: a stream of
+  // Every `auth` from an unknown device with a pairing-shaped secret asks to spend it: a stream of
   // made-up ones must neither rewrite the file nor hold its lock, which `tarfa pair` needs.
   it('does not touch the pairing file for a secret it never issued', async () => {
     const { devices, pairings } = setup();
@@ -139,8 +129,8 @@ describe('RosterDevices pairing', () => {
     expect(await devices.redeemPairing('u'.repeat(43), 'phone')).toEqual({ redeemed: false });
   });
 
-  it('redeems a pairing code while enrolment is off', async () => {
-    const { devices } = setup(withEnrolmentMode(EMPTY_ROSTER, 'off'));
+  it('redeems a pairing code while enrolment is open', async () => {
+    const { devices } = setup(withEnrolmentMode(EMPTY_ROSTER, 'open'));
     expect(await devices.redeemPairing(SECRET, 'phone')).toEqual({ redeemed: true, fresh: true });
   });
 

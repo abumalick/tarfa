@@ -77,6 +77,7 @@ export const machineStatsSchema = z.object({
 export type MachineStats = z.infer<typeof machineStatsSchema>;
 
 export const clientMessageSchema = z.discriminatedUnion('type', [
+  // `token` carries a `tarfa pair` code for a new phone, or nothing (an enrolled key needs none).
   z.object({ type: z.literal('auth'), token: z.string() }),
   z.object({ type: z.literal('list') }),
   z.object({ type: z.literal('getRecentPaths') }),
@@ -137,8 +138,9 @@ export const PROTOCOL_VERSION = 1;
 export const AGENT_FEATURES = { lastReply: 'lastReply' } as const;
 
 export const agentMessageSchema = z.discriminatedUnion('type', [
-  // `credential` is what authenticated the session; `enrolled` says the device key is enrolled (written), so the
-  // phone forgets its token and pairing secret. Both optional: an older agent sends neither.
+  // `credential` is what authenticated the session (`token` only from an agent from before token
+  // enrolment was removed); `enrolled` says the device key is enrolled (written), so the phone
+  // forgets its pairing secret. Both optional: an older agent sends neither.
   // `pushed`: the agent served the phone at once (its hello asked) and has sent the opening replies
   // (workspaces, keyterms) behind it, so the phone does not ask for them.
   z.object({
@@ -193,7 +195,7 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('voiceDone'), id: z.string(), ok: z.boolean(), error: z.string().optional() }),
   z.object({ type: z.literal('detached'), workspaceId: z.string(), reason: detachReasonSchema }),
   z.object({ type: z.literal('closed'), workspaceId: z.string() }),
-  // A phone was just enrolled on this machine (a pairing code or the token), told to every other
+  // A phone was just enrolled on this machine (a pairing code), told to every other
   // phone connected to it: a device nobody meant to add must not go unnoticed. An older PWA drops
   // the unknown type.
   z.object({ type: z.literal('deviceEnrolled'), id: z.string(), name: z.string(), at: z.string() }),

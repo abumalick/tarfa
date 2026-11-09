@@ -48,7 +48,7 @@ export function limitedDevices(devices: DeviceGate, limiter: DiskReadLimiter, ro
       if (known && standingOf(known, x25519) === 'enrolled') return { standing: 'enrolled', enrolment: enrolmentMode(known) };
       return limited(limiter, () => devices.check(x25519));
     },
-    enrol: (device, via) => devices.enrol(device, via),
+    enrol: (device) => devices.enrol(device),
     redeemPairing: (secret, device) => limited(limiter, () => devices.redeemPairing(secret, device)),
     burnPairing: (secret, device) => devices.burnPairing(secret, device),
   };

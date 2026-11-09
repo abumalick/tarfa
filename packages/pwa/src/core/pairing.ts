@@ -19,7 +19,7 @@ export function pairedMachine(machines: MachineConfig[], link: PairingLink, newI
   const defaultPath = existing?.defaultPath || link.defaultPath;
   const path = defaultPath ? { defaultPath } : {};
   if (existing) return { ok: true, machine: { ...existing, addresses, ...path, pairing: link.secret, enabled: true } };
-  return { ok: true, machine: { id: newId(), name: link.name, addresses, token: '', agentKey: link.agentKey, ...path, pairing: link.secret } };
+  return { ok: true, machine: { id: newId(), name: link.name, addresses, agentKey: link.agentKey, ...path, pairing: link.secret } };
 }
 
 // What the owner is asked before a pairing link adds anything: any page can open such a link. It

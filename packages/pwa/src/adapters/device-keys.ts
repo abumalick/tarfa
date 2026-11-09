@@ -40,7 +40,7 @@ function isIntact(record: unknown): record is StoredIdentity {
   return key(x) && key(ed);
 }
 
-const UNREADABLE = 'stored device key is unreadable: this browser did not keep it intact; use Make a new device key in Settings';
+const UNREADABLE = 'stored device key is unreadable: this browser did not keep it intact; use Make a new device key in Settings, then pair each machine again with `tarfa pair`';
 const unreadable = () => new UnreadableDeviceKeyError(UNREADABLE);
 
 type Algorithm = 'X25519' | 'Ed25519';

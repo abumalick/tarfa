@@ -53,9 +53,8 @@ import { closeWorkspaceBrowserSessions } from '../application/close-workspace-br
 
 export interface WsServerDeps {
   config: AgentConfig;
-  // The secret `POST /hooks` takes (`~/.tarfa/token`, written for tarfa-hook.sh at startup). Not
-  // TARFA_TOKEN: that one enrols phones, and a hook's secret is within reach of other local users
-  // in ways a phone's credential must not be. Without it, no hook is accepted.
+  // The secret `POST /hooks` takes (`~/.tarfa/token`, written for tarfa-hook.sh at startup).
+  // Without it, no hook is accepted.
   hookToken?: string;
   tmux: TmuxPort;
   recent: RecentStorePort;

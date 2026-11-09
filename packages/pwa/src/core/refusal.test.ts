@@ -4,7 +4,6 @@ import { REFUSAL } from '@tarfa/secure-channel';
 import { describeRefusal, type RefusalContext } from './refusal';
 
 const paired: RefusalContext = { machine: 'dev box', credential: 'pairing' };
-const withToken: RefusalContext = { machine: 'dev box', credential: 'token' };
 const enrolled: RefusalContext = { machine: 'dev box', credential: 'none' };
 
 describe('describeRefusal', () => {
@@ -13,9 +12,9 @@ describe('describeRefusal', () => {
     [4403, REFUSAL.codeUsed, paired, 'This pairing code was already used — run `tarfa pair` on dev box for a new one', true],
     [4403, REFUSAL.revoked, enrolled, 'This phone was revoked on dev box', true],
     [4003, REFUSAL.wrongAgentKey, enrolled, "This entry's agent key is not dev box's — pair this machine again", true],
-    [4003, REFUSAL.tokenNotNeeded, withToken, "dev box no longer needs this entry's token: its device key is enrolled — forgetting the token and reconnecting", false],
-    [4403, REFUSAL.enrolmentOff, withToken, 'Enrolment is turned off on dev box — pair with `tarfa pair` instead', true],
-    [4003, REFUSAL.enrolmentClosed, paired, 'Enrolment is closed on dev box — run `tarfa devices enrolment off` there to allow pairing', true],
+    // Only an agent from before token enrolment was removed sends this one.
+    [4403, REFUSAL.enrolmentOff, enrolled, 'Enrolment is turned off on dev box — pair with `tarfa pair` instead', true],
+    [4003, REFUSAL.enrolmentClosed, paired, 'Enrolment is closed on dev box — run `tarfa devices enrolment open` there to allow pairing', true],
     [4403, REFUSAL.notEnrolled, enrolled, 'This phone is not enrolled on dev box — run `tarfa pair` there to pair it again', true],
     [4003, REFUSAL.signature, paired, 'dev box runs an agent too old to pair this phone — update its agent, then pair again', true],
     [4429, REFUSAL.tooManyPending, enrolled, 'dev box is busy: too many phones are connecting to it', false],
@@ -34,7 +33,6 @@ describe('describeRefusal', () => {
       message: 'Pairing refused: the code has expired, was already used, or is not valid for this machine — run `tarfa pair` on dev box for a new one',
       final: true,
     });
-    expect(describeRefusal(4403, REFUSAL.enrolmentRefused, withToken)?.message).toBe('dev box refused the token — check the token in this entry');
   });
 
   it('still says the machine refused the phone for a reason it does not know', () => {

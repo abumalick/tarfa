@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ClaudeVoice } from './application/claude-voice';
 import { AplayVoicePlayer, FileClaudeSettings, LOOPBACK_DEVICE, aplayArgs } from './infrastructure/aplay-voice-player';
-import { loadConfig, assertServerConfig, configWarnings, withLegacyEnv } from './infrastructure/config';
+import { loadConfig, configWarnings, withLegacyEnv } from './infrastructure/config';
 import { migrateStateDir } from './infrastructure/state-dir';
 import { systemClock, systemPathResolver } from './infrastructure/system';
 import { ShortWorkspaceIds } from './application/short-workspace-ids';
@@ -64,7 +64,6 @@ export async function main(): Promise<void> {
   }
   const env = withLegacyEnv(process.env);
   const config = loadConfig(env, homedir());
-  assertServerConfig(config);
   for (const warning of configWarnings(process.env)) process.stderr.write(`${warning}\n`);
   // Refused before anything is served: a secret another user can read is a leaked secret.
   await securePrivateDir(config.stateDir);
@@ -73,7 +72,7 @@ export async function main(): Promise<void> {
     config.devicesPath,
     config.pairingPath,
     join(config.stateDir, 'token'),
-    // It holds TARFA_TOKEN, which enrols a phone.
+    // The launcher sources it: whoever can write it runs code as this user.
     await locateAgentEnv(env, homedir()),
   ]);
   const hookToken = await writeHookToken(config.stateDir);

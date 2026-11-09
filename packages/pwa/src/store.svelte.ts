@@ -53,7 +53,7 @@ function phoneLanguages(): readonly string[] {
   return globalThis.navigator?.languages ?? [];
 }
 
-type View = 'list' | 'terminal' | 'settings' | 'create' | 'newMachine' | 'browser' | 'viewer' | 'browserView';
+type View = 'list' | 'terminal' | 'settings' | 'create' | 'browser' | 'viewer' | 'browserView';
 
 // Terminal output: base64 of the pty's UTF-8 bytes. Decode base64 → bytes → UTF-8 string.
 // (Writing the raw `atob` latin1 string instead mangles every non-ASCII byte — box-drawing,
@@ -420,11 +420,9 @@ export class TarfaStore {
     this.recomputeGrace();
   }
 
-  // The agent said this entry's device key is enrolled: nothing else is needed to connect, and
-  // a token kept would be sent to whoever answers with the agent's key.
-  forgetCredentials(machineId: string, scope: 'all' | 'pairing' = 'all'): void {
-    if (scope === 'all') this.deps.settings.forgetCredentials(machineId);
-    else this.deps.settings.clearPairing(machineId);
+  // The agent took this entry's pairing code: the enrolled device key is all it needs from now on.
+  forgetPairing(machineId: string): void {
+    this.deps.settings.clearPairing(machineId);
     this.machines = this.deps.settings.list();
   }
 
@@ -968,10 +966,6 @@ export class TarfaStore {
     this.view = 'settings';
   }
 
-  goNewMachine(): void {
-    this.view = 'newMachine';
-  }
-
   private askCreateData(machineId: string): void {
     this.send(machineId, { type: 'getRecentPaths' });
     this.send(machineId, { type: 'listRoots' });
@@ -1406,7 +1400,7 @@ export class TarfaStore {
     this.recomputeGrace();
   }
 
-  updateMachine(id: string, patch: { addresses: string[]; token?: string; defaultPath?: string; agentKey?: string }): void {
+  updateMachine(id: string, patch: { addresses: string[]; defaultPath?: string; agentKey?: string }): void {
     this.deps.settings.update(id, patch);
     this.machines = this.deps.settings.list();
     this.deps.manager.setMachines(this.machines);

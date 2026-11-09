@@ -3,7 +3,6 @@ import { ConnectionHandler, type ConnectionHandlerDeps } from './connection-hand
 import { ViewerRegistry } from './viewer-registry';
 import type { ClientConnection } from '../ports/client-connection';
 import type { PtyPort } from '../ports/pty-port';
-import { REFUSAL } from '@tarfa/secure-channel';
 import { type AgentMessage, type ClientLogBatch, type Workspace } from '@tarfa/contracts';
 import type { BrowserStreamSocket } from '../ports/browser-stream-port';
 import { MEDIA_CHUNK_BYTES, MEDIA_WINDOW } from '../application/media-sender';
@@ -49,12 +48,14 @@ function fakeParkedStore(): ParkedStorePort {
   };
 }
 
-function fakeConn() {
+// A connection whose transport proved an enrolled device key, unless `stranger`.
+function fakeConn(stranger = false) {
   const sent: AgentMessage[] = [];
   let closed = false;
   let onMessage: (raw: unknown) => void = () => undefined;
   let onCloseL: () => void = () => undefined;
   const conn: ClientConnection = {
+    ...(stranger ? {} : { keyCredential: 'device' as const }),
     send: (m) => sent.push(m),
     close: () => {
       closed = true;
@@ -109,7 +110,7 @@ function fakePty() {
   return { pty, sessions };
 }
 
-const config = { machineId: 'mini', token: 'secret', sessionPrefix: 'perch-', projectRoots: [] } as unknown as AgentConfig;
+const config = { machineId: 'mini', sessionPrefix: 'perch-', projectRoots: [] } as unknown as AgentConfig;
 const noPty: PtyPort = { spawn: () => ({ onData() {}, onExit() {}, write() {}, resize() {}, kill() {} }) };
 
 function fakeLaunchers(): LaunchersPort {
@@ -263,22 +264,14 @@ function makeHandler(
 }
 
 async function authenticate(_handler: ConnectionHandler, send: (message: unknown) => Promise<void>): Promise<void> {
-  await send({ type: 'auth', token: 'secret' });
+  await send({ type: 'auth', token: '' });
 }
 
 describe('ConnectionHandler auth', () => {
-  it('accepts a matching token, and says the token is what authenticated', () => {
+  it('accepts a connection whose device key already proved who it is, with no secret', () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
-    expect(f.sent).toEqual([{ type: 'authResult', ok: true, credential: 'token' }]);
-  });
-
-  it('accepts a connection whose device key already proved who it is, with no token', () => {
-    const keyed = fakeConn();
-    (keyed.conn as { keyCredential?: string }).keyCredential = 'device';
-    new ConnectionHandler(keyed.conn, baseDeps());
-    keyed.emit({ type: 'auth', token: '' });
-    expect(keyed.sent).toEqual([{ type: 'authResult', ok: true, credential: 'device' }]);
+    f.emit({ type: 'auth', token: '' });
+    expect(f.sent).toEqual([{ type: 'authResult', ok: true, credential: 'device' }]);
   });
 
   it('says a pairing code authenticated a connection that just spent one', () => {
@@ -289,31 +282,21 @@ describe('ConnectionHandler auth', () => {
     expect(keyed.sent).toEqual([{ type: 'authResult', ok: true, credential: 'pairing' }]);
   });
 
-  // A phone whose key is enrolled has no use for the token, and sending it on every connect
-  // hands it to whoever holds the agent's key. The agent refuses it, so the phone drops it.
-  it('refuses the token on a connection whose device key is already enrolled', () => {
-    const keyed = fakeConn();
-    const refused: string[] = [];
-    Object.assign(keyed.conn, { keyCredential: 'device', refuse: (reason: string) => refused.push(reason) });
-    new ConnectionHandler(keyed.conn, baseDeps());
-    keyed.emit({ type: 'auth', token: 'secret' });
-    expect(refused).toEqual([REFUSAL.tokenNotNeeded]);
-    expect(keyed.sent).toEqual([]);
-  });
-
-  it('still serves an enrolled key that sends something other than the token', () => {
-    const keyed = fakeConn();
-    (keyed.conn as { keyCredential?: string }).keyCredential = 'device';
-    new ConnectionHandler(keyed.conn, baseDeps());
-    keyed.emit({ type: 'auth', token: 'not-the-token' });
-    expect(keyed.sent).toEqual([{ type: 'authResult', ok: true, credential: 'device' }]);
-  });
-
-  it('rejects a wrong token and closes', () => {
+  // An enrolled phone from before still holds a token: its key is what counts.
+  it('serves an enrolled key whatever secret it sends', () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'nope' });
-    expect(f.sent).toEqual([{ type: 'authResult', ok: false }]);
-    expect(f.isClosed()).toBe(true);
+    f.emit({ type: 'auth', token: 'an-old-token' });
+    expect(f.sent).toEqual([{ type: 'authResult', ok: true, credential: 'device' }]);
+  });
+
+  it('refuses and closes a connection no key authenticated, whatever secret it sends', () => {
+    for (const token of ['', 'secret']) {
+      const stranger = fakeConn(true);
+      new ConnectionHandler(stranger.conn, baseDeps());
+      stranger.emit({ type: 'auth', token });
+      expect(stranger.sent).toEqual([{ type: 'authResult', ok: false }]);
+      expect(stranger.isClosed()).toBe(true);
+    }
   });
 
   it('rejects control messages before auth', () => {
@@ -366,24 +349,18 @@ describe('ConnectionHandler serving an enrolled device at once', () => {
     const before = p.sent.length;
     p.emit({ type: 'auth', token: '' });
     p.emit({ type: 'auth', token: 'p'.repeat(43) });
+    p.emit({ type: 'auth', token: 'an-old-token' });
     await settle();
     expect(p.sent.length).toBe(before);
     expect(p.refused).toEqual([]);
   });
 
-  it('still refuses the token from a phone it served at once', async () => {
-    const p = pushed();
-    p.fire();
-    await settle();
-    p.emit({ type: 'auth', token: 'secret' });
-    expect(p.refused).toEqual([REFUSAL.tokenNotNeeded]);
-  });
 });
 
 describe('ConnectionHandler control routing', () => {
   it('lists workspaces after auth', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'list' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent[1]).toEqual({
@@ -409,7 +386,7 @@ describe('ConnectionHandler control routing', () => {
     const claudeVoiceIn = async (claudeVoice?: ConnectionHandlerDeps['claudeVoice']) => {
       const conn = fakeConn();
       new ConnectionHandler(conn.conn, { ...baseDeps(), claudeVoice });
-      conn.emit({ type: 'auth', token: 'secret' });
+      conn.emit({ type: 'auth', token: '' });
       conn.emit({ type: 'list' });
       await new Promise((r) => setTimeout(r, 0));
       return conn.sent.find((m) => m.type === 'workspaces');
@@ -422,7 +399,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('replies to a ping with a pong', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'ping' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({ type: 'pong' });
@@ -448,7 +425,7 @@ describe('ConnectionHandler control routing', () => {
       onChange: () => undefined,
     };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'setStatus', workspaceId: 'perch-aa', status: 'blocked' });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toEqual([['perch-aa', 'blocked']]);
@@ -474,7 +451,7 @@ describe('ConnectionHandler control routing', () => {
       onChange: () => undefined,
     };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'setUrgent', workspaceId: 'perch-aa', urgent: true });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toEqual([['perch-aa', true]]);
@@ -482,7 +459,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('returns recent paths, and dir entries for a live workspace path', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'getRecentPaths' });
     // /home/u/workspace/api is the live workspace's project path, so browsing it is allowed
     // even though no TARFA_PROJECT_ROOTS are configured in this test.
@@ -521,7 +498,7 @@ describe('ConnectionHandler control routing', () => {
       makeDir: async () => undefined,
     };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'list' });
     f.emit({ type: 'getRecentPaths' });
     f.emit({ type: 'browseDir', path: '/home/u/workspace/api' });
@@ -540,7 +517,7 @@ describe('ConnectionHandler control routing', () => {
     const deps = baseDeps();
     deps.config = { ...config, projectRoots: ['/home/u/workspace', '/srv/code'] } as typeof config;
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'listRoots' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({ type: 'roots', roots: ['/home/u/workspace', '/srv/code'] });
@@ -548,7 +525,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('ignores listCommands from an older PWA, with no reply and no error', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     await new Promise((r) => setTimeout(r, 0));
     const before = f.sent.length;
     f.emit({ type: 'listCommands' });
@@ -560,7 +537,7 @@ describe('ConnectionHandler control routing', () => {
     const deps = baseDeps();
     await deps.launchers.remember('pi');
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'listLaunchers' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({ type: 'launchers', detected: ['claude'], custom: ['pi'] });
@@ -570,7 +547,7 @@ describe('ConnectionHandler control routing', () => {
     const deps = baseDeps();
     await deps.launchers.remember('pi');
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'forgetLauncher', command: 'pi' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({ type: 'launchers', detected: ['claude'], custom: [] });
@@ -580,7 +557,7 @@ describe('ConnectionHandler control routing', () => {
     async function create(message: Record<string, unknown>) {
       const deps = baseDeps();
       new ConnectionHandler(f.conn, deps);
-      f.emit({ type: 'auth', token: 'secret' });
+      f.emit({ type: 'auth', token: '' });
       f.emit({ type: 'create', projectPath: '/p', ...message });
       await new Promise((r) => setTimeout(r, 0));
       return deps.launchers.list();
@@ -598,7 +575,7 @@ describe('ConnectionHandler control routing', () => {
     const deps = baseDeps();
     deps.keyterms = { list: async () => ['Tarfa', 'Claude Code'] };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'listKeyterms' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({ type: 'keyterms', keyterms: ['Tarfa', 'Claude Code'] });
@@ -606,7 +583,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('answers listKeyterms with an empty list when the machine has no config file', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'listKeyterms' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({ type: 'keyterms', keyterms: [] });
@@ -614,7 +591,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('answers readFile with fileContents for an allowed path', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'readFile', path: '/home/u/workspace/api/a.txt' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({
@@ -628,7 +605,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('rejects reading a path outside any workspace or configured root', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'readFile', path: '/etc/passwd' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent.some((m) => m.type === 'error')).toBe(true);
@@ -637,7 +614,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('rejects browsing a path outside any workspace or configured root', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'browseDir', path: '/etc' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent.some((m) => m.type === 'error')).toBe(true);
@@ -646,7 +623,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('makes a directory in an allowed path and replies with dirEntries for the new folder', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'makeDir', parent: '/home/u/workspace/api', name: 'docs' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({
@@ -659,7 +636,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('rejects making a directory outside any workspace or configured root', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'makeDir', parent: '/etc', name: 'evil' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent.some((m) => m.type === 'error')).toBe(true);
@@ -668,7 +645,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('creates and closes workspaces', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'create', projectPath: '/home/u/workspace/api', command: 'claude' });
     f.emit({ type: 'close', workspaceId: 'perch-zz' });
     await new Promise((r) => setTimeout(r, 0));
@@ -689,7 +666,7 @@ describe('ConnectionHandler control routing', () => {
     });
     deps.browserCommands = stubBrowserCommands({ stop: () => stopped });
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'close', workspaceId: 'perch-aa' });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -709,7 +686,7 @@ describe('ConnectionHandler control routing', () => {
       },
     };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'close', workspaceId: 'perch-aa' });
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
@@ -727,7 +704,7 @@ describe('ConnectionHandler control routing', () => {
       },
     };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'close', workspaceId: 'perch-aa' });
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
@@ -753,7 +730,7 @@ describe('ConnectionHandler control routing', () => {
           }
         : undefined;
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'close', workspaceId: 'perch-aa' });
     await new Promise((r) => setTimeout(r, 0));
     expect(logged).toEqual([
@@ -773,7 +750,7 @@ describe('ConnectionHandler control routing', () => {
     deps.workspaceLog = { append: async () => void order.push('logged') };
     deps.dropWorkspaceState = (id) => void order.push(`dropped ${id}`);
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'close', workspaceId: 'perch-aa' });
     await new Promise((r) => setTimeout(r, 0));
     expect(order).toEqual(['logged', 'dropped perch-aa']);
@@ -787,7 +764,7 @@ describe('ConnectionHandler control routing', () => {
     // baseDeps()'s tmux.listSessions already returns a single session named 'perch-aa'
     // at /home/u/workspace/api — the fallback snapshot source.
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'close', workspaceId: 'perch-aa' });
     await new Promise((r) => setTimeout(r, 0));
     expect(logged).toEqual([
@@ -802,7 +779,7 @@ describe('ConnectionHandler control routing', () => {
     deps.forgetWorkspace = () => undefined;
     deps.tmux = { ...deps.tmux, listSessions: async () => [] };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'close', workspaceId: 'perch-ghost' });
     await new Promise((r) => setTimeout(r, 0));
     expect(logged).toEqual([]);
@@ -810,7 +787,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('emits a bad_message error on an invalid frame', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'nonsense' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent.some((m) => m.type === 'error' && m.code === 'bad_message')).toBe(true);
@@ -823,7 +800,7 @@ describe('ConnectionHandler control routing', () => {
       listSessions: async () => { throw new Error('db gone'); },
     };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'list' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent.some((m) => m.type === 'error' && m.code === 'internal')).toBe(true);
@@ -948,7 +925,7 @@ describe('ConnectionHandler park/unpark', () => {
 describe('ConnectionHandler browser sessions', () => {
   it('follows the workspaces reply to list with browserSessions (names only)', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'list' });
     await new Promise((r) => setTimeout(r, 0));
     const workspacesIdx = f.sent.findIndex((m) => m.type === 'workspaces');
@@ -967,7 +944,7 @@ describe('ConnectionHandler browser sessions', () => {
       },
     };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'list' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual(expect.objectContaining({ type: 'workspaces' }));
@@ -984,7 +961,7 @@ describe('ConnectionHandler browser sessions', () => {
       },
     });
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'startBrowser', workspaceId: 'perch-aa' });
     await new Promise((r) => setTimeout(r, 0));
     expect(started).toEqual(['perch-aa']);
@@ -999,7 +976,7 @@ describe('ConnectionHandler browser sessions', () => {
       },
     });
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'startBrowser', workspaceId: 'perch-aa' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({ type: 'error', code: 'start-browser-failed', message: 'spawn failed' });
@@ -1017,7 +994,7 @@ describe('ConnectionHandler putFile', () => {
       writeFile: async (p: string, b: Uint8Array) => void writes.push({ path: p, bytes: b }),
     };
     new ConnectionHandler(f.conn, deps);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({
       type: 'putFile',
       workspaceId: 'perch-aa',
@@ -1037,7 +1014,7 @@ describe('ConnectionHandler putFile', () => {
 
   it('rejects putFile for an unknown workspace', async () => {
     new ConnectionHandler(f.conn, baseDeps());
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'putFile', workspaceId: 'nope', name: 'x.png', data: 'AAAA' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent.some((m) => m.type === 'error')).toBe(true);
@@ -1061,7 +1038,7 @@ describe('ConnectionHandler.pushWorkspaceUpdated', () => {
     };
     handler.pushWorkspaceUpdated(ws); // not authed → ignored
     expect(f.sent).toEqual([]);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     handler.pushWorkspaceUpdated(ws);
     expect(f.sent).toContainEqual({ type: 'workspaceUpdated', workspace: ws });
   });
@@ -1073,7 +1050,7 @@ describe('ConnectionHandler.pushBrowserSessions', () => {
     const handler = new ConnectionHandler(f.conn, baseDeps());
     handler.pushBrowserSessions([{ name: 'github' }]); // connection not authenticated → ignored
     expect(f.sent).toEqual([]);
-    f.emit({ type: 'auth', token: 'secret' });
+    f.emit({ type: 'auth', token: '' });
     handler.pushBrowserSessions([{ name: 'github' }]);
     expect(f.sent).toContainEqual({ type: 'browserSessions', sessions: [{ name: 'github' }] });
   });
@@ -1121,7 +1098,7 @@ describe('ConnectionHandler voice stream', () => {
     const conn = fakeConn();
     const voice = fakeVoice();
     new ConnectionHandler(conn.conn, { ...baseDeps(), pty: fp.pty, claudeVoice: { start: voice.start, available: async () => true }, ...deps });
-    conn.emit({ type: 'auth', token: 'secret' });
+    conn.emit({ type: 'auth', token: '' });
     conn.emit({ type: 'attach', workspaceId: 'perch-aa', cols: 80, rows: 24 });
     return { fp, conn, voice };
   }
@@ -1213,7 +1190,7 @@ describe('ConnectionHandler voice stream', () => {
     const conn = fakeConn();
     const voice = fakeVoice();
     handlers.push(new ConnectionHandler(conn.conn, { ...baseDeps(), pty: fp.pty, claudeVoice: { start: voice.start, available: async () => true } }));
-    conn.emit({ type: 'auth', token: 'secret' });
+    conn.emit({ type: 'auth', token: '' });
     conn.emit({ type: 'attach', workspaceId: 'perch-aa', cols: 80, rows: 24 });
     await tick();
     conn.emit({ type: 'voiceStart', workspaceId: 'perch-aa', id: 'v1' });
@@ -1261,7 +1238,7 @@ describe('ConnectionHandler voice stream', () => {
     const voice = fakeVoice();
     const conn = fakeConn();
     new ConnectionHandler(conn.conn, { ...baseDeps(), claudeVoice: { start: voice.start, available: async () => true } });
-    conn.emit({ type: 'auth', token: 'secret' });
+    conn.emit({ type: 'auth', token: '' });
     conn.emit({ type: 'voiceStart', workspaceId: 'perch-aa', id: 'v1' });
     await tick();
     expect(voice.start).not.toHaveBeenCalled();
@@ -1269,7 +1246,7 @@ describe('ConnectionHandler voice stream', () => {
 
     const bare = fakeConn();
     new ConnectionHandler(bare.conn, baseDeps());
-    bare.emit({ type: 'auth', token: 'secret' });
+    bare.emit({ type: 'auth', token: '' });
     bare.emit({ type: 'voiceStart', workspaceId: 'perch-aa', id: 'v1' });
     await tick();
     expect(bare.sent).toContainEqual(expect.objectContaining({ type: 'voiceDone', ok: false, error: expect.stringMatching(/Linux/) }));
@@ -1281,7 +1258,7 @@ describe('ConnectionHandler attach lifecycle', () => {
     const fp = fakePty();
     const f2 = fakeConn();
     new ConnectionHandler(f2.conn, { ...baseDeps(), pty: fp.pty });
-    f2.emit({ type: 'auth', token: 'secret' });
+    f2.emit({ type: 'auth', token: '' });
     f2.emit({ type: 'attach', workspaceId: 'perch-aa', cols: 80, rows: 24 });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1318,7 +1295,7 @@ describe('ConnectionHandler attach lifecycle', () => {
     }) as typeof origSpawn;
 
     new ConnectionHandler(f2.conn, deps);
-    f2.emit({ type: 'auth', token: 'secret' });
+    f2.emit({ type: 'auth', token: '' });
     f2.emit({ type: 'attach', workspaceId: 'perch-aa', cols: 80, rows: 24 });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1333,9 +1310,9 @@ describe('ConnectionHandler attach lifecycle', () => {
     new ConnectionHandler(fa.conn, { ...baseDeps(), pty: fp.pty, registry });
     new ConnectionHandler(fb.conn, { ...baseDeps(), pty: fp.pty, registry });
 
-    fa.emit({ type: 'auth', token: 'secret' });
+    fa.emit({ type: 'auth', token: '' });
     fa.emit({ type: 'attach', workspaceId: 'perch-aa', cols: 80, rows: 24 });
-    fb.emit({ type: 'auth', token: 'secret' });
+    fb.emit({ type: 'auth', token: '' });
     fb.emit({ type: 'attach', workspaceId: 'perch-aa', cols: 80, rows: 24 });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1352,7 +1329,7 @@ describe('ConnectionHandler attach lifecycle', () => {
     const fp = fakePty();
     const f2 = fakeConn();
     new ConnectionHandler(f2.conn, { ...baseDeps(), pty: fp.pty });
-    f2.emit({ type: 'auth', token: 'secret' });
+    f2.emit({ type: 'auth', token: '' });
     f2.emit({ type: 'attach', workspaceId: 'perch-aa', cols: 80, rows: 24 });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1368,7 +1345,7 @@ describe('ConnectionHandler attach lifecycle', () => {
     const fp = fakePty();
     const f3 = fakeConn();
     new ConnectionHandler(f3.conn, { ...baseDeps(), pty: fp.pty });
-    f3.emit({ type: 'auth', token: 'secret' });
+    f3.emit({ type: 'auth', token: '' });
     f3.emit({ type: 'attach', workspaceId: 'perch-aa', cols: 80, rows: 24 });
     await new Promise((r) => setTimeout(r, 0));
     f3.triggerClose();
@@ -1382,7 +1359,7 @@ describe('ConnectionHandler side channels in the connection', () => {
   async function authed(deps = baseDeps()) {
     const c = fakeConn();
     new ConnectionHandler(c.conn, deps);
-    c.emit({ type: 'auth', token: 'secret' });
+    c.emit({ type: 'auth', token: '' });
     await settle();
     c.sent.length = 0;
     const send = async (message: unknown) => {
@@ -1489,7 +1466,7 @@ describe('ConnectionHandler side channels in the connection', () => {
     deps.connectUpstream = async () => upstream.socket;
     const c = await authed(deps);
     await c.send({ type: 'browserOpen', stream: 'b1', session: 'perch-aa' });
-    await c.send({ type: 'browser', stream: 'b1', data: JSON.stringify({ type: 'auth', token: 'secret' }) });
+    await c.send({ type: 'browser', stream: 'b1', data: JSON.stringify({ type: 'auth', token: '' }) });
     const browserData = () =>
       c.sent.filter((m) => m.type === 'browser').map((m) => JSON.parse((m as { data: string }).data) as { type: string; data?: string });
     expect(browserData()).toEqual([{ type: 'authResult', ok: true }]);
@@ -1519,7 +1496,7 @@ describe('ConnectionHandler side channels in the connection', () => {
     const c = await authed(deps);
     await c.send({ type: 'attach', workspaceId: 'perch-aa', cols: 80, rows: 24 });
     await c.send({ type: 'browserOpen', stream: 'b1', session: 'perch-aa' });
-    await c.send({ type: 'browser', stream: 'b1', data: JSON.stringify({ type: 'auth', token: 'secret' }) });
+    await c.send({ type: 'browser', stream: 'b1', data: JSON.stringify({ type: 'auth', token: '' }) });
     upstream.emit(JSON.stringify({ type: 'frame', data: 'x', metadata: { deviceWidth: 1, deviceHeight: 1 } }));
     sessions[0]!.dataListeners.forEach((l) => l('hello'));
     expect(c.sent.at(-1)).toEqual({ type: 'output', workspaceId: 'perch-aa', data: Buffer.from('hello').toString('base64') });
@@ -1530,7 +1507,7 @@ describe('ConnectionHandler side channels in the connection', () => {
     deps.browserDiscovery = { listSessions: async () => [] };
     const c = await authed(deps);
     await c.send({ type: 'browserOpen', stream: 'b1', session: 'gone' });
-    await c.send({ type: 'browser', stream: 'b1', data: JSON.stringify({ type: 'auth', token: 'secret' }) });
+    await c.send({ type: 'browser', stream: 'b1', data: JSON.stringify({ type: 'auth', token: '' }) });
     expect(c.sent.map((m) => m.type)).toEqual(['browser', 'browser', 'browserClosed']);
     expect(JSON.parse((c.sent[1] as { data: string }).data)).toEqual({ type: 'ended', reason: 'not-found' });
   });

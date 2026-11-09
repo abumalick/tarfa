@@ -43,7 +43,6 @@ import { addPairing } from '../application/pairing';
 import type { TmuxPort } from '../ports/tmux-port';
 import type { PtyPort } from '../ports/pty-port';
 
-const TOKEN = 'integration-token';
 type Message = { type: string; [key: string]: unknown };
 
 const noTmux: TmuxPort = {
@@ -110,7 +109,7 @@ interface StackOptions {
 async function startStack(opts: StackOptions = {}): Promise<Stack> {
   const home = await mkdtemp(join(tmpdir(), 'perch-phone-it-'));
   const keys = generateAgentKeys();
-  const config = loadConfig({ TARFA_MACHINE_ID: 'it', TARFA_TOKEN: TOKEN }, home);
+  const config = loadConfig({ TARFA_MACHINE_ID: 'it' }, home);
   const server = serverFor(config);
   const store = new FileDeviceStore(config.devicesPath);
   const gate = startDeviceGate({
@@ -286,23 +285,15 @@ describe('phones on the phone port', () => {
       });
     }
 
-    it('enrols a phone with the token, then refuses the token from it once enrolled', async () => {
-      const device = generateDeviceKeys();
-      const conn = await phone(stack, device);
-      conn.send({ type: 'auth', token: TOKEN });
-      expect(await conn.next('authResult')).toMatchObject({ ok: true, credential: 'token', enrolled: true });
-      conn.close();
-      const stale = await phone(stack, device);
-      stale.send({ type: 'auth', token: TOKEN });
-      expect(await stale.closed).toEqual({ code: DEVICE_REFUSED, reason: REFUSAL.tokenNotNeeded });
-    });
+    it('refuses an unknown phone that offers anything but a live pairing code, and every phone once enrolment is closed', async () => {
+      // What a token would have been: a secret that is no pairing code this agent issued.
+      for (const token of ['', 'integration-token', 'A'.repeat(43)]) {
+        const stranger = await phone(stack, generateDeviceKeys());
+        stranger.send({ type: 'auth', token });
+        expect(await stranger.closed).toEqual({ code: DEVICE_REFUSED, reason: REFUSAL.notEnrolled });
+      }
+      expect((await stack.store.read()).devices).toEqual([]);
 
-    it('refuses the token while enrolment is off, and a pairing code once it is closed', async () => {
-      await stack.store.update((roster) => withEnrolmentMode(roster, 'off'));
-      const byToken = await phone(stack, generateDeviceKeys());
-      byToken.send({ type: 'auth', token: TOKEN });
-      expect(await byToken.closed).toEqual({ code: DEVICE_REFUSED, reason: REFUSAL.enrolmentOff });
-      // A pairing code is an explicit authorisation, so `off` still takes it.
       const paired = await phone(stack, generateDeviceKeys());
       cleanups.push(() => paired.close());
       paired.send({ type: 'auth', token: await newPairing(stack) });
@@ -310,6 +301,14 @@ describe('phones on the phone port', () => {
 
       await stack.store.update((roster) => withEnrolmentMode(roster, 'closed'));
       await expect(phone(stack, generateDeviceKeys())).rejects.toMatchObject({ code: DEVICE_REFUSED, reason: REFUSAL.notEnrolled });
+    });
+
+    it('serves an enrolled phone that still sends an old token, by its key', async () => {
+      const device = await enrolled(stack);
+      const conn = await phone(stack, device);
+      cleanups.push(() => conn.close());
+      conn.send({ type: 'auth', token: 'integration-token' });
+      expect(await conn.next('authResult')).toMatchObject({ ok: true, credential: 'device' });
     });
 
     it('fails to start on a port another listener holds', async () => {

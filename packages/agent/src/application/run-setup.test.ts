@@ -5,9 +5,9 @@ import type { SetupStep } from './setup-machine';
 
 const ALL: SetupStep[] = [
   { kind: 'copy-env', from: '/clone/deploy/agent.env', to: '/home/u/.tarfa/agent.env' },
-  { kind: 'write-env', text: 'TARFA_TOKEN=x\n', changes: ['TARFA_TOKEN=(generated)'] },
+  { kind: 'write-env', text: 'TARFA_MACHINE_ID=x\n', changes: ['TARFA_MACHINE_ID=x'] },
   { kind: 'create-key' },
-  { kind: 'write-roster', mode: 'off' },
+  { kind: 'write-roster' },
   { kind: 'write-launcher', path: '/home/u/.tarfa/bin/tarfa-agent', text: '#!/bin/sh\n' },
   { kind: 'remove-agent-live', path: '/clone/deploy/agent-live' },
   { kind: 'install-unit', text: '[Service]\n', backup: true },

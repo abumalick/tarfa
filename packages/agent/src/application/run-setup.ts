@@ -1,6 +1,5 @@
 // Applies a `tarfa setup` plan in order, stopping at the first failure. A dry run applies nothing.
 import { TailscaleOperatorError } from '../ports/tailscale-port';
-import type { EnrolmentMode } from './device-roster';
 import { describeStep, type SetupStep } from './setup-machine';
 
 export interface SetupEffects {
@@ -8,7 +7,7 @@ export interface SetupEffects {
   // Returns the backup's path, or null when there was no file to back up.
   writeEnv(text: string): Promise<string | null>;
   createKey(): Promise<void>;
-  writeRoster(mode: EnrolmentMode): Promise<void>;
+  writeRoster(): Promise<void>;
   writeLauncher(path: string, text: string): Promise<void>;
   copyEnv(from: string, to: string): Promise<void>;
   removeAgentLive(path: string): Promise<void>;
@@ -81,7 +80,7 @@ async function apply(step: SetupStep, effects: SetupEffects): Promise<string | n
       await effects.createKey();
       return describeStep(step, '').replace(/^create/, 'created');
     case 'write-roster':
-      await effects.writeRoster(step.mode);
+      await effects.writeRoster();
       return describeStep(step, '').replace(/^write/, 'wrote');
     case 'stop-legacy-service':
       return `stopped the old agent service: ${(await effects.stopLegacyService()).join('; ')}`;

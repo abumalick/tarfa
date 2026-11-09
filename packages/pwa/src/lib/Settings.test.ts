@@ -12,7 +12,7 @@ const KEY = generateAgentKeys().x25519.publicKey;
 
 function fakeStore(overrides: Record<string, unknown> = {}) {
   return {
-    machines: [{ id: 'mac', name: 'Mac', addresses: ['wss://mac'], token: 't', agentKey: KEY }] as Record<string, unknown>[],
+    machines: [{ id: 'mac', name: 'Mac', addresses: ['wss://mac'], agentKey: KEY }] as Record<string, unknown>[],
     statuses: {} as Record<string, string>,
     lastConnectionError: {} as Record<string, { message: string; code?: number; at: number }>,
     addMachine: vi.fn(),
@@ -59,8 +59,8 @@ describe('Settings — machines list', () => {
   it("shows each machine's first address, and how many more it has", () => {
     const store = fakeStore({
       machines: [
-        { id: 'a', name: 'Cloud box', addresses: ['wss://cloud.example.com/'], token: 't', agentKey: KEY },
-        { id: 'b', name: 'Home box', addresses: ['wss://box.example.ts.net:10000/abu', 'wss://box.example.ts.net:8443/abu'], token: 't', agentKey: KEY },
+        { id: 'a', name: 'Cloud box', addresses: ['wss://cloud.example.com/'], agentKey: KEY },
+        { id: 'b', name: 'Home box', addresses: ['wss://box.example.ts.net:10000/abu', 'wss://box.example.ts.net:8443/abu'], agentKey: KEY },
       ],
     });
     render(Settings, { props: { store: store as never } });
@@ -130,8 +130,8 @@ describe('Settings — adding a machine', () => {
     expect(add.getAttribute('aria-expanded')).toBe('false');
     await fireEvent.click(add);
     expect(screen.getByTestId('pair-machine')).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: /enter details by hand/i }));
-    expect(store.goNewMachine).toHaveBeenCalled();
+    // A phone joins a machine only through a `tarfa pair` link: there is no form to fill by hand.
+    expect(screen.queryByRole('button', { name: /enter details by hand/i })).toBeNull();
   });
 
   it('shows the pairing options straight away when there is no machine yet', () => {

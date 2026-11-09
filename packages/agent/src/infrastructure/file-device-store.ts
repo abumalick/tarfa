@@ -42,7 +42,8 @@ export class FileDeviceStore implements DeviceStorePort {
 
   async update(change: (roster: DeviceRoster) => DeviceRoster): Promise<DeviceRoster> {
     return withFileLock(this.filePath, this.staleLockMs, async () => {
-      const next = change(await this.read());
+      // tokenEnrolment is written false whatever the change: see DeviceRoster.
+      const next = { ...change(await this.read()), tokenEnrolment: false };
       await writeFileAtomic(this.filePath, `${JSON.stringify(next, null, 2)}\n`);
       return next;
     });

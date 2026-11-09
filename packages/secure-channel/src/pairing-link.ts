@@ -10,7 +10,7 @@ export interface PairingLink {
   urls: string[];
   // The agent's X25519 public key, which the Noise session pins.
   agentKey: string;
-  // One-time and short-lived; it stands in for the token when the device key is enrolled.
+  // One-time and short-lived: what admits a new device, whose key is then its credential.
   secret: string;
   // The machine's name, which the new entry is called by.
   name: string;

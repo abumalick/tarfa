@@ -4,9 +4,16 @@ import type { ClientConnection } from '../ports/client-connection';
 
 // Test support only: a client in plaintext JSON, to exercise what WsServer does with a client
 // without playing a Noise handshake. Phones never reach the agent this way; they come through
-// its phone port, in a Noise session.
+// its phone port, in a Noise session. It stands for an enrolled phone unless told it is not.
 export class PlainClientConnection implements ClientConnection {
-  constructor(private readonly socket: WebSocket) {}
+  readonly keyCredential: 'device' | undefined;
+
+  constructor(
+    private readonly socket: WebSocket,
+    options: { stranger?: boolean } = {},
+  ) {
+    this.keyCredential = options.stranger ? undefined : 'device';
+  }
 
   send(message: AgentMessage): void {
     this.socket.send(JSON.stringify(message));

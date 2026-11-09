@@ -56,18 +56,15 @@ Steps 1, 2 and 4 below, plus a Tailscale address for phones, are one non-interac
 tarfa setup --machine-id dev --project-roots ~/workspace --default-path ~/workspace \
   --tailscale funnel --slug me --pair            # add --dry-run first to see the plan
 ```
-It writes `~/.tarfa/agent.env` (backed up first, `600`; a `TARFA_TOKEN` only if there is none),
-creates the agent key, writes `~/.tarfa/devices.json` with token enrolment **off** before the
-service first starts (a missing roster would let the token enrol phones on a public port),
-writes the launcher and the `~/.local/bin/tarfa` wrapper, installs the systemd user unit with linger or the launchd agent (running the launcher), runs `install-hooks`, adds one
+It writes `~/.tarfa/agent.env` (backed up first, `600`), creates the agent key, writes
+`~/.tarfa/devices.json` before the service first starts (an agent from before token enrolment was
+removed, if one is ever brought back, reads a missing roster as "the token enrols"), writes the launcher and the `~/.local/bin/tarfa` wrapper, installs the systemd user unit with linger or the launchd agent (running the launcher), runs `install-hooks`, adds one
 `tailscale serve` (or `funnel`) handler for the phone port, restarts the agent only if anything
-changed and checks the phone port answers. On a machine whose existing roster has token
-enrolment on, a run that leaves phones an address (new, or already in `agent.env`) refuses until `--token-enrolment off` switches it
-off or `--token-enrolment on` keeps it deliberately. Rerun with the same flags, or with none, it changes
+changed and checks the phone port answers. Rerun with the same flags, or with none, it changes
 nothing: a flag not given takes the machine id, roots, phone port and default path from the `agent.env`
 it finds, and a flag given still wins. How the port is published is not in `agent.env`, so `--tailscale`
 defaults to `none`, which changes nothing, and the `TARFA_PHONE_ADDRESSES` already there are kept. It
-never replaces an agent key, a token, an installed unit that already runs the launcher (or a clone's
+never replaces an agent key, an installed unit that already runs the launcher (or a clone's
 `deploy/run-agent.sh`) with `KillMode=process`, or a `tailscale serve` entry pointing elsewhere.
 An existing `TARFA_PWA_ORIGIN` is kept unless `--pwa` names another (the default is
 `https://tarfa.app`). Where Tailscale needs root, it prints `sudo tailscale set --operator=$USER`
@@ -117,7 +114,7 @@ Install the package (above) and run `tarfa setup --adopt`, or, from a clone (`gi
 `pnpm install --frozen-lockfile`, `deploy/install-cli.sh`), run `tarfa setup` with the machine's usual flags. It stops `perch-agent` (launchd:
 `com.perch.agent`; tmux and every workspace keep running), moves `~/.perch` to `~/.tarfa` (keeping
 `~/.perch` as a link to it, and the agent key as `agent-key.json`), renames `deploy/agent.env`'s
-`PERCH_*` lines to `TARFA_*` (the token is kept), installs and starts `tarfa-agent`
+`PERCH_*` lines to `TARFA_*`, installs and starts `tarfa-agent`
 (`app.tarfa.agent`, with the old unit's drop-ins copied over), reinstalls the hooks as `tarfa-hook.sh`/`tarfa-guard.sh`, and removes the old
 unit last. A Codex user then trusts the new hooks in Codex's `/hooks`. An agent merely restarted
 under its old unit moves `~/.perch` and re-tags the workspaces' tmux options itself, so the
@@ -146,16 +143,16 @@ the tailnet peer's address, so the per-address caps see the real client.
 from the clone):
 ```sh
 install -m 600 deploy/agent.env.example ~/.tarfa/agent.env   # the example is in the repository
-# edit it: set TARFA_TOKEN (openssl rand -hex 32 — a strong random value, one per machine),
-# TARFA_MACHINE_ID (unique: "mac"/"mini"), TARFA_PROJECT_ROOTS (e.g. ~/workspace), keep TARFA_PORT=8787
+# edit it: set TARFA_MACHINE_ID (unique: "mac"/"mini"), TARFA_PROJECT_ROOTS (e.g. ~/workspace),
+# keep TARFA_PORT=8787
 ```
-> The token enrols a phone entry added by hand that carries it, while token enrolment is on
-> (`tarfa devices enrolment`). The local hooks use their own secret, which the agent writes to
-> `~/.tarfa/token` at each start. A phone paired with `tarfa pair`
-> holds no token: its enrolled device key is its credential. Use a strong random value either way.
+> Phones join only with a one-time `tarfa pair` link; a paired phone's enrolled device key is its
+> credential. The local hooks use their own secret, which the agent writes to `~/.tarfa/token` at
+> each start. An agent.env from before still holding `TARFA_TOKEN` starts; the agent ignores the
+> line with one warning, so delete it.
 >
 > `agent.env` must be readable by you alone: the agent refuses to start while another user
-> can read or change it (it holds the token, which enrols a phone), and says so naming the fix,
+> can read or change it (the launcher sources it, so whoever can write it runs code as you), and says so naming the fix,
 > `chmod 600 ~/.tarfa/agent.env`. A plain `cp` keeps the source's mode, which on
 > most systems is readable by everyone; `install -m 600` does not.
 >
@@ -237,7 +234,7 @@ curl -si http://127.0.0.1:8797/hooks | head -1
 ```
 
 ## 4. Wire Claude Code hooks (each machine)
-The agent writes a hooks-only secret to `~/.tarfa/token` at each start (mode 600; never `TARFA_TOKEN`); the hook reads it.
+The agent writes a hooks-only secret to `~/.tarfa/token` at each start (mode 600); the hook reads it.
 ```sh
 tarfa install-hooks     # reads the machine id and hooks port from agent.env; `tarfa apply` reruns it
 # merges Stop/StopFailure/Notification/UserPromptSubmit/PreToolUse/PostToolUse/SessionStart hooks into ~/.claude/settings.json

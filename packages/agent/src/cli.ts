@@ -215,7 +215,7 @@ const HELP = `usage: tarfa <command> [options]   (\`tarfa setup --help\`, \`tarf
 Set up this machine:
   setup          write agent.env, the agent key, the service and the hooks, then check the phone port
   pair           print a one-time pairing link and QR code for a phone
-  devices        list, revoke or forget paired phones; switch enrolment on, off or closed
+  devices        list, revoke or forget paired phones; open or close enrolment
   update         install the newest @tarfa/cli and apply it (package installs)
   apply          rewrite the launcher and service if they changed, reinstall the hooks, restart
   install-hooks  install the Claude Code and Codex hooks that report each workspace's status
@@ -645,7 +645,7 @@ agent key, a new device roster that admits pairing codes only (an existing one i
 user unit with linger, or launchd), the Claude Code hooks, and optionally a Tailscale address for
 phones. Rerunning it with the same flags, or with none, changes nothing: --machine-id, --project-roots,
 --phone-port and --default-path default to what the agent.env it finds holds. It refuses rather than
-replace anything it did not make (an agent key, a token, another tailscale serve entry).
+replace anything it did not make (an agent key, another tailscale serve entry).
 
   --machine-id <id>             the name phones show for this machine
   --project-roots <dir,dir>     absolute folders new workspaces may be made in
@@ -661,7 +661,6 @@ replace anything it did not make (an agent key, a token, another tailscale serve
                                 4 in all), e.g. a reverse proxy
   --pwa <origin>                where phones open the app (default https://tarfa.app; an existing
                                 TARFA_PWA_ORIGIN is kept unless this is given)
-  --token-enrolment on|off      let TARFA_TOKEN enrol phones (off by default on a new roster)
   --pair                        print a pairing link and QR code at the end
   --adopt                       a machine whose service runs a clone's deploy/run-agent.sh: move it to
                                 the installed package (copies deploy/agent.env to ~/.tarfa/agent.env,
@@ -683,8 +682,7 @@ Several agents on one node (one per Linux user) share a Tailscale port, each und
 The node has one operator: a second user runs \`--tailscale none --slug <name> --address <url>\`
 with their own --phone-port, and setup prints the \`tailscale serve\` line for the operator to run:
 on the port of that --address (or --tailscale-port), as \`tailscale funnel\` when the port is already
-on Funnel. Setup refuses to give phones an address while token enrolment is on, until
---token-enrolment says which way. Run as another user (sudo -u), set XDG_RUNTIME_DIR=/run/user/<uid>.
+on Funnel. Run as another user (sudo -u), set XDG_RUNTIME_DIR=/run/user/<uid>.
 
 Related: \`tarfa apply\` brings the service and hooks in line with the installed package and checks
 the agent came back; \`tarfa update\` installs a newer release with mise, then runs its apply.
@@ -771,7 +769,6 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
     service: { kind: service.kind, template: await service.template(), installed: installedUnit, enabled: await service.enabled() },
     envPath,
     envText,
-    newToken: randomBytes(32).toString('hex'),
     hasKey: await readFile(config.agentKeyPath).then(() => true, () => false),
     roster: hasRoster ? enrolmentMode(await devices.read()) : 'absent',
     hooksCurrent: await hooks.current(),
@@ -797,9 +794,9 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
       createKey: async () => {
         await loadOrCreateAgentKeys(config.agentKeyPath);
       },
-      writeRoster: async (mode) => {
+      writeRoster: async () => {
         await mkdir(dirname(config.devicesPath), { recursive: true, mode: 0o700 });
-        await devices.update((roster) => withEnrolmentMode(roster, mode));
+        await devices.update((roster) => roster);
       },
       writeLauncher: (path, text) => atomicWrite(path, text, 0o755),
       copyEnv: (from, to) => copyEnvOnce(from, to),
@@ -951,15 +948,13 @@ function pairingInstructions(link: string, minutes = PAIRING_TTL_MS / 60_000): s
 }
 
 const DEVICES_USAGE = [
-  'usage: tarfa devices [list | revoke <id|key> | forget <id|key> | enrolment on|off|closed]',
-  '  enrolment on      the token or a pairing code enrols a new phone',
-  '  enrolment off     only a pairing code from `tarfa pair` enrols one',
+  'usage: tarfa devices [list | revoke <id|key> | forget <id|key> | enrolment open|closed]',
+  '  enrolment open    a pairing code from `tarfa pair` enrols a new phone',
   '  enrolment closed  no new phone can enrol',
 ].join('\n');
 
 const ENROLMENT_MODES: Record<EnrolmentMode, string> = {
-  on: 'on (the token or a pairing code enrols a phone)',
-  off: 'off (only a pairing code from `tarfa pair` enrols a phone)',
+  open: 'open (a pairing code from `tarfa pair` enrols a phone)',
   closed: 'closed (no new phone can enrol)',
 };
 
@@ -973,24 +968,19 @@ async function devices(store: FileDeviceStore, [action = 'list', arg]: string[])
     case 'forget': {
       if (!arg) throw new Error(DEVICES_USAGE);
       const found: { device: Device | null } = { device: null };
-      const written = await store.update((roster) => {
+      await store.update((roster) => {
         const result = action === 'revoke' ? revokeDevice(roster, arg, new Date()) : forgetDevice(roster, arg);
         found.device = result.device;
         return result.roster;
       });
       const { device } = found;
       if (!device) throw new Error(`no single device matches ${arg}; see tarfa devices, and name it by its full key if its id is shared`);
-      if (action === 'forget') return `forgot ${device.id} (${sanitizeDeviceName(device.name)}); it can enrol again (a \`tarfa pair\` code, or the token while enrolment is on)`;
-      const lines = [`revoked ${device.id} (${sanitizeDeviceName(device.name)}); this key stays refused until forgotten`];
-      // The lost phone may also hold the token, which can enrol a fresh key while enrolment is on.
-      if (enrolmentMode(written) === 'on') {
-        lines.push('enrolment is on: whoever holds the token can still enrol a new key.');
-        lines.push('Run `tarfa devices enrolment off`, or rotate the token, to stop that.');
-      }
-      return lines.join('\n');
+      if (action === 'forget') return `forgot ${device.id} (${sanitizeDeviceName(device.name)}); it can enrol again with a \`tarfa pair\` code`;
+      return `revoked ${device.id} (${sanitizeDeviceName(device.name)}); this key stays refused until forgotten`;
     }
     case 'enrolment': {
-      if (arg !== 'on' && arg !== 'off' && arg !== 'closed') throw new Error(DEVICES_USAGE);
+      if (arg === 'on' || arg === 'off') throw new Error(`token enrolment is gone: phones join only with a \`tarfa pair\` code. Use \`enrolment open\` or \`enrolment closed\``);
+      if (arg !== 'open' && arg !== 'closed') throw new Error(DEVICES_USAGE);
       await store.update((roster) => withEnrolmentMode(roster, arg));
       return `enrolment: ${ENROLMENT_MODES[arg]}`;
     }

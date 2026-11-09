@@ -55,7 +55,7 @@ function harness(refusalContext?: RefusalContext, addresses = ['wss://m1.ts.net'
   const timers: Array<{ fn: () => void; ms: number; cancelled: boolean }> = [];
   const conn = new MachineConnection({
     addresses,
-    token: 'secret',
+    pairing: 'secret',
     socketFactory: (url) => {
       dialed.push(url);
       const f = fakeSocket();
@@ -78,7 +78,7 @@ function harness(refusalContext?: RefusalContext, addresses = ['wss://m1.ts.net'
     },
     now: () => clock,
     refusalContext,
-    onCredentialsSpent: (scope) => spent.push(scope),
+    onCredentialsSpent: () => spent.push('pairing'),
     onAgent: (agent) => agents.push(agent),
   });
   const advance = (ms: number) => (clock += ms);
@@ -87,85 +87,43 @@ function harness(refusalContext?: RefusalContext, addresses = ['wss://m1.ts.net'
 
 const authOf = (socket: ReturnType<typeof fakeSocket>) => socket.sent.map((d) => JSON.parse(d) as { type: string; token?: string }).find((m) => m.type === 'auth');
 
-// Once the device key is enrolled the token and the pairing secret are dead weight, and sending
-// them on every connect hands them to whoever holds the agent's key.
+// Once the device key is enrolled the pairing secret is dead weight, and sending it on every
+// connect hands it to whoever holds the agent's key.
 describe('MachineConnection credentials', () => {
-  const tokened: RefusalContext = { machine: 'dev box', credential: 'token' };
+  const paired: RefusalContext = { machine: 'dev box', credential: 'pairing' };
 
-  it('forgets its credential once the agent says the device key is enrolled', () => {
-    const h = harness(tokened);
+  it('forgets its pairing code once the agent says the device key is enrolled', () => {
+    const h = harness(paired);
     h.conn.connect();
     h.sockets[0]!.open();
     expect(authOf(h.sockets[0]!)).toEqual({ type: 'auth', token: 'secret' });
-    h.sockets[0]!.deliver({ type: 'authResult', ok: true, credential: 'token', enrolled: true });
-    expect(h.spent).toEqual(['all']);
+    h.sockets[0]!.deliver({ type: 'authResult', ok: true, credential: 'pairing', enrolled: true });
+    expect(h.spent).toEqual(['pairing']);
     h.sockets[0]!.fireClose({ code: 1006 });
     h.scheduled[0]!.fn();
     h.sockets[1]!.open();
     expect(authOf(h.sockets[1]!)).toEqual({ type: 'auth', token: '' });
-  });
-
-  it('keeps its credential when the key is not enrolled, or the agent does not say', () => {
-    const h = harness(tokened);
-    h.conn.connect();
-    h.sockets[0]!.open();
-    h.sockets[0]!.deliver({ type: 'authResult', ok: true, enrolled: false });
-    h.sockets[0]!.fireClose({ code: 1006 });
-    h.scheduled[0]!.fn();
-    h.sockets[1]!.open();
-    h.sockets[1]!.deliver({ type: 'authResult', ok: true });
-    expect(h.spent).toEqual([]);
-    expect(authOf(h.sockets[1]!)).toEqual({ type: 'auth', token: 'secret' });
-  });
-
-  // The close reason travels outside the session, so whatever sits on the path can forge it: the token is only
-  // held back for the next attempt, and forgotten for good once the agent itself says, inside
-  // the session, that the key is enrolled.
-  it('redials without the token when it is refused as not needed, and forgets it once enrolment is confirmed', () => {
-    const h = harness(tokened);
-    h.conn.connect();
-    h.sockets[0]!.open();
-    h.sockets[0]!.fireClose({ code: 4003, reason: 'token not needed' });
-    expect(h.spent).toEqual([]);
-    expect(h.diagnostics[0]).toMatchObject({ refused: true });
-    expect(h.scheduled).toHaveLength(1);
-    h.scheduled[0]!.fn();
-    h.sockets[1]!.open();
-    expect(authOf(h.sockets[1]!)).toEqual({ type: 'auth', token: '' });
-    h.sockets[1]!.deliver({ type: 'authResult', ok: true, credential: 'device', enrolled: true });
-    expect(h.spent).toEqual(['all']);
-  });
-
-  it('sends the token again when the attempt without it is refused as not enrolled', () => {
-    const h = harness(tokened);
-    h.conn.connect();
-    h.sockets[0]!.open();
-    h.sockets[0]!.fireClose({ code: 4003, reason: 'token not needed' });
-    h.scheduled[0]!.fn();
-    h.sockets[1]!.open();
-    h.sockets[1]!.fireClose({ code: 4003, reason: 'device not enrolled' });
-    expect(h.spent).toEqual([]);
-    expect(h.scheduled).toHaveLength(2);
-    h.scheduled[1]!.fn();
-    h.sockets[2]!.open();
-    expect(authOf(h.sockets[2]!)).toEqual({ type: 'auth', token: 'secret' });
   });
 
   // An agent from before `enrolled` still spends a pairing secret on `auth`.
-  it('drops only the pairing secret when an agent does not say whether the key is enrolled', () => {
-    const h = harness({ machine: 'dev box', credential: 'pairing' });
+  it('forgets it too when an agent does not say whether the key is enrolled', () => {
+    const h = harness(paired);
     h.conn.connect();
     h.sockets[0]!.open();
     h.sockets[0]!.deliver({ type: 'authResult', ok: true });
     expect(h.spent).toEqual(['pairing']);
   });
 
-  it('keeps a pairing secret the agent could not enrol, so the phone can retry with it', () => {
-    const h = harness({ machine: 'dev box', credential: 'pairing' });
+  it('keeps a pairing code the agent could not enrol, so the phone can retry with it', () => {
+    const h = harness(paired);
     h.conn.connect();
     h.sockets[0]!.open();
     h.sockets[0]!.deliver({ type: 'authResult', ok: true, credential: 'pairing', enrolled: false });
+    h.sockets[0]!.fireClose({ code: 1006 });
+    h.scheduled[0]!.fn();
+    h.sockets[1]!.open();
     expect(h.spent).toEqual([]);
+    expect(authOf(h.sockets[1]!)).toEqual({ type: 'auth', token: 'secret' });
   });
 });
 
@@ -620,7 +578,7 @@ describe('MachineConnection authResult channels', () => {
     const sockets: ReturnType<typeof fakeSocket>[] = [];
     const conn = new MachineConnection({
       addresses: ['wss://m1'],
-      token: 't',
+      pairing: '',
       socketFactory: () => {
         const f = fakeSocket();
         sockets.push(f);
@@ -649,7 +607,7 @@ describe('MachineConnection opening requests', () => {
     const events: string[] = [];
     const conn = new MachineConnection({
       addresses: ['wss://m1'],
-      token: '',
+      pairing: '',
       socketFactory: () => {
         const f = fakeSocket();
         sockets.push(f);
@@ -760,7 +718,7 @@ describe('MachineConnection address walk', () => {
   it.each([
     ['a final refusal', { code: 4003, reason: REFUSAL.wrongAgentKey }, true],
     ['a revocation', { code: 4003, reason: REFUSAL.revoked }, true],
-    ['a passing refusal', { code: 4003, reason: REFUSAL.tokenNotNeeded }, false],
+    ['a refusal it does not know', { code: 4003, reason: 'a reason from a newer agent' }, false],
     ['a busy phone port', { code: 4429, reason: REFUSAL.tooManyPending }, false],
     ['a full phone port', { code: 4429, reason: REFUSAL.tooManyConnections }, false],
   ])('stops the walk at %s: the agent answered, and the next address leads to the same one', (_label, close, final) => {

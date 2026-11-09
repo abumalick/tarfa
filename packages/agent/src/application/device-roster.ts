@@ -20,35 +20,27 @@ export interface DeviceRoster {
   // listed devices get in. Its meaning predates the modes, so an older agent reading this file
   // still refuses every enrolment when the operator closed it.
   enrolment: boolean;
-  // Whether the token enrols too, beside a pairing code (absent: it does). A pairing code is
-  // minted on the machine by its operator, so it stays an explicit authorisation when this is off.
+  // Always written false and never read: an agent from before token enrolment was removed reads
+  // an absent field as "the token enrols", so a rollback must find it off.
   tokenEnrolment?: boolean;
   devices: Device[];
-  // Kept rather than dropped: the lost phone still holds the token, and would otherwise enrol
-  // its key again on its next connect.
+  // Kept rather than dropped, so `tarfa devices` still names a revoked phone; `forget` drops one.
   revoked: RevokedDevice[];
 }
 
-export const EMPTY_ROSTER: DeviceRoster = { enrolment: true, devices: [], revoked: [] };
+export const EMPTY_ROSTER: DeviceRoster = { enrolment: true, tokenEnrolment: false, devices: [], revoked: [] };
 
 export type DeviceStanding = 'enrolled' | 'revoked' | 'unknown';
 
-// `on`: the token or a pairing code enrols a phone. `off`: only a pairing code. `closed`: nothing.
-export type EnrolmentMode = 'on' | 'off' | 'closed';
+// `open`: a `tarfa pair` code enrols a phone. `closed`: nothing does.
+export type EnrolmentMode = 'open' | 'closed';
 
 export function enrolmentMode(roster: DeviceRoster): EnrolmentMode {
-  if (!roster.enrolment) return 'closed';
-  return roster.tokenEnrolment === false ? 'off' : 'on';
+  return roster.enrolment ? 'open' : 'closed';
 }
 
 export function withEnrolmentMode(roster: DeviceRoster, mode: EnrolmentMode): DeviceRoster {
-  return { ...roster, enrolment: mode !== 'closed', tokenEnrolment: mode === 'on' };
-}
-
-// Whether a device may enrol with this credential under the roster's mode.
-export function mayEnrol(roster: DeviceRoster, via: 'pairing' | 'token'): boolean {
-  const mode = enrolmentMode(roster);
-  return mode === 'on' || (mode === 'off' && via === 'pairing');
+  return { ...roster, enrolment: mode === 'open', tokenEnrolment: false };
 }
 
 export function standingOf(roster: DeviceRoster, x25519: string): DeviceStanding {
@@ -92,7 +84,7 @@ export function revokeDevice(roster: DeviceRoster, id: string, at: Date): { rost
   };
 }
 
-// Drops a device from both lists, so its key is unknown again and can re-enrol with the token.
+// Drops a device from both lists, so its key is unknown again and can pair again.
 export function forgetDevice(roster: DeviceRoster, id: string): { roster: DeviceRoster; device: Device | null } {
   const device = findDevice([...roster.devices, ...roster.revoked], id);
   if (!device) return { roster, device: null };

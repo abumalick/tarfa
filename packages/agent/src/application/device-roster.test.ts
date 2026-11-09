@@ -88,17 +88,18 @@ describe('device roster', () => {
     });
   });
 
-  it('reads the enrolment mode, keeping a roster from before the modes closed if it was off', () => {
-    expect(enrolmentMode(EMPTY_ROSTER)).toBe('on');
+  it('reads the enrolment mode, ignoring a token enrolment flag an older agent wrote', () => {
+    expect(enrolmentMode(EMPTY_ROSTER)).toBe('open');
     expect(enrolmentMode({ ...EMPTY_ROSTER, enrolment: false })).toBe('closed');
-    for (const mode of ['on', 'off', 'closed'] as const) {
+    expect(enrolmentMode({ ...EMPTY_ROSTER, tokenEnrolment: true })).toBe('open');
+    for (const mode of ['open', 'closed'] as const) {
       expect(enrolmentMode(withEnrolmentMode(EMPTY_ROSTER, mode))).toBe(mode);
     }
   });
 
-  it('keeps `enrolment` meaning "any enrolment at all", so an agent from before the modes reads it safely', () => {
-    expect(withEnrolmentMode(EMPTY_ROSTER, 'off')).toMatchObject({ enrolment: true, tokenEnrolment: false });
-    expect(withEnrolmentMode(EMPTY_ROSTER, 'closed')).toMatchObject({ enrolment: false });
-    expect(withEnrolmentMode(withEnrolmentMode(EMPTY_ROSTER, 'off'), 'on')).toMatchObject({ enrolment: true, tokenEnrolment: true });
+  it('writes token enrolment off, so an agent from before its removal reads the roster safely', () => {
+    expect(EMPTY_ROSTER.tokenEnrolment).toBe(false);
+    expect(withEnrolmentMode({ ...EMPTY_ROSTER, tokenEnrolment: true }, 'open')).toMatchObject({ enrolment: true, tokenEnrolment: false });
+    expect(withEnrolmentMode(EMPTY_ROSTER, 'closed')).toMatchObject({ enrolment: false, tokenEnrolment: false });
   });
 });

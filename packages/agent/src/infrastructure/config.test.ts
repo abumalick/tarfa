@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { loadConfig, assertServerConfig, configWarnings } from './config';
+import { loadConfig, configWarnings } from './config';
 
-const base = { TARFA_MACHINE_ID: 'mini', TARFA_TOKEN: 'secret' };
+const base = { TARFA_MACHINE_ID: 'mini' };
 const reachable = { ...base, TARFA_PHONE_ADDRESSES: 'wss://a.example.ts.net' };
 
 describe('loadConfig', () => {
@@ -14,7 +14,6 @@ describe('loadConfig', () => {
     expect(cfg).toEqual({
       stateDir: '/home/u/.tarfa',
       machineId: 'mini',
-      token: 'secret',
       port: 8787,
       projectRoots: ['/home/u/workspace'],
       pwaOrigin: 'https://tarfa.app',
@@ -115,13 +114,17 @@ describe('loadConfig', () => {
     expect('host' in cfg).toBe(false);
   });
 
-  it('does NOT require TARFA_TOKEN (CLI usage)', () => {
-    const cfg = loadConfig({ TARFA_MACHINE_ID: 'mini' }, '/home/u');
-    expect(cfg.token).toBeUndefined();
+  it('ignores TARFA_TOKEN, with one warning: phones join only with a pairing code', () => {
+    const cfg = loadConfig({ ...base, TARFA_TOKEN: 'secret' }, '/home/u');
+    expect('token' in cfg).toBe(false);
+    expect(configWarnings({ ...base, TARFA_TOKEN: 'secret' }).filter((w) => w.includes('TARFA_TOKEN'))).toEqual([
+      'TARFA_TOKEN is ignored: phones join only with a `tarfa pair` link; remove it from agent.env',
+    ]);
+    expect(configWarnings(base).some((w) => w.includes('TARFA_TOKEN'))).toBe(false);
   });
 
   it('throws when TARFA_MACHINE_ID is missing', () => {
-    expect(() => loadConfig({ TARFA_TOKEN: 'secret' }, '/home/u')).toThrow(/TARFA_MACHINE_ID/);
+    expect(() => loadConfig({}, '/home/u')).toThrow(/TARFA_MACHINE_ID/);
   });
 
   it('throws when TARFA_PORT is not a number', () => {
@@ -129,24 +132,12 @@ describe('loadConfig', () => {
   });
 });
 
-describe('assertServerConfig', () => {
-  it('passes when a token is present', () => {
-    expect(() => assertServerConfig(loadConfig(base, '/home/u'))).not.toThrow();
-  });
-
-  it('throws when the token is missing', () => {
-    expect(() => assertServerConfig(loadConfig({ TARFA_MACHINE_ID: 'mini' }, '/home/u'))).toThrow(
-      /TARFA_TOKEN/,
-    );
-  });
-});
-
 describe('legacy PERCH_ names', () => {
-  const legacy = { PERCH_MACHINE_ID: 'mini', PERCH_TOKEN: 'secret', PERCH_PHONE_PORT: '9100' };
+  const legacy = { PERCH_MACHINE_ID: 'mini', PERCH_PHONE_PORT: '9100' };
 
   it('reads an agent.env that still names PERCH_*', () => {
     const cfg = loadConfig(legacy, '/home/u');
-    expect([cfg.machineId, cfg.token, cfg.phonePort]).toEqual(['mini', 'secret', 9100]);
+    expect([cfg.machineId, cfg.phonePort]).toEqual(['mini', 9100]);
   });
 
   it('prefers the TARFA_ name when both are set', () => {
@@ -154,7 +145,7 @@ describe('legacy PERCH_ names', () => {
   });
 
   it('warns once per legacy name, and not for one its TARFA_ name overrides', () => {
-    const warnings = configWarnings({ ...legacy, TARFA_TOKEN: 'secret', TARFA_PHONE_ADDRESSES: 'wss://a.example.ts.net' });
+    const warnings = configWarnings({ ...legacy, TARFA_PHONE_ADDRESSES: 'wss://a.example.ts.net' });
     expect(warnings).toEqual([
       'PERCH_MACHINE_ID is read as TARFA_MACHINE_ID for one release: rename it in agent.env (tarfa setup does)',
       'PERCH_PHONE_PORT is read as TARFA_PHONE_PORT for one release: rename it in agent.env (tarfa setup does)',

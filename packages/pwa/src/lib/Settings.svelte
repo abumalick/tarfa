@@ -151,7 +151,6 @@
     {#if showAdd}
       <div class="card add-panel">
         <PairMachine {store} />
-        <button type="button" class="link" onclick={() => store.goNewMachine()}>{msg().settings.enterByHand}</button>
       </div>
     {/if}
 

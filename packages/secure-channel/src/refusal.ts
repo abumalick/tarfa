@@ -5,9 +5,9 @@
 export const REFUSAL = {
   notEnrolled: 'device not enrolled',
   revoked: 'device revoked',
-  // A device whose key is enrolled sent the token anyway: it should forget it.
+  // Sent only by agents from before token enrolment was removed: a device whose key is enrolled
+  // sent the token anyway, and token enrolment off (only a pairing code enrols a new phone).
   tokenNotNeeded: 'token not needed',
-  // Token enrolment is off: only a pairing code enrols a new phone.
   enrolmentOff: 'enrolment off',
   // No new phone can enrol, pairing code or not.
   enrolmentClosed: 'enrolment closed',

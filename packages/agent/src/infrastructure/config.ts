@@ -9,7 +9,6 @@ export interface AgentConfig {
   // ~/.tarfa, or a ~/.perch the agent has not moved yet (state-dir.ts).
   stateDir: string;
   machineId: string;
-  token: string | undefined;
   // The loopback port Claude Code's hooks post to. Phones never reach it.
   port: number;
   // The loopback port phones' WebSockets reach, through whatever publishes it (tailscale serve,
@@ -82,7 +81,6 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv, home: string): AgentConfig
   return {
     stateDir,
     machineId,
-    token: env.TARFA_TOKEN,
     port,
     phonePort,
     phoneAddresses: phoneAddresses(env),
@@ -116,14 +114,6 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv, home: string): AgentConfig
   };
 }
 
-export function assertServerConfig(
-  config: AgentConfig,
-): asserts config is AgentConfig & { token: string } {
-  if (!config.token) {
-    throw new Error('TARFA_TOKEN is required to run the agent server');
-  }
-}
-
 // Settings that are ignored or missing, for the agent to print at startup.
 export function configWarnings(rawEnv: NodeJS.ProcessEnv): string[] {
   const env = withLegacyEnv(rawEnv);
@@ -132,6 +122,7 @@ export function configWarnings(rawEnv: NodeJS.ProcessEnv): string[] {
   );
   const relays = ['TARFA_RELAY_URLS', 'TARFA_RELAY_URL'].filter((name) => env[name]?.trim());
   if (relays.length > 0) warnings.push(`relays are gone; remove ${relays.join(' and ')} from agent.env`);
+  if (env.TARFA_TOKEN?.trim()) warnings.push('TARFA_TOKEN is ignored: phones join only with a `tarfa pair` link; remove it from agent.env');
   if (phoneAddresses(env).length === 0) {
     warnings.push('no TARFA_PHONE_ADDRESSES: phones reach this agent only once its phone port is published (tailscale serve, a reverse proxy)');
   }

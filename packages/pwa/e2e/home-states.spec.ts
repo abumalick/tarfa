@@ -20,18 +20,17 @@ test('with no machines configured, prompts to add a machine (not create a worksp
   await expect(page.getByTestId('home-add-machine')).toBeVisible();
   await expect(page.getByText(/create your first workspace/i)).toHaveCount(0);
 
-  // The CTA opens Settings, where pairing is offered first and "Enter details by hand" opens
-  // the add-machine screen.
+  // The CTA opens Settings, where a machine is added only by pairing with a `tarfa pair` link.
   await page.getByRole('button', { name: /add a machine/i }).click();
-  await page.getByRole('button', { name: /enter details by hand/i }).click();
-  await expect(page.getByRole('heading', { name: 'Add machine' })).toBeVisible();
+  await expect(page.getByTestId('pair-machine')).toBeVisible();
+  await expect(page.getByRole('button', { name: /enter details by hand/i })).toHaveCount(0);
 });
 
 test('when machines are unreachable, shows the network hint and the reconnect screen', async ({ page }) => {
   // A machine pointed at a dead port never opens, so it lands in the unreachable state once
   // the connect grace period elapses.
   await seedMachines(page, [
-    { id: 'dead', name: 'Dead', addresses: ['ws://127.0.0.1:59999/acct'], token: 'secret', agentKey: generateAgentKeys().x25519.publicKey },
+    { id: 'dead', name: 'Dead', addresses: ['ws://127.0.0.1:59999/acct'], agentKey: generateAgentKeys().x25519.publicKey },
   ]);
   await page.goto('/');
 

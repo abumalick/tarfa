@@ -1,5 +1,4 @@
 import { exactTarget } from '../infrastructure/tmux-adapter';
-import { REFUSAL, constantTimeEqual } from '@tarfa/secure-channel';
 import { parseClientMessage, isWorkspaceStatus, type BrowserSession, type ClientMessage, type Workspace, type MachineStats } from '@tarfa/contracts';
 import type { ClientConnection } from '../ports/client-connection';
 import type { PtyPort, PtySession } from '../ports/pty-port';
@@ -192,20 +191,13 @@ export class ConnectionHandler {
     }
 
     if (message.type === 'auth') {
-      const token = this.deps.config.token;
-      const isToken = token !== undefined && constantTimeEqual(message.token, token);
-      const byKey = this.conn.keyCredential;
-      // An enrolled key needs no token, and a phone that keeps sending it hands it to whoever
-      // holds the agent's key: refused, so the phone drops it (it knows this refusal).
-      if (byKey === 'device' && isToken && this.conn.refuse) {
-        this.conn.refuse(REFUSAL.tokenNotNeeded);
-        return;
-      }
       // A phone served at once still sends its auth; it was answered already.
       if (this.authed) return;
-      if (byKey || isToken) {
+      // Only the transport authenticates: an enrolled device key, or a pairing code it just spent.
+      const byKey = this.conn.keyCredential;
+      if (byKey) {
         this.authed = true;
-        this.conn.send({ type: 'authResult', ok: true, credential: byKey ?? 'token' });
+        this.conn.send({ type: 'authResult', ok: true, credential: byKey });
       } else {
         this.conn.send({ type: 'authResult', ok: false });
         this.conn.close();

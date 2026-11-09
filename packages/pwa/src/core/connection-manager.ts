@@ -6,9 +6,9 @@ import { isConnectable, type MachineConfig } from './settings-store';
 import type { RefusalContext } from './refusal';
 
 export interface ConnectionManagerDeps {
-  // Sockets end-to-end encrypted to the given agent key. Whether the entry holds a token (or a
-  // pairing secret) decides whether the handshake asks to be served at once.
-  secureSocketFactory: (agentKey: string, token: string, onPhase: (phase: string, detail: string) => void) => SocketFactory;
+  // Sockets end-to-end encrypted to the given agent key. Whether the entry holds a pairing code
+  // decides whether the handshake asks to be served at once.
+  secureSocketFactory: (agentKey: string, pairing: string, onPhase: (phase: string, detail: string) => void) => SocketFactory;
   aggregator: WorkspaceAggregator;
   onMessage: (machineId: string, message: AgentMessage) => void;
   onStatus: (machineId: string, status: ConnectionStatus) => void;
@@ -16,22 +16,16 @@ export interface ConnectionManagerDeps {
   onAgent?: (machineId: string, agent: { protocol: number; version?: string; features?: string[] } | undefined) => void;
   // A phase of a connect (device key, socket open, handshake, an address failing) with its timing.
   onPhase?: (machineId: string, phase: string, detail: string) => void;
-  // The agent said this entry's device key is enrolled (`all`: its token and pairing secret are to
-  // be forgotten), or an older agent spent its pairing secret (`pairing`). The store persists it.
-  onCredentialsSpent?: (machineId: string, scope: 'all' | 'pairing') => void;
+  // The agent took this entry's pairing code: the store forgets it.
+  onCredentialsSpent?: (machineId: string) => void;
   schedule?: (fn: () => void, ms: number) => void;
   now?: () => number;
 }
 
-// What the connection authenticates with: a pairing secret while the entry holds one (it is what
-// the machine is expecting from this phone), else the token. A paired entry whose secret is spent
-// has neither: its enrolled device key is what the agent accepts.
-function credential(config: MachineConfig): string {
-  return config.pairing || config.token || '';
-}
-
+// What the connection authenticates with: a pairing code while the entry holds one, else nothing,
+// since a paired entry's enrolled device key is what the agent accepts.
 function credentialKind(config: MachineConfig): RefusalContext['credential'] {
-  return config.pairing ? 'pairing' : config.token ? 'token' : 'none';
+  return config.pairing ? 'pairing' : 'none';
 }
 
 export class ConnectionManager {
@@ -70,12 +64,12 @@ export class ConnectionManager {
         onAddressWorked: (address) => this.worked.set(config.id, address),
         onAgent: (agent) => this.deps.onAgent?.(config.id, agent),
         onPhase: (phase, detail) => this.deps.onPhase?.(config.id, phase, detail),
-        token: credential(config),
+        pairing: config.pairing ?? '',
         socketFactory: (url) => this.socketFactoryFor(this.configs.get(config.id) ?? config, url)(url),
-        onCredentialsSpent: (scope) => {
+        onCredentialsSpent: () => {
           const current = this.configs.get(config.id) ?? config;
-          this.configs.set(config.id, scope === 'all' ? { ...current, token: '', pairing: undefined } : { ...current, pairing: undefined });
-          this.deps.onCredentialsSpent?.(config.id, scope);
+          this.configs.set(config.id, { ...current, pairing: undefined });
+          this.deps.onCredentialsSpent?.(config.id);
         },
         schedule: this.deps.schedule,
         now: this.now,
@@ -108,7 +102,7 @@ export class ConnectionManager {
   // A machine is never reached in plaintext: without a valid agent key it gets no socket at all
   // (setMachines checks the key first). Each phase names the address it was measured on.
   private socketFactoryFor(config: MachineConfig, address: string): SocketFactory {
-    return this.deps.secureSocketFactory(config.agentKey.trim(), credential(config), (phase, detail) =>
+    return this.deps.secureSocketFactory(config.agentKey.trim(), config.pairing ?? '', (phase, detail) =>
       this.deps.onPhase?.(config.id, phase, `${detail} ${address}`),
     );
   }

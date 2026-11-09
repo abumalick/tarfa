@@ -59,12 +59,6 @@ describe('App', () => {
     expect(screen.getByText(/machines/i)).toBeInTheDocument();
   });
 
-  it('renders the add-machine view', () => {
-    const store = fakeStore('newMachine');
-    render(App, { props: { store: store as never } });
-    expect(screen.getByRole('heading', { name: /add machine/i })).toBeInTheDocument();
-  });
-
   it('narrow layout shows only the active view, no sidebar', () => {
     const store = fakeStore('settings');
     render(App, { props: { store: store as never } });

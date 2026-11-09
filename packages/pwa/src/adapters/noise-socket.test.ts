@@ -71,7 +71,7 @@ const identity = loadDeviceIdentity(identityStore, noCurves);
 
 const ADDRESS = 'wss://dev.example.ts.net:10000/abu';
 
-function setup(agentKey = agent.x25519.publicKey, device: () => Promise<DeviceIdentity> = () => identity, token = 'the-token') {
+function setup(agentKey = agent.x25519.publicKey, device: () => Promise<DeviceIdentity> = () => identity, pairing = 'the-code') {
   const inner = new FakeFrameSocket();
   const urls: string[] = [];
   const socket = noiseSocketFactory(
@@ -80,7 +80,7 @@ function setup(agentKey = agent.x25519.publicKey, device: () => Promise<DeviceId
       return inner;
     },
     agentKey,
-    { device, token, deviceName: 'Test phone' },
+    { device, pairing, deviceName: 'Test phone' },
   )(ADDRESS);
   const events: string[] = [];
   const messages: string[] = [];
@@ -147,10 +147,10 @@ describe('noise socket', () => {
   });
 
   // A phone holding a credential takes the old ordering, so the agent sees its `auth` (and burns a
-  // pairing code, or refuses the token) before any `enrolled` lets the phone forget it.
+  // pairing code) before any `enrolled` lets the phone forget it.
   it('asks to be served at once only when the entry holds no credential', async () => {
-    for (const [token, push] of [['', true], ['the-token', undefined], ['S'.repeat(43), undefined]] as const) {
-      const { inner } = setup(agent.x25519.publicKey, () => identity, token);
+    for (const [pairing, push] of [['', true], ['S'.repeat(43), undefined]] as const) {
+      const { inner } = setup(agent.x25519.publicKey, () => identity, pairing);
       await opened(inner);
       const responder = new IkResponder(b64url.decode(agent.x25519.privateKey));
       expect(parseDeviceHello(responder.readMessage1(readHandshakeFrame(inner.sent[0]!, 'ik')))?.push).toBe(push);
@@ -215,7 +215,7 @@ describe('noise socket', () => {
     const inner = new FakeFrameSocket();
     const socket = noiseSocketFactory(() => inner, agent.x25519.publicKey, {
       device: () => Promise.reject(new Error('no IndexedDB')),
-      token: 't',
+      pairing: 't',
       deviceName: 'p',
     })(ADDRESS);
     let reason: string | undefined;
@@ -250,7 +250,7 @@ describe('noise socket', () => {
     let reject!: (err: Error) => void;
     const socket = noiseSocketFactory(() => new FakeFrameSocket(), agent.x25519.publicKey, {
       device: () => new Promise((_, r) => (reject = r)),
-      token: 't',
+      pairing: 't',
       deviceName: 'p',
     })(ADDRESS);
     let closes = 0;
@@ -270,7 +270,7 @@ describe('noise socket', () => {
         t += 50;
         return identity;
       },
-      token: 't',
+      pairing: 't',
       deviceName: 'p',
       now: () => t,
       onPhase: (phase, detail) => phases.push([phase, detail]),

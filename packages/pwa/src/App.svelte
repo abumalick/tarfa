@@ -3,7 +3,6 @@
   import type { TarfaStore } from './store.svelte';
   import WorkspaceList from './lib/WorkspaceList.svelte';
   import Settings from './lib/Settings.svelte';
-  import AddMachine from './lib/AddMachine.svelte';
   import CreateWorkspace from './lib/CreateWorkspace.svelte';
   import FileBrowser from './lib/FileBrowser.svelte';
   import ImageViewer from './lib/ImageViewer.svelte';
@@ -105,8 +104,6 @@
     {/await}
   {:else if store.view === 'settings'}
     <Settings {store} />
-  {:else if store.view === 'newMachine'}
-    <AddMachine {store} />
   {:else if store.view === 'create'}
     <CreateWorkspace {store} />
   {:else if store.view === 'browser'}
