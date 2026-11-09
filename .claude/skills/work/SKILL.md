@@ -1,6 +1,6 @@
 ---
 name: work
-description: Use to implement any Tarfa feature, fix, or change. Enforces the project development flow — brainstorm first, a mandatory git worktree for every change, TDD on a clean/hexagonal architecture, an on-device deploy-test gate, then `pnpm land` (a locked landing on main) with worktree cleanup. Use whenever the user asks to build, add, implement, fix, or change behavior in Tarfa.
+description: Use to implement any Tarfa feature, fix, or change. Enforces the project development flow — brainstorm first, a mandatory git worktree for every change, TDD on a clean/hexagonal architecture, a verdict gate (sandbox screenshots, or the phone for device-only changes), then `pnpm land` (a locked landing on main) with worktree cleanup. Use whenever the user asks to build, add, implement, fix, or change behavior in Tarfa.
 ---
 
 # Work — Tarfa development flow
@@ -53,11 +53,33 @@ fakes. Keep `pnpm -s test` green; add tests with every change.
 Do not advance to Phase 4 until tests pass and you have verified the change does what it
 should.
 
-## Phase 4 — On-device test on the staging PWA
+## Phase 4 — Show it, then wait for the verdict
 
-When the work is green and verified, put it on the staging PWA yourself; it needs no
-permission, since staging is a separate origin from tarfa.app. First check that no other
-worktree is being served:
+When the work is green and verified, show it to the user and **stop and wait** for their
+verdict. Where you show it depends on what the change needs (`docs/SANDBOX.md`, "Which test
+where"):
+
+**A sandbox, by default.** Anything a desktop Chrome can show: UI, the workspace list, the
+create form, park/unpark, hooks and status, `tarfa send`/`wait`/`close`, pairing, terminal
+rendering, protocol and other agent changes. It runs your worktree's agent and PWA on their
+own, beside every other agent's, so there is nothing to queue for. From the worktree:
+
+```bash
+pnpm sandbox up                  # your worktree's agent + PWA, paired to a headless browser
+ab snapshot -i                   # drive it: ab click/fill, ab screenshot .tmp/<name>.png
+pnpm sandbox rebuild             # after a code change (workspaces survive)
+```
+
+Pick **Sonnet** in the create form for a Claude workspace. Take screenshots of what the
+user should look at and send them with one line saying what to check (`telegram-send` skill:
+`tg-send file <png…> --photo`). Keep the sandbox up until the verdict, in case they ask for
+more; `pnpm worktree:remove` takes it down.
+
+**Staging and the phone, only for what needs the device:** the Android keyboard, iOS
+Safari or install, voice and the mic, read-aloud, the share target, links handed to other
+apps, cold-launch speed, Funnel. Put it on the staging PWA yourself; it needs no permission,
+since staging is a separate origin from tarfa.app. First check that no other worktree is
+being served:
 
 ```bash
 readlink deploy/pwa-live                      # in the main checkout
@@ -75,7 +97,7 @@ This builds the worktree's PWA and points the staging deploy at it. The installe
 staging PWA offers the update within ~60s (app must be foregrounded), and the home header
 shows the `<feature>` slug as a badge.
 
-Then **stop and wait** for the user's verdict. Do not proceed.
+Either way, **stop and wait** for the user's verdict. Do not proceed.
 
 ## Phase 5 — Iterate or integrate
 
@@ -84,9 +106,9 @@ Then **stop and wait** for the user's verdict. Do not proceed.
   these edits its working tree; `land` runs its gate in the worktree):
 
 ```bash
-pnpm serve:restore                       # flip the live deploy back to main
+pnpm serve:restore                       # only if you served staging: flip it back to main
 pnpm land <feature>                      # deploy/land.sh: merge origin/main, gate, land, push
-pnpm worktree:remove .worktrees/<feature>  # restores main if it was still deployed, then removes
+pnpm worktree:remove .worktrees/<feature>  # restores staging, takes the sandbox down, removes
 git branch -d <feature>
 ```
 
@@ -120,8 +142,8 @@ End every run with a short, explicit status:
 - **What's left** — anything outstanding, or "nothing".
 - **Session state** — one of:
   - **Ready to close** — landed on main and the worktree is removed.
-  - **Open — awaiting your deploy-test verdict** — Phase 4 served, not yet
-    approved.
+  - **Open — awaiting your verdict** — Phase 4 shown (sandbox screenshots sent, or
+    staging served), not yet approved.
   - **Open — <reason>** — e.g. tests failing, merged but worktree not yet cleaned, blocked.
 
 Be honest about partial states. If something was skipped or failed, say so plainly.

@@ -71,6 +71,13 @@ Notes:
   with cwd inside the worktree fails the same way, surfacing as a raw `mise ERROR` in
   hook output instead of an obvious "run mise trust" prompt.
 
+## Testing in a sandbox
+
+Most changes can be seen working without the phone: `pnpm sandbox up` from the worktree starts
+a disposable Tarfa machine from that worktree's code, paired to a headless browser, and any
+number of worktrees can have one at once. `pnpm worktree:remove` takes it down. See
+`docs/SANDBOX.md`, which also says which changes still need the phone.
+
 ## Testing a worktree build on the phone
 
 To try a worktree's build on the real installed PWA on the phone (without permanently
