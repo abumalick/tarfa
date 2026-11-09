@@ -7,12 +7,12 @@ describe('PresetTranscriber', () => {
     const elevenlabs = { transcribe: vi.fn().mockResolvedValue('scribe') };
     const openrouter = { transcribe: vi.fn().mockResolvedValue('gemini') };
     const claude = { transcribe: vi.fn().mockResolvedValue('') };
-    let preset: DictationPreset = DEFAULT_PRESETS[0]!;
+    let preset: DictationPreset = DEFAULT_PRESETS.find((p) => p.id === 'scribe')!;
     const t = new PresetTranscriber(() => preset, { elevenlabs, openrouter, claude });
     const audio = new Blob(['x']);
 
     expect(await t.transcribe(audio)).toBe('scribe');
-    preset = DEFAULT_PRESETS[1]!;
+    preset = DEFAULT_PRESETS.find((p) => p.id === 'clean')!;
     expect(await t.transcribe(audio)).toBe('gemini');
     expect(openrouter.transcribe).toHaveBeenCalledWith(audio);
     preset = { id: 'cv', name: 'Claude voice', badge: 'CV', provider: 'claude' };

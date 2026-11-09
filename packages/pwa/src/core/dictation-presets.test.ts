@@ -12,7 +12,9 @@ import {
 } from './dictation-presets';
 import { setLanguage } from '../i18n.svelte';
 
-const clean = DEFAULT_PRESETS.find((p) => p.id === 'clean')!;
+const preset = (id: string) => DEFAULT_PRESETS.find((p) => p.id === id)!;
+const scribe = preset('scribe');
+const clean = preset('clean');
 const custom: DictationPreset = {
   id: 'tr',
   name: 'Translate',
@@ -23,8 +25,24 @@ const custom: DictationPreset = {
 };
 
 describe('DEFAULT_PRESETS', () => {
-  it('ships Scribe, Clean up and Fast, in that order', () => {
-    expect(DEFAULT_PRESETS.map((p) => p.id)).toEqual(['scribe', 'clean', 'fast']);
+  it('ships Claude voice, Scribe, Clean up and Fast, in that order', () => {
+    expect(DEFAULT_PRESETS.map((p) => p.id)).toEqual(['claude', 'scribe', 'clean', 'fast']);
+    expect(preset('claude')).toMatchObject({ provider: 'claude', fallbackId: 'scribe' });
+  });
+
+  it('dictates with Claude voice where the machine can, else with Scribe', () => {
+    const both = { elevenlabs: true, openrouter: true };
+    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'ok' }).id).toBe('claude');
+    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'unavailable' }).id).toBe('scribe');
+    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'not-claude' }).id).toBe('scribe');
+    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'asking' }).id).toBe('scribe');
+    expect(currentPreset(DEFAULT_PRESETS, 'clean', { ...both, claude: 'ok' }).id).toBe('clean');
+  });
+
+  it('needs no API key where Claude voice can run', () => {
+    const none = { elevenlabs: false, openrouter: false };
+    expect(hasUsablePreset(DEFAULT_PRESETS, { ...none, claude: 'ok' })).toBe(true);
+    expect(hasUsablePreset(DEFAULT_PRESETS, { ...none, claude: 'unavailable' })).toBe(false);
   });
 
   it('cleans up in the language spoken, as one paragraph', () => {
@@ -59,14 +77,14 @@ describe('parsePresets', () => {
 
   it('falls back from Claude voice to the preset it names, when that one can run', () => {
     const claude: DictationPreset = { id: 'cv', name: 'Claude voice', badge: 'CV', provider: 'claude', fallbackId: 'clean' };
-    const list = [DEFAULT_PRESETS[0]!, DEFAULT_PRESETS[1]!, claude];
+    const list = [scribe, clean, claude];
     const both = { elevenlabs: true, openrouter: true };
     expect(currentPreset(list, 'cv', { ...both, claude: 'ok' }).id).toBe('cv');
     expect(currentPreset(list, 'cv', { ...both, claude: 'asking' }).id).toBe('clean');
     expect(currentPreset(list, 'cv', { elevenlabs: true, openrouter: false, claude: 'asking' }).id).toBe('scribe');
     expect(parsePresets(JSON.stringify([claude]))).toEqual([claude]);
     const orphan: DictationPreset = { ...claude, fallbackId: 'deleted' };
-    expect(currentPreset([DEFAULT_PRESETS[0]!, orphan], 'cv', { ...both, claude: 'asking' }).id).toBe('scribe');
+    expect(currentPreset([scribe, orphan], 'cv', { ...both, claude: 'asking' }).id).toBe('scribe');
   });
 
   it('offers a Claude voice preset only in a workspace running Claude Code', () => {
@@ -76,8 +94,8 @@ describe('parsePresets', () => {
     expect(unavailableHint(claude, { ...keys, claude: 'ok' })).toBeNull();
     expect(unavailableHint(claude, { ...keys, claude: 'not-claude' })).toBe('Claude Code only');
     expect(unavailableHint(claude, { ...keys, claude: 'asking' })).toBe('question open');
-    expect(unavailableHint(DEFAULT_PRESETS[1]!, keys)).toBe('needs key');
-    expect(currentPreset([claude, DEFAULT_PRESETS[0]!], 'cv', { ...keys, claude: 'asking' }).id).toBe('scribe');
+    expect(unavailableHint(clean, keys)).toBe('needs key');
+    expect(currentPreset([claude, scribe], 'cv', { ...keys, claude: 'asking' }).id).toBe('scribe');
     expect(hasUsablePreset([claude], { elevenlabs: false, openrouter: false, claude: 'not-claude' })).toBe(false);
   });
 
@@ -85,7 +103,7 @@ describe('parsePresets', () => {
     const claude: DictationPreset = { id: 'cv', name: 'Claude voice', badge: 'CV', provider: 'claude', fallbackId: 'clean' };
     const keys = { elevenlabs: true, openrouter: true, claude: 'unavailable' } as const;
     expect(unavailableHint(claude, keys)).toBe('not on this machine');
-    expect(currentPreset([DEFAULT_PRESETS[0]!, DEFAULT_PRESETS[1]!, claude], 'cv', keys).id).toBe('clean');
+    expect(currentPreset([scribe, clean, claude], 'cv', keys).id).toBe('clean');
     expect(hasUsablePreset([claude], { ...keys, elevenlabs: false, openrouter: false })).toBe(false);
   });
 
@@ -99,8 +117,8 @@ describe('parsePresets', () => {
 });
 
 describe('currentPreset', () => {
-  const both = { elevenlabs: true, openrouter: true };
-  const openRouterOnly = { elevenlabs: false, openrouter: true };
+  const both = { elevenlabs: true, openrouter: true, claude: 'unavailable' } as const;
+  const openRouterOnly = { elevenlabs: false, openrouter: true, claude: 'unavailable' } as const;
 
   it('finds the preset by id', () => {
     expect(currentPreset(DEFAULT_PRESETS, 'clean', both).id).toBe('clean');
@@ -118,14 +136,14 @@ describe('currentPreset', () => {
   });
 
   it('keeps the old choice when no preset has a key', () => {
-    expect(currentPreset(DEFAULT_PRESETS, 'fast', { elevenlabs: false, openrouter: false }).id).toBe('fast');
+    expect(currentPreset(DEFAULT_PRESETS, 'fast', { elevenlabs: false, openrouter: false, claude: 'unavailable' }).id).toBe('fast');
   });
 });
 
 describe('hasUsablePreset', () => {
   it('is true only when some preset has its key', () => {
-    expect(hasUsablePreset(DEFAULT_PRESETS, { elevenlabs: false, openrouter: true })).toBe(true);
-    expect(hasUsablePreset(DEFAULT_PRESETS, { elevenlabs: false, openrouter: false })).toBe(false);
+    expect(hasUsablePreset(DEFAULT_PRESETS, { elevenlabs: false, openrouter: true, claude: 'unavailable' })).toBe(true);
+    expect(hasUsablePreset(DEFAULT_PRESETS, { elevenlabs: false, openrouter: false, claude: 'unavailable' })).toBe(false);
     expect(hasUsablePreset([clean], { elevenlabs: true, openrouter: false })).toBe(false);
   });
 });
@@ -152,7 +170,7 @@ describe('needsKey', () => {
   it('is true when the preset provider has no key', () => {
     expect(needsKey(clean, { elevenlabs: true, openrouter: false })).toBe(true);
     expect(needsKey(clean, { elevenlabs: false, openrouter: true })).toBe(false);
-    expect(needsKey(DEFAULT_PRESETS[0]!, { elevenlabs: false, openrouter: true })).toBe(true);
+    expect(needsKey(scribe, { elevenlabs: false, openrouter: true })).toBe(true);
   });
 });
 

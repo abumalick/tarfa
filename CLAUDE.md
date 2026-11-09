@@ -310,12 +310,15 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   `HOLD_MS`) on the mic opens the presets; its badge shows the current one; Settings edits them
   and holds both keys. **Only a preset whose provider has a key can be used**: the current
   preset is the chosen one if it has its key, else the first that does (`currentPreset`), a
-  keyless one is disabled in the menu, and with no key at all the mic is not rendered.
+  keyless one is disabled in the menu, and with no usable preset at all (no key, and no Claude
+  voice here) the mic is not rendered.
   Things not to "simplify":
   - **The defaults live in code until the user edits the list** (`DEFAULT_PRESETS`, nothing
     seeded into `tarfa.dictationPresets`), so an update can replace a model id OpenRouter has
     retired for everyone who never customised. Nothing personal ships: the default prompt
-    cleans up in the language spoken, and a translation preset is the user's own.
+    cleans up in the language spoken, and a translation preset is the user's own. **Claude
+    voice is the first default, falling back to Scribe:** `currentPreset` skips it wherever it
+    cannot run, so one list serves every machine. A list the user edited is kept as it is.
   - **An OpenRouter reply is typed as one line.** A newline reaching the pty submits the line
     (a shell would run a half-dictated command); a bracketed paste is no better, since Claude
     Code folds it into an unreadable `[Pasted text]`.

@@ -27,8 +27,10 @@ Rules:
 - Output only the message text.`;
 
 // Kept in code, not seeded into storage: until the user edits the list, an app update can
-// replace a model id the provider has retired.
+// replace a model id the provider has retired. Claude voice leads: where the machine cannot
+// run it, `currentPreset` skips it and Scribe takes over.
 export const DEFAULT_PRESETS: readonly DictationPreset[] = [
+  { id: 'claude', name: 'Claude voice', badge: 'CV', provider: 'claude', fallbackId: 'scribe' },
   { id: 'scribe', name: 'Scribe', badge: 'EL', provider: 'elevenlabs' },
   {
     id: 'clean',
