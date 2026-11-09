@@ -1,6 +1,8 @@
 <script lang="ts">
   import { isAndroid } from './android-input';
+  import { untrack } from 'svelte';
   import { flip } from 'svelte/animate';
+  import { SvelteSet } from 'svelte/reactivity';
   import { slide } from 'svelte/transition';
   import { imageMediaType, type Workspace } from '@tarfa/contracts';
   import type { TarfaStore } from '../store.svelte';
@@ -9,10 +11,12 @@
   import { APP_NAME, BUILD_LABEL, isTestBuild } from '../core/build-label';
   import { displayProjectPath } from '../core/resolve-path';
   import { isConnectable } from '../core/settings-store';
-  import { deriveProjectFolders, filterWorkspaces, pruneStaleFilter } from '../core/project-folders';
-  import { motionDuration, prefersReducedMotion, REORDER_MS, ENTER_LEAVE_MS } from './motion';
+  import { deriveProjectFolders, filterWorkspaces, projectFolderLabel, pruneStaleFilter } from '../core/project-folders';
+  import { motionDuration, prefersReducedMotion, reorderDuration, REORDER_MS, ENTER_LEAVE_MS } from './motion';
   import { statusLabel } from './workspace-status-display';
   import { nestWorkspaces } from '../core/nest-workspaces';
+  import { projectSections } from '../core/project-sections';
+  import { risers, urgency, type Ranked } from '../core/risers';
   import { statusAge } from '../core/status-age';
   import { msg } from '../i18n.svelte';
 
@@ -88,6 +92,10 @@
   const activeGroups = $derived(
     nestWorkspaces(visibleWorkspaces).filter((g) => g.workspace.status !== 'parked'),
   );
+  const labelOf = (ws: Workspace) => projectFolderLabel(store.machines, ws);
+  const sections = $derived(store.groupByProject ? projectSections(visibleWorkspaces, labelOf) : []);
+  const sectionSize = (section: (typeof sections)[number]) =>
+    section.groups.reduce((n, g) => n + 1 + g.children.length, 0);
   const parkedWorkspaces = $derived(visibleWorkspaces.filter((ws) => ws.status === 'parked'));
   // Agent-browser sessions attached to no workspace (e.g. a home-level per-site login
   // like `github`), listed per machine at the bottom of the home list.
@@ -103,6 +111,46 @@
       behavior: prefersReducedMotion() ? 'auto' : 'smooth',
     });
   const rowKey = (ws: Workspace) => ws.machineId + ':' + ws.id;
+  const sectionKey = (label: string) => '§' + label;
+
+  // What climbed past another since the last list glows for a moment, so the eye lands on the
+  // workspace (or project) that now needs attention rather than on everything that slid.
+  const RISE_MS = 1600;
+  const rising = new SvelteSet<string>();
+  const riseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let lastOrder = new Map<string, Ranked[]>();
+  const rankedGroup = (g: (typeof activeGroups)[number]): Ranked => ({
+    key: rowKey(g.workspace),
+    score: urgency([g.workspace, ...g.children]),
+  });
+  // Each glow keeps its own timer; climbing again restarts it, and the class is dropped for a
+  // frame so the animation plays again.
+  const glow = (key: string) => {
+    clearTimeout(riseTimers.get(key));
+    riseTimers.set(key, setTimeout(() => (riseTimers.delete(key), rising.delete(key)), RISE_MS));
+    if (rising.delete(key)) requestAnimationFrame(() => riseTimers.has(key) && rising.add(key));
+    else rising.add(key);
+  };
+  $effect(() => {
+    const order: Map<string, Ranked[]> = store.groupByProject
+      ? new Map([
+          [
+            '§',
+            sections.map((s) => ({
+              key: sectionKey(s.label),
+              score: urgency(s.groups.flatMap((g) => [g.workspace, ...g.children])),
+            })),
+          ],
+          ...sections.map((s): [string, Ranked[]] => [s.label, s.groups.map(rankedGroup)]),
+        ])
+      : new Map([['rows', activeGroups.map(rankedGroup)]]);
+    const rose = risers(lastOrder, order);
+    lastOrder = order;
+    // A project sits where its top workspace sits, so that workspace is what lifted it.
+    for (const s of sections) if (rose.has(sectionKey(s.label))) rose.add(rowKey(s.groups[0]!.workspace));
+    untrack(() => rose.forEach(glow));
+  });
+  $effect(() => () => riseTimers.forEach(clearTimeout));
   const expanded = (ws: Workspace) => store.expandedParents.has(rowKey(ws));
 
   const toggleFolder = (key: string) => {
@@ -129,7 +177,9 @@
   });
 </script>
 
-{#snippet workspaceRow(ws: Workspace)}
+<!-- Under a project header the row drops the folder the header already names; a child working
+     in another folder keeps its own. -->
+{#snippet workspaceRow(ws: Workspace, section: string | null = null)}
   <button
     type="button"
     class="row"
@@ -139,7 +189,9 @@
   >
     <span class="body">
       <span class="path-line">
-        <span class="path">{displayPath(ws.machineId, ws.projectPath)}</span>
+        {#if section === null || labelOf(ws) !== section}
+          <span class="path">{displayPath(ws.machineId, ws.projectPath)}</span>
+        {/if}
         {#if showMachine && machineFor(ws.machineId)?.name}
           <span class="machine">{machineFor(ws.machineId)?.name}</span>
         {/if}
@@ -158,6 +210,37 @@
       </span>
     </span>
   </button>
+{/snippet}
+
+{#snippet groupItem(ws: Workspace, children: Workspace[], section: string | null = null)}
+  {#if children.length > 0}
+    <!-- The toggle sits beside the row, not inside it, so a tap on it never opens the
+         orchestrator. Children arrive in list order, so the first is the most urgent. -->
+    <div class="parent">
+      {@render workspaceRow(ws, section)}
+      <button
+        type="button"
+        class="fold-toggle"
+        aria-expanded={expanded(ws)}
+        aria-label={msg().home.toggleChildren(expanded(ws), children.length)}
+        onclick={() => store.toggleChildren(rowKey(ws))}
+      >
+        <span class="fold-dot" data-status={children[0]!.status} aria-hidden="true">●</span>
+        <span>⧉ {children.length}</span>
+      </button>
+    </div>
+    {#if expanded(ws)}
+      <ul class="children" transition:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}>
+        {#each children as child (rowKey(child))}
+          <li animate:flip={{ duration: motionDuration(REORDER_MS) }}>
+            {@render workspaceRow(child, section)}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  {:else}
+    {@render workspaceRow(ws, section)}
+  {/if}
 {/snippet}
 
 <header>
@@ -252,44 +335,49 @@
       <button type="button" class="cta" onclick={() => setSelected([])}>{msg().home.showAll}</button>
     </div>
   {/if}
-  <ul>
-    {#each activeGroups as { workspace: ws, children } (rowKey(ws))}
-      <li
-        animate:flip={{ duration: motionDuration(REORDER_MS) }}
+  {#if store.groupByProject}
+    {#each sections as section (section.label)}
+      <section
+        class="project"
+        role="group"
+        class:rose={rising.has(sectionKey(section.label))}
+        aria-label={msg().home.projectSection(section.label, sectionSize(section))}
+        animate:flip={{ duration: reorderDuration }}
         in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
         out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
       >
-        {#if children.length > 0}
-          <!-- The toggle sits beside the row, not inside it, so a tap on it never opens the
-               orchestrator. Children arrive in list order, so the first is the most urgent. -->
-          <div class="parent">
-            {@render workspaceRow(ws)}
-            <button
-              type="button"
-              class="fold-toggle"
-              aria-expanded={expanded(ws)}
-              aria-label={msg().home.toggleChildren(expanded(ws), children.length)}
-              onclick={() => store.toggleChildren(rowKey(ws))}
+        <h2>
+          <span class="project-name">{section.label}</span>
+          <span class="project-count">{sectionSize(section)}</span>
+        </h2>
+        <ul>
+          {#each section.groups as { workspace: ws, children } (rowKey(ws))}
+            <li
+              class:rose={rising.has(rowKey(ws))}
+              animate:flip={{ duration: reorderDuration }}
+              in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
+              out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
             >
-              <span class="fold-dot" data-status={children[0]!.status} aria-hidden="true">●</span>
-              <span>⧉ {children.length}</span>
-            </button>
-          </div>
-          {#if expanded(ws)}
-            <ul class="children" transition:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}>
-              {#each children as child (rowKey(child))}
-                <li animate:flip={{ duration: motionDuration(REORDER_MS) }}>
-                  {@render workspaceRow(child)}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        {:else}
-          {@render workspaceRow(ws)}
-        {/if}
-      </li>
+              {@render groupItem(ws, children, section.label)}
+            </li>
+          {/each}
+        </ul>
+      </section>
     {/each}
-  </ul>
+  {:else}
+    <ul>
+      {#each activeGroups as { workspace: ws, children } (rowKey(ws))}
+        <li
+          class:rose={rising.has(rowKey(ws))}
+          animate:flip={{ duration: reorderDuration }}
+          in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
+          out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
+        >
+          {@render groupItem(ws, children)}
+        </li>
+      {/each}
+    </ul>
+  {/if}
   {#if parkedWorkspaces.length > 0}
     <!-- Parked sessions rarely need reading, so they sit folded behind one row at the end. -->
     <button
@@ -574,6 +662,36 @@
   .fold-dot[data-status='blocked'] { color: var(--danger); }
   .fold-dot[data-status='idle'] { color: var(--idle); }
   ul.children { margin: 0.5rem 0 0 1.25rem; }
+
+  /* A project header: the folder in the list's quiet heading style, its workspace count beside it.
+     The first one sits where the list's top margin was. */
+  .project { margin-top: 1rem; }
+  .project h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin: 0 0 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+  .project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .project-count { flex: 0 0 auto; font-weight: 400; }
+  .project > ul { margin-top: 0; }
+  /* A glow that fades out on whatever just climbed. Color only, so it stays under reduced
+     motion: it says what moved without moving anything. */
+  li.rose > .row,
+  li.rose > .parent > .row {
+    animation: rose 1.6s ease-out;
+  }
+  .project.rose > h2 { animation: rose-heading 1.6s ease-out; }
+  @keyframes rose {
+    from { box-shadow: 0 0 0 2px var(--accent), 0 0 16px 2px var(--accent); }
+    to { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; }
+  }
+  @keyframes rose-heading {
+    from { color: var(--accent); }
+  }
 
   /* Unattached browser sessions: a quiet bucket under the workspaces. */
   .browser-sessions { margin-top: 1.25rem; }
