@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Remove a feature worktree safely. If a live deploy (deploy/pwa-live for the PWA,
 # deploy/agent-live for the agent) is serving that worktree, switch it back to main first — otherwise the symlink would dangle and keep serving a removed checkout.
+# Its sandbox (deploy/sandbox.sh), if it has one, is taken down too.
 # See docs/WORKTREES.md.
 #
 #   pnpm worktree:remove <worktree-path>
@@ -37,6 +38,11 @@ case "${AGENT_TARGET}/" in
     "${SERVE_AGENT}" --restore
     ;;
 esac
+
+SANDBOX="${REPO}/deploy/sandbox.sh"
+if [ -x "${SANDBOX}" ]; then
+  "${SANDBOX}" down --worktree "${WT}" >/dev/null || echo "warning: sandbox down failed for ${WT}" >&2
+fi
 
 git -C "${REPO}" worktree remove "${WT}"
 echo "Removed worktree '${WT}'."

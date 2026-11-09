@@ -159,4 +159,22 @@ serves_main "${LIVE}" || fail "serve-build --restore run from the worktree did n
 agent_serves_main || fail "remove-worktree run from the worktree did not restore main's agent-live"
 echo "ok: run from a worktree, the scripts act on main's live symlinks"
 
+# --- 9. the worktree's sandbox goes down before the worktree is removed ------
+git -C "${SB}" branch -D foo >/dev/null 2>&1 || true
+make_worktree
+FOO_PHYS="$(cd "${SB}/.worktrees/foo" && pwd -P)"
+printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$*" "$([ -d "%s" ] && echo present || echo gone)" >> "%s"\nexit "${STUB_EXIT:-0}"\n' \
+  "${FOO_PHYS}" "${SB}/sandbox-calls" > "${SB}/deploy/sandbox.sh"
+chmod +x "${SB}/deploy/sandbox.sh"
+"${REMOVE}" "${SB}/.worktrees/foo" >/dev/null
+[ "$(cat "${SB}/sandbox-calls")" = "down --worktree ${FOO_PHYS}|present" ] \
+  || fail "remove-worktree did not take the sandbox down first: $(cat "${SB}/sandbox-calls")"
+git -C "${SB}" branch -D foo >/dev/null 2>&1 || true
+make_worktree
+out="$(STUB_EXIT=1 "${REMOVE}" "${SB}/.worktrees/foo" 2>&1)"
+[ ! -e "${SB}/.worktrees/foo" ] || fail "a failed sandbox down stopped the removal"
+case "${out}" in *"warning: sandbox down failed"*) ;; *) fail "a failed sandbox down printed no warning" ;; esac
+rm -f "${SB}/deploy/sandbox.sh"
+echo "ok: removing a worktree takes its sandbox down first, and a failed down does not stop it"
+
 echo "All worktree-remove guard tests passed."
