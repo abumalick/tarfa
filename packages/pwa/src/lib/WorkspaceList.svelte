@@ -631,7 +631,7 @@
   }
   .project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .project-count { flex: 0 0 auto; font-weight: 400; }
-  .project ul { margin-top: 0; }
+  .project > ul { margin-top: 0; }
 
   /* Unattached browser sessions: a quiet bucket under the workspaces. */
   .browser-sessions { margin-top: 1.25rem; }
