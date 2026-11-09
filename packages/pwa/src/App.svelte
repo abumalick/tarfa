@@ -43,6 +43,19 @@
   // ≥980px: the workspace list is a persistent left sidebar and the active view renders
   // beside it. Below: today's single-pane, full-screen stack (the list IS the home view).
   let wide = $state(false);
+  // On a phone the list scrolls the page, and opening another view unmounts it, which clamps
+  // the page's scroll to the new view's height. The position is read before the swap
+  // (`$effect.pre`) and put back once the list is rendered again.
+  let listScrollY = 0;
+  let shownView: typeof store.view | undefined;
+  $effect.pre(() => {
+    const view = store.view;
+    if (shownView === 'list' && view !== 'list') listScrollY = window.scrollY;
+    shownView = view;
+  });
+  $effect(() => {
+    if (store.view === 'list') window.scrollTo({ top: listScrollY, behavior: 'instant' });
+  });
   onMount(() => {
     store.start();
     // iOS only raises the soft keyboard from a user gesture. The create tap focuses this
