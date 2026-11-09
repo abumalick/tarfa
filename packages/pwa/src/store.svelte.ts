@@ -357,6 +357,11 @@ export class TarfaStore {
     if (deps.speech) {
       this.readAloudPlayer = new ReadAloud(deps.speech, () => this.syncReadAloud(), {
         startTimer: (fn, ms) => this.startTimer(fn, ms),
+        tick: (fn, ms) => {
+          const id = setInterval(fn, ms);
+          return () => clearInterval(id);
+        },
+        now: () => performance.now(),
         onError: (code) => {
           this.readAloudPlayer?.stop();
           this.readAloudNotice = code === 'no-start' ? msg().readAloud.voiceSilent : msg().readAloud.voiceFailed(code);

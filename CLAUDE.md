@@ -428,8 +428,11 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     12 s (`START_TIMEOUT_MS`) before it says so. That notice (and a voice error) offers "How
     to fix", whose steps follow the device (`lib/voice-platform.ts`: iOS, Android Chromium
     browsers, Android Firefox, which uses the phone's own engine, desktop).
-  - **The speed (0.75–2×, `tarfa.readAloudRate`) is the utterance's `rate`;** positions and the
-    ±10 s skips are in seconds at that speed, and a change restarts the sentence under way.
+  - **The speed (0.75–2×, `tarfa.readAloudRate`) is the utterance's `rate`;** positions, the
+    duration and the ±10 s skips are in seconds of the voice at 1× (as a video player counts),
+    so a speed change never moves the clock; it restarts the sentence under way. Inside a
+    sentence the clock runs on wall time × speed from the utterance's `start`, held at the
+    sentence's estimated end, and a pause shows the sentence start it will resume from.
   - **The voice follows the reply's language, not the app's** (`core/reply-language.ts`: Arabic
     by its script, English or French by their commonest words, else the app's language): a French
     voice reading English is barely understandable.

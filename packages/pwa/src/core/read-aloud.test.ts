@@ -179,7 +179,7 @@ describe('ReadAloud', () => {
     expect(p.state).toBe('playing');
   });
 
-  it('restarts the sentence under way at a new speed, and times itself at that speed', () => {
+  it('restarts the sentence under way at a new speed, and keeps its clock reading', () => {
     player.start(text, 'en');
     speech.playNext();
     speech.startNext();
@@ -188,16 +188,88 @@ describe('ReadAloud', () => {
     expect(player.state).toBe('playing');
     expect(speech.queue[0]!.text).toBe(sentence(1));
     expect(speech.rates.at(-1)).toBe(2);
-    expect(player.position).toBe(2.5);
-    expect(player.duration).toBe(15);
+    expect(player.position).toBe(5);
+    expect(player.duration).toBe(30);
   });
 
-  it('skips about ten seconds of what is heard at the chosen speed', () => {
+  it('skips ten seconds of the reply whatever the speed', () => {
     player.setRate(2);
     player.start(text, 'en');
     speech.startNext();
     player.skip(10);
-    expect(player.index).toBe(4);
+    expect(player.index).toBe(2);
+  });
+
+  describe('its clock', () => {
+    let now: number;
+    let ticks: Array<() => void>;
+    let cancelled: number;
+    let changes: number;
+    let p: ReadAloud;
+    beforeEach(() => {
+      now = 0;
+      ticks = [];
+      cancelled = 0;
+      changes = 0;
+      p = new ReadAloud(speech, () => changes++, {
+        now: () => now,
+        tick: (fn) => (ticks.push(fn), () => cancelled++),
+      });
+    });
+
+    it('moves every second inside a sentence, at the chosen speed', () => {
+      p.start(text, 'en');
+      speech.startNext();
+      now = 2000;
+      expect(p.position).toBe(2);
+      p.setRate(1.5);
+      speech.startNext();
+      now = 4000;
+      expect(p.position).toBe(3);
+    });
+
+    it('waits at the end of a sentence the voice reads slower than estimated', () => {
+      p.start(text, 'en');
+      speech.startNext();
+      now = 9000;
+      expect(p.position).toBe(5);
+    });
+
+    it('asks for a redraw every second while it plays, and stops asking once it does not', () => {
+      p.start(text, 'en');
+      expect(ticks).toHaveLength(1);
+      const before = changes;
+      ticks[0]!();
+      expect(changes).toBe(before + 1);
+      p.toggle();
+      expect(cancelled).toBe(1);
+      p.toggle();
+      p.stop();
+      expect(cancelled).toBe(2);
+    });
+
+    it('keeps one redraw going across a speed change', () => {
+      p.start(text, 'en');
+      p.setRate(2);
+      expect(ticks).toHaveLength(2);
+      expect(cancelled).toBe(1);
+    });
+
+    it('stops asking once the reply ends', () => {
+      p.start('One.', 'en');
+      speech.playNext();
+      expect(p.state).toBe('ended');
+      expect(cancelled).toBe(1);
+    });
+
+    it('shows a pause at the start of the sentence it will resume from', () => {
+      p.start(text, 'en');
+      speech.playNext();
+      speech.startNext();
+      now = 3000;
+      p.toggle();
+      expect(p.position).toBe(5);
+    });
   });
 
   it('keeps a pause paused when the speed changes', () => {

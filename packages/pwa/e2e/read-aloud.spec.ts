@@ -144,3 +144,20 @@ test('a silent voice closes the player and offers this device\'s help', async ({
   await help.getByRole('button', { name: 'Done' }).click();
   await expect(help).toHaveCount(0);
 });
+
+test('the clock moves every second while a sentence is read', async ({ page }) => {
+  const reply = agent.lastReplies['perch-demo']!;
+  agent.lastReplies['perch-demo'] = 'This one sentence is long enough to be read for several seconds by the voice.';
+  try {
+    await page.clock.install();
+    await fakeVoice(page);
+    await openDemo(page);
+    await listen(page).click();
+    const time = page.getByTestId('read-aloud-player').locator('.time');
+    await expect(time).toHaveText(/^0:00 \//);
+    await page.clock.fastForward(3000);
+    await expect(time).toHaveText(/^0:03 \//);
+  } finally {
+    agent.lastReplies['perch-demo'] = reply;
+  }
+});

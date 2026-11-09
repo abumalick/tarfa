@@ -25,8 +25,11 @@ export class ReadAloud {
   // Bumped by every cancel: the voice may still fire `end` on what it dropped.
   private generation = 0;
   private lang = '';
-  // Positions and skips are in seconds at this speed; `starts` stays at the voice's own.
+  // Positions, the duration and skips are in seconds of the voice at 1×, as a video player
+  // counts them, so a speed change moves the clock's pace and never its reading.
   rate = 1;
+  // When the voice started the chunk under way, for the clock inside it.
+  private startedAt: number | null = null;
 
   constructor(
     private readonly speech: SpeechPort,
@@ -35,17 +38,27 @@ export class ReadAloud {
       // `no-start` when the voice stayed silent, else the browser's error code.
       onError?: (code: string) => void;
       startTimer?: (fn: () => void, ms: number) => () => void;
+      // Calls `fn` every `ms` until cancelled: what moves the clock while a chunk is read.
+      tick?: (fn: () => void, ms: number) => () => void;
+      now?: () => number;
     } = {},
   ) {}
   private cancelWatch: (() => void) | null = null;
+  private cancelTick: (() => void) | null = null;
 
   get duration(): number {
     const last = this.chunks.length - 1;
-    return last < 0 ? 0 : (this.starts[last]! + this.chunks[last]!.length / CHARS_PER_SECOND) / this.rate;
+    return last < 0 ? 0 : this.starts[last]! + this.chunks[last]!.length / CHARS_PER_SECOND;
   }
 
+  // The chunk's start plus the time since the voice started it, held at the chunk's end: the
+  // voice's real pace is unknown, so the clock waits there rather than run ahead.
   get position(): number {
-    return (this.starts[this.index] ?? 0) / this.rate;
+    const start = this.starts[this.index] ?? 0;
+    const now = this.options.now;
+    if (this.state !== 'playing' || this.startedAt === null || !now) return start;
+    const elapsed = ((now() - this.startedAt) / 1000) * this.rate;
+    return start + Math.min(Math.max(elapsed, 0), this.chunks[this.index]!.length / CHARS_PER_SECOND);
   }
 
   // A reading under way restarts its sentence at the new speed.
@@ -82,7 +95,7 @@ export class ReadAloud {
 
   skip(seconds: number): void {
     if (this.state !== 'playing' && this.state !== 'paused') return;
-    const target = this.starts[this.index]! + seconds * this.rate;
+    const target = this.starts[this.index]! + seconds;
     let next = this.starts.findLastIndex((start) => start <= target + 1e-9);
     if (seconds > 0) next = Math.max(next, this.index + 1);
     this.index = Math.min(Math.max(next, 0), this.chunks.length - 1);
@@ -112,6 +125,7 @@ export class ReadAloud {
           if (generation !== this.generation) return;
           started = true;
           this.index = i;
+          this.startedAt = this.options.now?.() ?? null;
           this.onChange();
         },
         error: (code) => {
@@ -124,6 +138,7 @@ export class ReadAloud {
         },
       });
     }
+    this.cancelTick = this.options.tick?.(() => this.onChange(), 1000) ?? null;
     this.set('playing');
   }
 
@@ -136,11 +151,18 @@ export class ReadAloud {
   private silence(): void {
     this.cancelWatch?.();
     this.cancelWatch = null;
+    this.cancelTick?.();
+    this.cancelTick = null;
+    this.startedAt = null;
     this.generation++;
     this.speech.cancel();
   }
 
   private set(state: ReadAloudState): void {
+    if (state !== 'playing') {
+      this.cancelTick?.();
+      this.cancelTick = null;
+    }
     this.state = state;
     this.onChange();
   }
