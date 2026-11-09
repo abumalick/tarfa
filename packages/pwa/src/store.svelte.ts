@@ -22,7 +22,7 @@ import { flushConnectionLog } from './core/connection-log-flush';
 import { UnreadableDeviceKeyError, type KeyStorage } from './core/ports/device-identity';
 import { describeError } from './core/describe-error';
 import { parsePairingLink } from '@tarfa/secure-channel';
-import { acceptPairingLink, readPairingLink } from './core/pairing';
+import { acceptPairingLink, pairingPlan, readPairingLink } from './core/pairing';
 
 export interface DeviceNotice {
   machine: string;
@@ -1354,7 +1354,7 @@ export class TarfaStore {
       newId: this.deps.newId,
     });
     if (!machine) return { error };
-    this.addPairedMachine(machine);
+    this.applyPairing(machine);
     return { name: read.link.name };
   }
 
@@ -1369,7 +1369,7 @@ export class TarfaStore {
       return true;
     }
     const machine = acceptPairingLink(this.deps.settings.list(), read.link, this.deps);
-    if (machine) this.addPairedMachine(machine);
+    if (machine) this.applyPairing(machine);
     return true;
   }
 
@@ -1384,9 +1384,21 @@ export class TarfaStore {
     if (held) this.openPairingLink(held.link);
   }
 
-  private addPairedMachine(machine: MachineConfig): void {
-    this.addMachine(machine);
+  // The entry a pairing link made, applied as `pairingPlan` says. A probed link that connects
+  // is kept, without its secret (spent, or needless), and only when it changes the entry, since
+  // applying an entry reconnects it.
+  applyPairing(machine: MachineConfig): void {
     this.view = 'list';
+    const plan = pairingPlan(this.deps.settings.list(), machine);
+    if (plan === 'add') return this.addMachine(machine);
+    void this.deps.manager.probe(machine).then((connected) => {
+      const proven = { ...machine, pairing: undefined };
+      const current = this.deps.settings.list().find((m) => m.id === machine.id);
+      // An entry with no `enabled` is on, as the link's copy says outright.
+      const changed = JSON.stringify(current && { ...current, enabled: current.enabled !== false }) !== JSON.stringify(proven);
+      if (connected && changed) this.addMachine(proven);
+      else if (!connected && plan === 'probe') this.deps.alert(msg().pairing.linkUnreachable(machine.name));
+    });
   }
 
   // Machine entries written by another page context of the app (a pairing link opened in a new

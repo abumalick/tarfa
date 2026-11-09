@@ -238,8 +238,17 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   (`adapters/noise-socket.ts`). Things not to "simplify":
   - **One entry per machine, known by its agent key** (`core/settings-store.ts`: `addresses`,
     1–4, stored normalized by `core/machine-addresses.ts`, so `wss://host` and `wss://host/` are
-    one address). A pairing link naming a known key replaces that entry's addresses (after the
-    same confirmation, which names every host); a link naming an address another key's entry
+    one address). A pairing link naming a known key updates that entry (after the same
+    confirmation, which names every host), but an entry the phone already connects with keys
+    alone takes it only once the phone has connected through it (`pairingPlan`, then
+    `ConnectionManager.probe`: one attempt beside the live connection, never retried). The phone
+    cannot tell a fresh link from an old one opened again, and an old link's address may be dead
+    or another agent's now: such a link changes nothing and the owner is told so. A link naming
+    the entry's own addresses is dialed too, since its fresh code may be what re-enrols a phone the
+    machine forgot, but fails silently. A proven link replaces the addresses (and switches the
+    entry back on), written only when it changes the entry, since writing reconnects it. An entry
+    still holding its token or pairing secret has usually not connected yet, so a link is a retry
+    and applies at once. A link naming an address another key's entry
     holds is refused (`pairedMachine`), since it could point that entry elsewhere. IK pins the
     key, so a forged link can only redirect, never impersonate.
   - **One attempt walks the addresses inside the single connect chain** (`MachineConnection`,

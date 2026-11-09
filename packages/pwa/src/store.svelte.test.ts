@@ -120,6 +120,64 @@ describe('TarfaStore pairing', () => {
     expect(store.view).toBe('list');
   });
 
+  describe('a link for an entry that connects with its key alone', () => {
+    const linkKey = generateAgentKeys().x25519.publicKey;
+    const paired = { id: 'dev', name: 'my dev', addresses: ['wss://box.example/abu'], token: '', agentKey: linkKey };
+    const linkTo = (urls: string[]) => pairingLink('https://pwa.example', { urls, agentKey: linkKey, secret: 'S'.repeat(43), name: 'dev' });
+    const setup = (connected: boolean, seed: Record<string, unknown> = paired) => {
+      const alerts: string[] = [];
+      const built = build([seed], undefined, undefined, undefined, { alert: (m) => void alerts.push(m) });
+      const probed: string[][] = [];
+      built.manager.probe = async (config) => (probed.push(config.addresses), connected);
+      built.store.start();
+      return { ...built, alerts, probed };
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it('keeps the entry and says so when the link does not connect', async () => {
+      const { store, alerts, probed } = setup(false);
+      store.pairFromLink(linkTo(['wss://old.example/']));
+      await settle();
+      expect(probed).toEqual([['wss://old.example/']]);
+      expect(store.machines).toEqual([paired]);
+      expect(alerts).toEqual([expect.stringContaining('Could not connect to my dev')]);
+    });
+
+    it('takes the addresses of a link that connects, without its secret', async () => {
+      const { store, alerts } = setup(true);
+      store.pairFromLink(linkTo(['wss://new.example/']));
+      await settle();
+      expect(store.machines).toEqual([{ ...paired, addresses: ['wss://new.example/'], enabled: true }]);
+      expect(store.machines[0]!.pairing).toBeUndefined();
+      expect(alerts).toEqual([]);
+    });
+
+    it('says nothing when a link naming its own addresses does not connect', async () => {
+      const { store, alerts, probed } = setup(false);
+      store.pairFromLink(linkTo(['wss://box.example/abu']));
+      await settle();
+      expect(probed).toHaveLength(1);
+      expect(store.machines).toEqual([paired]);
+      expect(alerts).toEqual([]);
+    });
+
+    // Applying an entry reconnects it: a link that proves what the entry already holds writes nothing.
+    it('writes nothing when a link naming its own addresses connects', async () => {
+      const { store, storage } = setup(true);
+      const before = storage.read('tarfa.machines');
+      store.pairFromLink(linkTo(['wss://box.example/abu']));
+      await settle();
+      expect(storage.read('tarfa.machines')).toBe(before);
+    });
+
+    it('switches a disabled entry back on once its link connects', async () => {
+      const { store } = setup(true, { ...paired, enabled: false });
+      store.pairFromLink(linkTo(['wss://box.example/abu']));
+      await settle();
+      expect(store.machines).toEqual([expect.objectContaining({ id: 'dev', enabled: true })]);
+    });
+  });
+
   it("forgets a hand-added entry's token once the agent says its device key is enrolled", () => {
     const { store, sockets } = build([mac]);
     store.start();
