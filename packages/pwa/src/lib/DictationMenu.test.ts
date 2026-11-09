@@ -7,7 +7,7 @@ import { setLanguage } from '../i18n.svelte';
 const props = {
   presets: [...DEFAULT_PRESETS],
   currentId: 'scribe',
-  keys: { elevenlabs: true, openrouter: false },
+  keys: { elevenlabs: true, openrouter: false, claude: 'unavailable' as const },
   anchor: { bottom: 50, right: 10 },
   onSelect: vi.fn(),
   onClose: vi.fn(),
@@ -19,11 +19,13 @@ describe('DictationMenu', () => {
     render(DictationMenu, { props });
     const options = screen.getAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual([
+      expect.stringContaining('CV'),
       expect.stringContaining('EL'),
       expect.stringContaining('CL'),
       expect.stringContaining('⚡'),
     ]);
     expect(screen.getByRole('option', { name: /Scribe/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: /Claude voice/ })).toHaveTextContent('not on this machine');
   });
 
   it('disables a preset whose provider has no key, and says why', () => {
@@ -47,7 +49,7 @@ describe('DictationMenu', () => {
     const onAdd = vi.fn();
     const onClose = vi.fn();
     render(DictationMenu, { props: { ...props, onAdd, onClose } });
-    expect(screen.getAllByRole('option')).toHaveLength(3);
+    expect(screen.getAllByRole('option')).toHaveLength(4);
     await fireEvent.click(screen.getByRole('button', { name: 'Add preset…' }));
     expect(onAdd).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();

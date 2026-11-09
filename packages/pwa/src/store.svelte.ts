@@ -1233,7 +1233,8 @@ export class TarfaStore {
 
   get presetKeys(): PresetKeys {
     const keys = { elevenlabs: !!this.elevenLabsApiKey, openrouter: !!this.openRouterApiKey };
-    if (!this.active) return keys;
+    // With no workspace open (Settings), what a Claude Code workspace would get on some machine.
+    if (!this.active) return { ...keys, claude: Object.values(this.claudeVoiceOn).some(Boolean) ? 'ok' : 'unavailable' };
     const { machineId, command, asking } = this.active;
     const claude = !this.claudeVoiceOn[machineId] ? 'unavailable' : !runsClaude(command) ? 'not-claude' : asking ? 'asking' : 'ok';
     return { ...keys, claude };

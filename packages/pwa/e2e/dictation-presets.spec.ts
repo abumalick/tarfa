@@ -142,3 +142,23 @@ test('a Claude voice preset falls back on a machine whose agent cannot do Claude
     await claudeAgent.close();
   }
 });
+
+test('out of the box, Claude voice is the mic where the machine can do it, and Scribe elsewhere', async ({ page }) => {
+  const claudeAgent = await startFakeAgent([
+    { machineId: 'agent-machine-id', id: 'perch-demo', name: 'demo', projectPath: '/home/u/workspace/demo', command: 'claude', createdAt: 1, lastActivityAt: 1, status: 'idle' },
+  ]);
+  try {
+    claudeAgent.claudeVoice = true;
+    await seedMachine(page, claudeAgent);
+    await openTerminal(page);
+    await expect(mic(page)).toHaveAccessibleName('Dictate (Claude voice)');
+    await expect(mic(page)).toContainText('CV');
+
+    await page.evaluate(() => localStorage.setItem('tarfa.elevenLabsApiKey', 'sk-el-test'));
+    claudeAgent.claudeVoice = false;
+    await openTerminal(page);
+    await expect(mic(page)).toHaveAccessibleName('Dictate (Scribe)');
+  } finally {
+    await claudeAgent.close();
+  }
+});

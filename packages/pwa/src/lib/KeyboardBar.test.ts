@@ -14,6 +14,7 @@ const base = {
   dictation: 'idle' as const,
   onDictate: vi.fn(),
   presets: [...DEFAULT_PRESETS],
+  presetKeys: { elevenlabs: true, openrouter: true, claude: 'unavailable' as const },
 };
 
 // jsdom does not implement PointerEvent, so fireEvent's pointer helpers drop clientX/Y.
@@ -437,12 +438,18 @@ describe('KeyboardBar dictation presets', () => {
   const menu = () => screen.queryByRole('listbox', { name: 'Dictation presets' });
 
   it('has no mic until some preset has its key', () => {
-    render(KeyboardBar, { props: { ...base, presetKeys: { elevenlabs: false, openrouter: false } } });
+    render(KeyboardBar, { props: { ...base, presetKeys: { elevenlabs: false, openrouter: false, claude: 'unavailable' } } });
     expect(screen.queryByRole('button', { name: /^dictate/i })).toBeNull();
   });
 
+  it('dictates with Claude voice by default where it can run, with no key needed', () => {
+    render(KeyboardBar, { props: { ...base, presetKeys: { elevenlabs: false, openrouter: false, claude: 'ok' } } });
+    expect(mic()).toHaveAccessibleName('Dictate (Claude voice)');
+    expect(mic()).toHaveTextContent('CV');
+  });
+
   it('dictates with a preset that has a key when the chosen one has none', () => {
-    render(KeyboardBar, { props: { ...base, currentPresetId: 'scribe', presetKeys: { elevenlabs: false, openrouter: true } } });
+    render(KeyboardBar, { props: { ...base, currentPresetId: 'scribe', presetKeys: { elevenlabs: false, openrouter: true, claude: 'unavailable' } } });
     expect(mic()).toHaveAccessibleName('Dictate (Clean up)');
   });
 

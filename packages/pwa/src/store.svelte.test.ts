@@ -428,6 +428,24 @@ describe('TarfaStore', () => {
       expect(store.presetKeys.claude).toBe('not-claude');
     });
 
+    it('dictates with Claude voice by default where it works, else with Scribe', () => {
+      const { store, sockets } = opened();
+      store.setElevenLabsApiKey('sk-el');
+      expect(store.currentPreset.id).toBe('claude');
+      sockets['wss://mac']!.deliver({ type: 'workspaces', workspaces: [], claudeVoice: false });
+      expect(store.currentPreset.id).toBe('scribe');
+    });
+
+    it('shows Claude voice in use outside a workspace only when some machine can run it', () => {
+      const { store, sockets } = opened();
+      store.setElevenLabsApiKey('sk-el');
+      store.back();
+      expect(store.active).toBeNull();
+      expect(store.currentPreset.id).toBe('claude');
+      sockets['wss://mac']!.deliver({ type: 'workspaces', workspaces: [], claudeVoice: false });
+      expect(store.currentPreset.id).toBe('scribe');
+    });
+
     it('offers Claude voice only on a machine whose agent says it works there', () => {
       const { store, sockets } = opened();
       sockets['wss://mac']!.deliver({ type: 'workspaces', workspaces: [], claudeVoice: false });

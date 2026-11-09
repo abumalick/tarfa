@@ -4,7 +4,11 @@ import { render, screen, fireEvent } from '@testing-library/svelte';
 import DictationPresets from './DictationPresets.svelte';
 import { DEFAULT_CLEANUP_PROMPT, DEFAULT_PRESETS, type DictationPreset } from '../core/dictation-presets';
 
-function fakeStore(presets: DictationPreset[] = [...DEFAULT_PRESETS], extra: { currentPreset?: DictationPreset; addingPreset?: boolean } = {}) {
+// Most cases edit a list without the default Claude voice entry, as a user who removed it has.
+const withoutClaude = DEFAULT_PRESETS.filter((p) => p.provider !== 'claude');
+const byId = (id: string) => DEFAULT_PRESETS.find((p) => p.id === id)!;
+
+function fakeStore(presets: DictationPreset[] = [...withoutClaude], extra: { currentPreset?: DictationPreset; addingPreset?: boolean } = {}) {
   return {
     dictationPresets: presets,
     currentPreset: presets[0],
@@ -23,8 +27,17 @@ describe('DictationPresets', () => {
     expect(screen.getByRole('button', { name: /Edit Clean up/ })).toBeInTheDocument();
   });
 
+  it('lists Claude voice first among the defaults, falling back to Scribe', async () => {
+    render(DictationPresets, { props: { store: fakeStore([...DEFAULT_PRESETS]) as never } });
+    const edits = screen.getAllByRole('button', { name: /^Edit / });
+    expect(edits[0]).toHaveAccessibleName(/Edit Claude voice/);
+    expect(edits[0]).toHaveTextContent('CV');
+    await fireEvent.click(edits[0]!);
+    expect(screen.getByLabelText('Fallback')).toHaveValue('scribe');
+  });
+
   it('highlights the preset in use', () => {
-    render(DictationPresets, { props: { store: fakeStore(undefined, { currentPreset: DEFAULT_PRESETS[2] }) as never } });
+    render(DictationPresets, { props: { store: fakeStore(undefined, { currentPreset: byId('fast') }) as never } });
     expect(screen.getByRole('button', { name: /Edit Fast/ }).closest('li')).toHaveAttribute('aria-current', 'true');
     expect(screen.getByRole('button', { name: /Edit Scribe/ }).closest('li')).not.toHaveAttribute('aria-current');
     expect(screen.getByText('In use')).toBeInTheDocument();
@@ -132,7 +145,7 @@ describe('DictationPresets', () => {
   });
 
   it('never deletes the last preset', () => {
-    render(DictationPresets, { props: { store: fakeStore([DEFAULT_PRESETS[0]!]) as never } });
+    render(DictationPresets, { props: { store: fakeStore([byId('scribe')]) as never } });
     expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull();
   });
 
