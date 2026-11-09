@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { setLanguage } from '../i18n.svelte';
 import { pairingLink, type PairingLink } from '@tarfa/secure-channel';
 import { deviceFingerprint } from '@tarfa/secure-channel';
-import { acceptPairingLink, outsideInstalledApp, pairedMachine, pairingQuestion, readPairingLink, takePairingFragment } from './pairing';
+import { acceptPairingLink, outsideInstalledApp, pairedMachine, pairingPlan, pairingQuestion, readPairingLink, takePairingFragment } from './pairing';
 import type { MachineConfig } from './settings-store';
 
 const link: PairingLink = {
@@ -176,5 +176,28 @@ describe('readPairingLink in French', () => {
     setLanguage('fr');
     const result = readPairingLink('hello', 'https://p');
     expect(result.ok ? '' : result.reason).toBe('Ce n’est pas un code d’association Tarfa. Lancez `tarfa pair` sur la machine pour en obtenir un nouveau.');
+  });
+});
+
+describe('pairingPlan', () => {
+  const linked = (over: Partial<MachineConfig> = {}): MachineConfig => ({ ...entry(), pairing: link.secret, ...over });
+
+  it('adds a machine the phone does not know', () => {
+    expect(pairingPlan([], linked())).toBe('add');
+  });
+
+  // Still holding a credential, the entry never connected: the link is a retry, as before.
+  it('applies a link at once to an entry that has not connected yet', () => {
+    expect(pairingPlan([entry({ token: 'tok' })], linked({ addresses: ['wss://new.example/'] }))).toBe('add');
+    expect(pairingPlan([entry({ pairing: 'old' })], linked({ addresses: ['wss://new.example/'] }))).toBe('add');
+  });
+
+  it('rechecks a link naming a paired entry\'s own addresses', () => {
+    expect(pairingPlan([entry({ addresses: ['wss://dev.example.ts.net:10000/abu', 'wss://dev.example.ts.net:8443/abu'] })], linked())).toBe('recheck');
+  });
+
+  it('proves a link naming other addresses before a paired entry takes them', () => {
+    expect(pairingPlan([entry({ addresses: ['wss://old.example/'] })], linked())).toBe('probe');
+    expect(pairingPlan([entry({ addresses: [...link.urls].reverse() })], linked())).toBe('probe');
   });
 });

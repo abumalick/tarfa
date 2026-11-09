@@ -113,6 +113,29 @@ export class ConnectionManager {
     );
   }
 
+  // Whether the machine answers on the entry's addresses with its credential: one attempt beside
+  // the live connections, never retried, nothing kept.
+  probe(config: MachineConfig): Promise<boolean> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const conn = new MachineConnection({
+        addresses: config.addresses,
+        token: credential(config),
+        socketFactory: (url) => this.deps.secureSocketFactory(config.agentKey.trim(), credential(config), () => undefined)(url),
+        onMessage: () => undefined,
+        onStatus: (status) => {
+          if (settled || status === 'connecting') return;
+          settled = true;
+          queueMicrotask(() => conn.close());
+          resolve(status === 'online');
+        },
+        schedule: () => undefined,
+        now: this.now,
+      });
+      conn.connect();
+    });
+  }
+
   send(machineId: string, message: ClientMessage): void {
     this.connections.get(machineId)?.send(message);
   }

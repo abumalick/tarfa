@@ -22,6 +22,21 @@ export function pairedMachine(machines: MachineConfig[], link: PairingLink, newI
   return { ok: true, machine: { id: newId(), name: link.name, addresses, token: '', agentKey: link.agentKey, ...path, pairing: link.secret } };
 }
 
+// What to do with the entry a link made. A new machine is added, and so is an entry that has not
+// connected yet (it still holds its token or pairing secret: the link is a retry). An entry the
+// phone already connects with keys alone is changed only once the link has proven itself, since
+// the phone cannot tell a fresh link from an old one opened again: one naming other addresses
+// is dialed first and kept only if it connects (`probe`). One naming the entry's own addresses is
+// dialed too (`recheck`), since a fresh code may be what re-enrols a phone the machine forgot,
+// but its failure is not news: the entry already dials those addresses.
+export function pairingPlan(machines: MachineConfig[], machine: MachineConfig): 'add' | 'probe' | 'recheck' {
+  const existing = machines.find((m) => m.id === machine.id);
+  if (!existing || existing.token || existing.pairing) return 'add';
+  const held = (existing.addresses ?? []).map((a) => normalizeAddress(a) ?? a);
+  const same = held.length === machine.addresses.length && held.every((a, i) => a === machine.addresses[i]);
+  return same ? 'recheck' : 'probe';
+}
+
 // What the owner is asked before a pairing link adds anything: any page can open such a link. It
 // names every host the entry will dial, and the machine key's fingerprint that `tarfa pair` prints
 // beside the code, to compare by eye.

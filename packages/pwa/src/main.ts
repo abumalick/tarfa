@@ -4,7 +4,7 @@ import App from './App.svelte';
 import { TarfaStore } from './store.svelte';
 import { ConnectionManager } from './core/connection-manager';
 import { WorkspaceAggregator } from './core/workspace-aggregator';
-import { SettingsStore } from './core/settings-store';
+import { SettingsStore, type MachineConfig } from './core/settings-store';
 import { LocalStorageAdapter } from './adapters/local-storage';
 import { createConnectionLog } from './core/connection-log';
 import { createStorageLogStore } from './adapters/storage-log-store';
@@ -23,7 +23,7 @@ import { PresetRecorder } from './core/preset-recorder';
 import { WakeLockRecorder } from './core/wake-lock-recorder';
 import { WebAudioPcm } from './adapters/web-audio-pcm';
 import { VERSION_FILE, parseVersionJson } from './core/version-file';
-import { acceptPairingLink, outsideInstalledApp, takePairingFragment, type PairingPrompts } from './core/pairing';
+import { acceptPairingLink, outsideInstalledApp, pairingPlan, takePairingFragment, type PairingPrompts } from './core/pairing';
 import { setLanguage } from './i18n.svelte';
 import { resolveLanguage } from './core/i18n/language';
 
@@ -81,9 +81,12 @@ const prompts: PairingPrompts = {
 const pairingHref = location.href;
 const pairing = takePairingFragment(location, (url) => history.replaceState(history.state, '', url));
 const holdPairing = pairing !== null && outsideInstalledApp(navigator as { standalone?: boolean });
+// A link that needs proving first waits for the store, which dials it.
+let unprovenPairing: MachineConfig | null = null;
 if (pairing && !holdPairing) {
   const machine = acceptPairingLink(settings.list(), pairing, prompts);
-  if (machine) settings.add(machine);
+  if (machine && pairingPlan(settings.list(), machine) === 'add') settings.add(machine);
+  else unprovenPairing = machine;
 }
 
 // This installed PWA's device key, created on first use and kept in IndexedDB for good.
@@ -164,6 +167,7 @@ store = new TarfaStore({
   replaceDeviceKey: () => keyInfo(cacheIdentity(replaceUnreadableDeviceIdentity(indexedDbIdentityStore()))),
   ...prompts,
 });
+if (unprovenPairing) store.applyPairing(unprovenPairing);
 
 // Pick up an image handed to us by the OS "Share" sheet (Android Web Share Target). The SW
 // helper (public/share-target-sw.js) stashed it in the Cache API on the share POST; read it

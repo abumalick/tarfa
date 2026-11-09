@@ -7,6 +7,8 @@ export const pairing: Messages['pairing'] = {
     `Associer ${machine} via ${host} ?\n\n` +
     `Clé de la machine ${fingerprint} : vérifiez qu’elle correspond à ce qu’a affiché tarfa pair.\n\n` +
     'Ne continuez que si vous venez de lancer tarfa pair sur cette machine.',
+  linkUnreachable: (machine) =>
+    `Impossible de se connecter à ${machine} via ce lien d’association : rien n’a été modifié. Si la machine a changé d’adresse, lancez tarfa pair dessus pour obtenir un nouveau lien.`,
   notALink: "Ce n’est pas un code d’association Tarfa. Lancez `tarfa pair` sur la machine pour en obtenir un nouveau.",
   otherOrigin: (origin, own) => `Ce code d’association est pour le Tarfa de ${origin}, pas pour celui-ci (${own}).`,
   cameraRefused: "L’accès à la caméra a été refusé. Autorisez-le pour cette application, ou collez le lien d’association ci-dessous.",
