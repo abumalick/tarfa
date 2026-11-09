@@ -205,6 +205,11 @@ describe('WorkspaceList', () => {
     expect(screen.getByText('feat-x')).toBeInTheDocument();
   });
 
+  it('titles the home screen with the app name the build installs as', () => {
+    render(WorkspaceList, { props: { store: fakeStore([]) as never, appName: 'Tarfa Dev' } });
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Tarfa Dev');
+  });
+
   it('hides the badge for the main build', () => {
     render(WorkspaceList, { props: { store: fakeStore([]) as never, buildLabel: 'main' } });
     expect(screen.queryByText('main')).not.toBeInTheDocument();

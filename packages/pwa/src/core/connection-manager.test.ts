@@ -331,3 +331,37 @@ describe('ConnectionManager', () => {
     expect(h.aggregator.snapshot()).toEqual([]);
   });
 });
+
+describe('ConnectionManager probe', () => {
+  const linked = { ...mini, pairing: 'secret', addresses: ['wss://new-a', 'wss://new-b'] };
+
+  it('connects once with the entry\'s credential, says it worked, and closes', async () => {
+    const h = harness();
+    const result = h.manager.probe(linked);
+    expect(h.secureFor).toEqual([`${agentKey} secret`]);
+    h.sockets['wss://new-a']!.fireClose({ code: 1006 });
+    h.sockets['wss://new-b']!.open();
+    h.sockets['wss://new-b']!.deliver({ type: 'authResult', ok: true, enrolled: true });
+    await expect(result).resolves.toBe(true);
+    await Promise.resolve();
+    expect(h.sockets['wss://new-b']!.isClosed()).toBe(true);
+    expect(h.statuses).toEqual([]);
+    expect(h.spent).toEqual([]);
+  });
+
+  it('says it failed when no address connects, and never redials', async () => {
+    const h = harness();
+    const result = h.manager.probe(linked);
+    h.sockets['wss://new-a']!.fireClose({ code: 1006 });
+    h.sockets['wss://new-b']!.fireClose({ code: 1006 });
+    await expect(result).resolves.toBe(false);
+    expect(Object.keys(h.sockets)).toEqual(['wss://new-a', 'wss://new-b']);
+  });
+
+  it('says it failed on a final refusal', async () => {
+    const h = harness();
+    const result = h.manager.probe({ ...linked, addresses: ['wss://other'] });
+    h.sockets['wss://other']!.fireClose({ code: 4003, reason: 'wrong agent key' });
+    await expect(result).resolves.toBe(false);
+  });
+});

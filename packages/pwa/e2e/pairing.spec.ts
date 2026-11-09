@@ -208,6 +208,72 @@ test('a link with several addresses keeps them in order and connects through the
   expect(await stored(page)).toEqual([expect.objectContaining({ addresses: [dead, agent.url] })]);
 });
 
+// The phone cannot tell a fresh link from an old one opened again, so a link for a machine it
+// already connects with changes the entry only once the phone has connected through it.
+async function pairedOnce(page: Page, baseURL: string, dialogs: string[]): Promise<Record<string, unknown>> {
+  page.on('dialog', (dialog) => {
+    dialogs.push(dialog.message());
+    void dialog.accept();
+  });
+  await page.goto(link(baseURL));
+  await expect(page.getByText('demo', { exact: true })).toBeVisible();
+  await expect.poll(async () => (await stored(page))[0]?.pairing).toBeUndefined();
+  return (await stored(page))[0]!;
+}
+
+test('reopening a spent link on a paired phone changes nothing', async ({ page, baseURL }) => {
+  const dialogs: string[] = [];
+  const paired = await pairedOnce(page, baseURL!, dialogs);
+  await page.goto('about:blank');
+  await page.goto(link(baseURL!));
+  await expect(page.getByText('demo', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('home-refusal')).toHaveCount(0);
+  expect(await stored(page)).toEqual([paired]);
+  expect(dialogs.filter((d) => d.includes('Could not connect'))).toEqual([]);
+});
+
+test('an old link naming an address the machine left changes nothing, and says so', async ({ page, baseURL }) => {
+  const dialogs: string[] = [];
+  const paired = await pairedOnce(page, baseURL!, dialogs);
+  await page.goto('about:blank');
+  await page.goto(pairingLink(baseURL!, { urls: ['ws://127.0.0.1:59995/old'], agentKey: agent.agentKey, secret: SECRET, name: 'dev box' }));
+  await expect.poll(() => dialogs.some((d) => d.includes('Could not connect to dev box'))).toBe(true);
+  expect(await stored(page)).toEqual([paired]);
+  await expect(page.getByText('demo', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('home-refusal')).toHaveCount(0);
+});
+
+// The address an old link names may now be another agent's (its port reused), which refuses the
+// phone finally ("wrong agent key"): the entry must not take it.
+test("an old link whose address is now another agent's changes nothing", async ({ page, baseURL }) => {
+  const other = await startFakeAgent();
+  try {
+    const dialogs: string[] = [];
+    const paired = await pairedOnce(page, baseURL!, dialogs);
+    await page.goto('about:blank');
+    await page.goto(pairingLink(baseURL!, { urls: [other.url], agentKey: agent.agentKey, secret: SECRET, name: 'dev box' }));
+    await expect.poll(() => dialogs.some((d) => d.includes('Could not connect to dev box'))).toBe(true);
+    expect(await stored(page)).toEqual([paired]);
+    await expect(page.getByText('demo', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('home-refusal')).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
+});
+
+test('a link for a machine that moved replaces its addresses once the phone connects through it', async ({ page, baseURL }) => {
+  const dialogs: string[] = [];
+  const paired = await pairedOnce(page, baseURL!, dialogs);
+  const moved = `${agent.url}moved`;
+  const secret = await agent.newPairing();
+  await page.goto('about:blank');
+  await page.goto(pairingLink(baseURL!, { urls: [moved], agentKey: agent.agentKey, secret, name: 'dev box' }));
+  await expect.poll(async () => (await stored(page))[0]?.addresses).toEqual([moved]);
+  expect(await stored(page)).toEqual([expect.objectContaining({ id: paired.id })]);
+  expect((await stored(page))[0]?.pairing).toBeUndefined();
+  await expect(page.getByText('demo', { exact: true })).toBeVisible();
+});
+
 // One entry per machine: a second link for the same agent key moves the entry, never adds one.
 test('a new link for a machine the phone knows updates its addresses in place', async ({ page, baseURL }) => {
   page.on('dialog', (dialog) => void dialog.accept());

@@ -8,7 +8,8 @@ export type Paired = { ok: true; machine: MachineConfig } | { ok: false; reason:
 // The entry a pairing link makes. The phone keeps one entry per machine, known by its agent key:
 // a link naming a key the phone already has updates that entry (its addresses become the link's,
 // in the link's order), so scanning again after a failed attempt (an expired code) or after the
-// machine moved retries in place. A link naming an address that another key's entry holds is
+// machine moved retries in place; whether that entry takes it at once or only once the link has
+// connected is `pairingPlan`'s call. A link naming an address that another key's entry holds is
 // refused: taking it would point that entry's address at a key whoever made the link may hold. An
 // existing entry keeps its own name and default path; the link's path only fills one it lacks.
 export function pairedMachine(machines: MachineConfig[], link: PairingLink, newId: () => string): Paired {
@@ -20,6 +21,21 @@ export function pairedMachine(machines: MachineConfig[], link: PairingLink, newI
   const path = defaultPath ? { defaultPath } : {};
   if (existing) return { ok: true, machine: { ...existing, addresses, ...path, pairing: link.secret, enabled: true } };
   return { ok: true, machine: { id: newId(), name: link.name, addresses, agentKey: link.agentKey, ...path, pairing: link.secret } };
+}
+
+// What to do with the entry a link made. A new machine is added, and so is an entry that has not
+// connected yet (it still holds its pairing secret: the link is a retry). An entry the
+// phone already connects with keys alone is changed only once the link has proven itself, since
+// the phone cannot tell a fresh link from an old one opened again: one naming other addresses
+// is dialed first and kept only if it connects (`probe`). One naming the entry's own addresses is
+// dialed too (`recheck`), since a fresh code may be what re-enrols a phone the machine forgot,
+// but its failure is not news: the entry already dials those addresses.
+export function pairingPlan(machines: MachineConfig[], machine: MachineConfig): 'add' | 'probe' | 'recheck' {
+  const existing = machines.find((m) => m.id === machine.id);
+  if (!existing || existing.pairing) return 'add';
+  const held = (existing.addresses ?? []).map((a) => normalizeAddress(a) ?? a);
+  const same = held.length === machine.addresses.length && held.every((a, i) => a === machine.addresses[i]);
+  return same ? 'recheck' : 'probe';
 }
 
 // What the owner is asked before a pairing link adds anything: any page can open such a link. It

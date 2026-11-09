@@ -11,6 +11,7 @@ export interface ManifestIcon {
 }
 
 export interface AppIdentity {
+  flavor: AppFlavor;
   name: string;
   shortName: string;
   appleTouchIcon: string;
@@ -33,6 +34,7 @@ export function appIdentity(flavor: AppFlavor): AppIdentity {
   });
   const name = flavor === 'dev' ? 'Tarfa Dev' : 'Tarfa';
   return {
+    flavor,
     name,
     shortName: name,
     appleTouchIcon: `/apple-touch-icon${suffix}.png`,

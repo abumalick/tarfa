@@ -6,7 +6,7 @@
   import type { TarfaStore } from '../store.svelte';
   import ProjectFilterSelect from './ProjectFilterSelect.svelte';
   import MachineLoad from './MachineLoad.svelte';
-  import { BUILD_LABEL, isTestBuild } from '../core/build-label';
+  import { APP_NAME, BUILD_LABEL, isTestBuild } from '../core/build-label';
   import { displayProjectPath } from '../core/resolve-path';
   import { isConnectable } from '../core/settings-store';
   import { deriveProjectFolders, filterWorkspaces, pruneStaleFilter } from '../core/project-folders';
@@ -18,7 +18,7 @@
 
   const AGE_TICK_MS = 30_000;
 
-  let { store, buildLabel = BUILD_LABEL }: { store: TarfaStore; buildLabel?: string } =
+  let { store, buildLabel = BUILD_LABEL, appName = APP_NAME }: { store: TarfaStore; buildLabel?: string; appName?: string } =
     $props();
 
   // Suppress intro transitions on the first render. The PWA re-populates the whole
@@ -162,7 +162,7 @@
 
 <header>
   <h1>
-    Tarfa
+    {appName}
     {#if isTestBuild(buildLabel)}
       <span class="build-badge" title={msg().home.testBuild}>{buildLabel}</span>
     {/if}

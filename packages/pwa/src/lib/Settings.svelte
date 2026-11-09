@@ -310,15 +310,6 @@
   .plus { width: 0.6rem; display: grid; place-items: center; }
   .add-panel { margin-top: 0.6rem; }
   .add-panel :global(.pair) { margin-top: 0; }
-  .link {
-    display: block;
-    margin: 0.75rem auto 0;
-    min-height: 44px;
-    border: 0;
-    background: transparent;
-    color: var(--accent);
-    font-size: 0.9rem;
-  }
   label { display: block; font-size: 0.85rem; color: var(--text-dim); }
   #language { display: block; width: 100%; min-height: 44px; margin-top: 0.4rem; box-sizing: border-box; }
   .inline { display: flex; gap: 0.5rem; margin-top: 0.3rem; }

@@ -55,14 +55,18 @@ function contentSecurityPolicy(): Plugin {
   };
 }
 
-// The page title and the iOS Home Screen icon, which iOS takes from apple-touch-icon, not the manifest.
+// The page title, the iOS Home Screen icon (iOS takes it from apple-touch-icon, not the manifest)
+// and the flavor on <html>, which App.svelte's tokens key the dev background off.
 function appHead(id: AppIdentity): Plugin {
   return {
     name: 'tarfa-app-head',
-    transformIndexHtml: () => [
-      { tag: 'title', children: id.name, injectTo: 'head' },
-      { tag: 'link', attrs: { rel: 'apple-touch-icon', href: id.appleTouchIcon }, injectTo: 'head' },
-    ],
+    transformIndexHtml: (html) => ({
+      html: html.replace('<html', `<html data-flavor="${id.flavor}"`),
+      tags: [
+        { tag: 'title', children: id.name, injectTo: 'head' },
+        { tag: 'link', attrs: { rel: 'apple-touch-icon', href: id.appleTouchIcon }, injectTo: 'head' },
+      ],
+    }),
   };
 }
 
@@ -129,6 +133,7 @@ export default defineConfig({
   // worktree slug when temporarily serving a test build (see docs/WORKTREES.md).
   define: {
     __TARFA_BUILD_LABEL__: JSON.stringify(buildLabel),
+    __TARFA_APP_NAME__: JSON.stringify(identity.name),
   },
   // Svelte 5's mount() needs the 'browser' export condition under vitest/jsdom; vitest does not honor test.resolve.conditions, so this must stay top-level. Harmless for the production build (a browser app already resolves the browser condition).
   resolve: {
