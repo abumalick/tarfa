@@ -825,8 +825,10 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     extractable fallback above matters.
   - **Enrolment is `open` (a pairing code enrols a phone) or `closed` (nothing does)**
     (`tarfa devices enrolment open|closed`; the old `on`/`off` are refused with a pointer).
-    `devices.json` keeps `enrolment` as "any enrolment at all" and **always writes
-    `tokenEnrolment: false`** (`FileDeviceStore.update`), which no current agent reads: an agent
+    `devices.json` keeps `enrolment` as "any enrolment at all" and **holds
+    `tokenEnrolment: false`**, written by every `FileDeviceStore.update` and once at agent startup
+    when missing (`sealTokenEnrolment`, a missing file included; a malformed one is left to fail
+    closed), and read by no current agent: an agent
     from before the removal, brought back with its agent.env's `TARFA_TOKEN`, would read an absent
     field as "the token enrols". The agent refuses at the handshake (closed only), at an unknown
     device's `auth` that carries no live code, and at `enrol(device)` after `authResult`, which

@@ -3,7 +3,6 @@ import { MachineConnection, type ConnectionDiagnostic, type ConnectionStatus } f
 import type { SocketFactory } from './ports/socket';
 import type { WorkspaceAggregator } from './workspace-aggregator';
 import { isConnectable, type MachineConfig } from './settings-store';
-import type { RefusalContext } from './refusal';
 
 export interface ConnectionManagerDeps {
   // Sockets end-to-end encrypted to the given agent key. Whether the entry holds a pairing code
@@ -20,12 +19,6 @@ export interface ConnectionManagerDeps {
   onCredentialsSpent?: (machineId: string) => void;
   schedule?: (fn: () => void, ms: number) => void;
   now?: () => number;
-}
-
-// What the connection authenticates with: a pairing code while the entry holds one, else nothing,
-// since a paired entry's enrolled device key is what the agent accepts.
-function credentialKind(config: MachineConfig): RefusalContext['credential'] {
-  return config.pairing ? 'pairing' : 'none';
 }
 
 export class ConnectionManager {
@@ -73,7 +66,7 @@ export class ConnectionManager {
         },
         schedule: this.deps.schedule,
         now: this.now,
-        refusalContext: { machine: config.name, credential: credentialKind(config) },
+        refusalContext: { machine: config.name },
         // The agent only returns workspaces in response to `list` (or pushes them when it serves
         // the phone at once); asking on every (re)connect is what re-syncs the list, and what picks
         // up an edit to the agent's ~/.tarfa/keyterms.txt.

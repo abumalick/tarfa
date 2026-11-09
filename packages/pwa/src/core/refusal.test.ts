@@ -3,8 +3,8 @@ import { setLanguage } from '../i18n.svelte';
 import { REFUSAL } from '@tarfa/secure-channel';
 import { describeRefusal, type RefusalContext } from './refusal';
 
-const paired: RefusalContext = { machine: 'dev box', credential: 'pairing' };
-const enrolled: RefusalContext = { machine: 'dev box', credential: 'none' };
+const paired: RefusalContext = { machine: 'dev box' };
+const enrolled: RefusalContext = { machine: 'dev box' };
 
 describe('describeRefusal', () => {
   it.each([

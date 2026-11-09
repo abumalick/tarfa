@@ -90,7 +90,7 @@ const authOf = (socket: ReturnType<typeof fakeSocket>) => socket.sent.map((d) =>
 // Once the device key is enrolled the pairing secret is dead weight, and sending it on every
 // connect hands it to whoever holds the agent's key.
 describe('MachineConnection credentials', () => {
-  const paired: RefusalContext = { machine: 'dev box', credential: 'pairing' };
+  const paired: RefusalContext = { machine: 'dev box' };
 
   it('forgets its pairing code once the agent says the device key is enrolled', () => {
     const h = harness(paired);
@@ -128,7 +128,7 @@ describe('MachineConnection credentials', () => {
 });
 
 describe('MachineConnection refusals', () => {
-  const paired: RefusalContext = { machine: 'dev box', credential: 'pairing' };
+  const paired: RefusalContext = { machine: 'dev box' };
 
   it('says what the agent refused, without the code, and waits for the owner instead of redialing', () => {
     const h = harness(paired);
@@ -722,7 +722,7 @@ describe('MachineConnection address walk', () => {
     ['a busy phone port', { code: 4429, reason: REFUSAL.tooManyPending }, false],
     ['a full phone port', { code: 4429, reason: REFUSAL.tooManyConnections }, false],
   ])('stops the walk at %s: the agent answered, and the next address leads to the same one', (_label, close, final) => {
-    const h = harness({ machine: 'dev', credential: 'none' }, ADDRS);
+    const h = harness({ machine: 'dev' }, ADDRS);
     h.conn.connect();
     h.sockets[0]!.fireClose(close);
     expect(h.dialed).toEqual([ADDRS[0]]);

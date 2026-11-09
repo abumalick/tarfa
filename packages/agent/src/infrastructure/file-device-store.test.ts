@@ -18,6 +18,17 @@ afterEach(async () => {
 });
 
 describe('FileDeviceStore', () => {
+  it('seals token enrolment off once, in a roster from before or a missing one, keeping its devices', async () => {
+    const store = new FileDeviceStore(path);
+    expect(await store.sealTokenEnrolment()).toBe(true);
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({ enrolment: true, tokenEnrolment: false });
+    const older = { enrolment: true, tokenEnrolment: true, devices: [], revoked: [] };
+    await writeFile(path, JSON.stringify(older));
+    expect(await store.sealTokenEnrolment()).toBe(true);
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ ...older, tokenEnrolment: false });
+    expect(await store.sealTokenEnrolment()).toBe(false);
+  });
+
   it('reads a missing file as an empty roster with enrolment open', async () => {
     expect(await new FileDeviceStore(path).read()).toEqual(EMPTY_ROSTER);
   });

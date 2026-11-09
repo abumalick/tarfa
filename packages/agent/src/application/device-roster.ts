@@ -20,8 +20,9 @@ export interface DeviceRoster {
   // listed devices get in. Its meaning predates the modes, so an older agent reading this file
   // still refuses every enrolment when the operator closed it.
   enrolment: boolean;
-  // Always written false and never read: an agent from before token enrolment was removed reads
-  // an absent field as "the token enrols", so a rollback must find it off.
+  // Written false by every write and at agent startup (`sealTokenEnrolment`), never read: an
+  // agent from before token enrolment was removed reads an absent field as "the token enrols",
+  // so a rollback must find it off.
   tokenEnrolment?: boolean;
   devices: Device[];
   // Kept rather than dropped, so `tarfa devices` still names a revoked phone; `forget` drops one.

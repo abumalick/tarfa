@@ -1,11 +1,9 @@
 import { DEVICE_REFUSED, IN_BAND_REFUSAL, REFUSAL } from '@tarfa/secure-channel';
 import { msg } from '../i18n.svelte';
 
-// What the entry connects with: a pairing code, or nothing (a phone whose device key is
-// already enrolled).
+// Names the machine in a refusal's message.
 export interface RefusalContext {
   machine: string;
-  credential: 'pairing' | 'none';
 }
 
 // `final` means retrying cannot help: the entry waits for the owner instead of redialing.

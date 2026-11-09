@@ -145,10 +145,12 @@ export async function main(): Promise<void> {
   // The agent key exists from the first start, so `tarfa pair` works on a fresh machine.
   const keys = await loadOrCreateAgentKeys(config.agentKeyPath);
   const log = (message: string) => process.stdout.write(`${message}\n`);
+  const devices = new FileDeviceStore(config.devicesPath);
+  if (await devices.sealTokenEnrolment()) log('tarfa agent: wrote token enrolment off into devices.json (phones join with `tarfa pair` only)');
   const gate = startDeviceGate({
     keys,
     server,
-    store: new FileDeviceStore(config.devicesPath),
+    store: devices,
     pairings: new FilePairingStore(config.pairingPath),
     log,
     rosterPollMs: ROSTER_POLL_MS,

@@ -46,8 +46,7 @@ against fakes, with a Playwright e2e suite driving the PWA against a fake agent.
 
 ## Security
 
-A paired phone's device key, and an agent's bearer token, are each equivalent to a shell on
-that machine: creating a workspace and sending terminal input run arbitrary commands as the
+A paired phone's device key is equivalent to a shell on that machine: creating a workspace and sending terminal input run arbitrary commands as the
 user the agent runs as. The agent listens only on loopback, for its hooks and its phone port;
 whatever publishes the phone port sees only ciphertext, and the agent checks every phone's key
 itself against its own roster (`tarfa devices`). A Funnel address is public: the agent bounds

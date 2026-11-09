@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { z } from 'zod';
 import { EMPTY_ROSTER, type DeviceRoster } from '../application/device-roster';
 import type { DeviceStorePort } from '../ports/device-store-port';
@@ -38,6 +39,30 @@ export class FileDeviceStore implements DeviceStorePort {
     const parsed = rosterSchema.safeParse(JSON.parse(raw));
     if (!parsed.success) throw new Error(`device roster ${this.filePath} is malformed; fix or move it aside`);
     return parsed.data;
+  }
+
+  // Writes the roster once if the file lacks `tokenEnrolment: false`, missing file included, so an
+  // agent from before token enrolment was removed, brought back, finds it off. True if it wrote.
+  async sealTokenEnrolment(): Promise<boolean> {
+    let raw: string | null = null;
+    try {
+      raw = await readFile(this.filePath, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    if (raw !== null) {
+      let parsed: { tokenEnrolment?: unknown } | null = null;
+      try {
+        parsed = JSON.parse(raw) as { tokenEnrolment?: unknown };
+      } catch {
+        // A malformed roster stays as it is: every check on it fails closed, and its owner fixes it.
+        return false;
+      }
+      if (parsed?.tokenEnrolment === false) return false;
+    }
+    await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
+    await this.update((roster) => roster);
+    return true;
   }
 
   async update(change: (roster: DeviceRoster) => DeviceRoster): Promise<DeviceRoster> {
