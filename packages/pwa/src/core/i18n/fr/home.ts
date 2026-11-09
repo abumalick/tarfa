@@ -33,6 +33,7 @@ export const home: Messages['home'] = {
     `${expanded ? 'Masquer' : 'Afficher'} ${n} ${plural(n, 'espace de travail enfant', 'espaces de travail enfants')}`,
   parked: (n) => `En veille · ${n}`,
   browserSessions: 'Sessions de navigateur',
+  projectSection: (project, n) => `${project}, ${n} ${plural(n, 'espace de travail', 'espaces de travail')}`,
   filter: {
     projects: (n) => `${n} projets`,
     all: 'Tous les projets',

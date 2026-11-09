@@ -155,6 +155,24 @@
       </div>
     {/if}
 
+    <p class="group">{msg().settings.workspaceList}</p>
+    <div class="card">
+      <div class="row">
+        <span class="text"><span class="name">{msg().settings.groupByProject}</span></span>
+        <button
+          type="button"
+          role="switch"
+          class="switch"
+          aria-checked={store.groupByProject}
+          aria-label={msg().settings.groupByProject}
+          onclick={() => store.setGroupByProject(!store.groupByProject)}
+        >
+          <span class="knob"></span>
+        </button>
+      </div>
+      <p class="hint">{msg().settings.groupByProjectHint}</p>
+    </div>
+
     <p class="group">{msg().settings.dictation}</p>
     <form class="card" onsubmit={saveApiKey}>
       <label for="elevenlabs-key">{msg().settings.elevenLabsKey}</label>

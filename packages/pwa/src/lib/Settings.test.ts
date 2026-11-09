@@ -33,6 +33,8 @@ function fakeStore(overrides: Record<string, unknown> = {}) {
     resetDictationPresets: vi.fn(),
     shareLinks: false,
     setShareLinks: vi.fn(),
+    groupByProject: false,
+    setGroupByProject: vi.fn(),
     languageChoice: 'auto',
     setLanguageChoice: vi.fn(),
     ...overrides,
@@ -226,6 +228,17 @@ describe('Settings — device key and diagnostics', () => {
     await fireEvent.click(screen.getByRole('button', { name: /clear/i }));
     expect(inputLog.snapshot()).toEqual([]);
     expect(screen.getByTestId('input-log').textContent).toContain('Android IME events only');
+  });
+});
+
+describe('Settings — workspace list', () => {
+  it('turns grouping by project on', async () => {
+    const store = fakeStore();
+    render(Settings, { props: { store: store as never } });
+    const toggle = screen.getByRole('switch', { name: /group by project/i });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    await fireEvent.click(toggle);
+    expect(store.setGroupByProject).toHaveBeenCalledWith(true);
   });
 });
 

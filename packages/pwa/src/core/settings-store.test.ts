@@ -35,6 +35,16 @@ describe('SettingsStore', () => {
     expect(new SettingsStore(storage).fileWrap()).toBe(true);
   });
 
+  it('persists grouping the home list by project, off by default', () => {
+    const storage = memStorage();
+    const store = new SettingsStore(storage);
+    expect(store.groupByProject()).toBe(false);
+    store.setGroupByProject(true);
+    expect(new SettingsStore(storage).groupByProject()).toBe(true);
+    store.setGroupByProject(false);
+    expect(new SettingsStore(storage).groupByProject()).toBe(false);
+  });
+
   it('defaults sharing terminal links to off', () => {
     expect(new SettingsStore(memStorage()).shareLinks()).toBe(false);
   });

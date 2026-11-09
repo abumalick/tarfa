@@ -27,6 +27,7 @@ export const home = {
     `${expanded ? 'Hide' : 'Show'} ${n} child workspace${n === 1 ? '' : 's'}`,
   parked: (n: number) => `Parked · ${n}`,
   browserSessions: 'Browser sessions',
+  projectSection: (project: string, n: number) => `${project}, ${n} workspace${n === 1 ? '' : 's'}`,
   filter: {
     projects: (n: number) => `${n} projects`,
     all: 'All projects',

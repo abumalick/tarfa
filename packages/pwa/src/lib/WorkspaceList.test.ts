@@ -53,6 +53,7 @@ function fakeStore(
     machineStats: {} as Record<string, unknown>,
     oomKillsSince: (_machineId: string) => 0,
     parkedExpanded: false,
+    groupByProject: false,
     toggleParked: vi.fn(),
     expandedParents: new SvelteSet<string>(),
     toggleChildren(key: string) {
@@ -674,5 +675,40 @@ describe('WorkspaceList in French', () => {
     } finally {
       setLanguage('en');
     }
+  });
+});
+
+describe('WorkspaceList grouped by project', () => {
+  const at = (id: string, folder: string, status: string, extra: object = {}) => ({
+    ...ws, id, name: id, projectPath: `/home/u/workspace/${folder}`, status, ...extra,
+  });
+  const machines = [{ id: 'mac', name: 'Mac', defaultPath: '/home/u/workspace' }];
+  const list = [at('a1', 'api', 'needs-feedback'), at('w1', 'web', 'review'), at('a2', 'api', 'working')];
+
+  it('lists each project under a header, ranked by its most urgent workspace', () => {
+    const store = { ...fakeStore(list, machines), groupByProject: true };
+    const { container } = render(WorkspaceList, { props: { store: store as never } });
+    const sections = [...container.querySelectorAll('section.project')];
+    expect(sections.map((s) => s.querySelector('h2')!.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
+      'api 2',
+      'web 1',
+    ]);
+    expect(screen.getByRole('group', { name: 'api, 2 workspaces' })).toBeTruthy();
+    expect([...sections[0]!.querySelectorAll('.name')].map((n) => n.textContent)).toEqual(['a1', 'a2']);
+  });
+
+  it('drops the folder a row shares with its header, and keeps one that differs', () => {
+    const child = at('c', 'tools', 'idle', { parentId: 'a1' });
+    const store = { ...fakeStore([...list, child], machines), groupByProject: true };
+    store.expandedParents.add('mac:a1');
+    const { container } = render(WorkspaceList, { props: { store: store as never } });
+    const paths = [...container.querySelectorAll('section.project .path')].map((p) => p.textContent);
+    expect(paths).toEqual(['tools']);
+  });
+
+  it('shows no headers while grouping is off', () => {
+    const { container } = render(WorkspaceList, { props: { store: fakeStore(list, machines) as never } });
+    expect(container.querySelector('section.project')).toBeNull();
+    expect(container.querySelectorAll('.path')).toHaveLength(3);
   });
 });

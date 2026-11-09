@@ -42,6 +42,7 @@ const LAST_COMMAND_KEY = 'tarfa.lastCommand';
 const FILE_WRAP_KEY = 'tarfa.fileWrap';
 const TERMINAL_FONT_SIZE_KEY = 'tarfa.terminalFontSize';
 const SHARE_LINKS_KEY = 'tarfa.shareLinks';
+const GROUP_BY_PROJECT_KEY = 'tarfa.groupByProject';
 const READ_ALOUD_RATE_KEY = 'tarfa.readAloudRate';
 const LANGUAGE_KEY = 'tarfa.language';
 const ELEVENLABS_API_KEY = 'tarfa.elevenLabsApiKey';
@@ -188,6 +189,15 @@ export class SettingsStore {
 
   setFileWrap(on: boolean): void {
     this.storage.write(FILE_WRAP_KEY, on ? '1' : '0');
+  }
+
+  // Home list grouped under project headers. Off unless set.
+  groupByProject(): boolean {
+    return this.storage.read(GROUP_BY_PROJECT_KEY) === '1';
+  }
+
+  setGroupByProject(on: boolean): void {
+    this.storage.write(GROUP_BY_PROJECT_KEY, on ? '1' : '0');
   }
 
   // Open terminal links with the share sheet instead of the browser (Android). Off unless set.

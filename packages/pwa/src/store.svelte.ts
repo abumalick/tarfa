@@ -14,7 +14,7 @@ import { audioFiles } from './core/audio-nav';
 import { readSharedFile, consumeSharedFile, type CacheLike } from './core/shared-file';
 import { checkUploadSize } from './core/upload-limit';
 import { joinBrowserSessions } from './core/browser-sessions';
-import { filterWorkspaces, type FilterMode } from './core/project-folders';
+import { filterWorkspaces, projectFolderLabel, type FilterMode } from './core/project-folders';
 import { nextWorkspace } from './core/next-workspace';
 import { BrowserStream, type BrowserStreamDeps } from './core/browser-stream';
 import { SessionChannels } from './core/session-channels';
@@ -216,6 +216,7 @@ export class TarfaStore {
   // Word-wrap preference for the file viewer, persisted via settings (loaded in start()).
   fileWrap = $state(true);
   shareLinks = $state(false);
+  groupByProject = $state(false);
   // The language picked in Settings; 'auto' follows the phone.
   languageChoice = $state<LanguageChoice>('auto');
   // Global terminal font size (zoom), persisted via settings (loaded in start()).
@@ -400,6 +401,7 @@ export class TarfaStore {
     this.lastCommand = this.deps.settings.lastCommand();
     this.fileWrap = this.deps.settings.fileWrap();
     this.shareLinks = this.deps.settings.shareLinks();
+    this.groupByProject = this.deps.settings.groupByProject();
     this.readAloudRate = this.deps.settings.readAloudRate();
     this.readAloudPlayer?.setRate(this.readAloudRate);
     this.languageChoice = this.deps.settings.languageChoice();
@@ -689,7 +691,9 @@ export class TarfaStore {
   }
 
   get nextWorkspace(): Workspace | null {
-    return this.active ? nextWorkspace(this.visibleWorkspaces, this.active) : null;
+    if (!this.active) return null;
+    const labelOf = this.groupByProject ? (ws: Workspace) => projectFolderLabel(this.machines, ws) : null;
+    return nextWorkspace(this.visibleWorkspaces, this.active, labelOf);
   }
 
   openNext(): void {
@@ -1202,6 +1206,11 @@ export class TarfaStore {
   setFileWrap(on: boolean): void {
     this.fileWrap = on;
     this.deps.settings.setFileWrap(on);
+  }
+
+  setGroupByProject(on: boolean): void {
+    this.groupByProject = on;
+    this.deps.settings.setGroupByProject(on);
   }
 
   setShareLinks(on: boolean): void {

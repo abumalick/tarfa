@@ -265,6 +265,23 @@ describe('TarfaStore', () => {
     expect(store.active?.id).toBe('a');
   });
 
+  it('walks Next project by project once the list is grouped', () => {
+    const { store, sockets } = build([mac]);
+    store.start();
+    sockets['wss://mac']!.open();
+    sockets['wss://mac']!.deliver({ type: 'authResult', ok: true });
+    const w = (id: string, projectPath: string, status: string) =>
+      ({ machineId: 'mac', id, name: id, projectPath, command: 'claude', createdAt: 0, lastActivityAt: 0, status });
+    sockets['wss://mac']!.deliver({
+      type: 'workspaces',
+      workspaces: [w('a1', '/a', 'needs-feedback'), w('b1', '/b', 'needs-feedback'), w('a2', '/a', 'review')],
+    });
+    store.open(store.workspaces.find((ws) => ws.id === 'a1')!);
+    expect(store.nextWorkspace?.id).toBe('b1');
+    store.setGroupByProject(true);
+    expect(store.nextWorkspace?.id).toBe('a2');
+  });
+
   it('navigates and routes terminal output to the sink', () => {
     const { store, sockets } = build([mac]);
     store.start();
