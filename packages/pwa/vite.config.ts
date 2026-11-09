@@ -8,11 +8,13 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { buildVersionJson, VERSION_FILE } from './src/core/version-file';
 import { CONTENT_SECURITY_POLICY } from './src/core/csp';
 import { buildHeadersFile, HEADERS_FILE, SECURITY_HEADERS } from './src/core/security-headers';
+import { appIdentity, parseAppFlavor, type AppIdentity } from './src/core/app-flavor';
 
 const buildLabel = process.env.TARFA_BUILD_LABEL ?? 'main';
 // A per-build id (timestamp) that changes on every build, even a rebuild of the same
 // commit, written to version.json — the label alone can't distinguish two `main` builds.
 const buildId = process.env.TARFA_BUILD_ID ?? String(Date.now());
+const identity = appIdentity(parseAppFlavor(process.env.TARFA_APP_FLAVOR));
 
 // Emit version.json at the site root with the build label and id, so a running PWA can
 // read the *incoming* build's identity when an update is waiting. Kept out of the SW
@@ -53,6 +55,17 @@ function contentSecurityPolicy(): Plugin {
   };
 }
 
+// The page title and the iOS Home Screen icon, which iOS takes from apple-touch-icon, not the manifest.
+function appHead(id: AppIdentity): Plugin {
+  return {
+    name: 'tarfa-app-head',
+    transformIndexHtml: () => [
+      { tag: 'title', children: id.name, injectTo: 'head' },
+      { tag: 'link', attrs: { rel: 'apple-touch-icon', href: id.appleTouchIcon }, injectTo: 'head' },
+    ],
+  };
+}
+
 // workbox-build bundles the service worker through a file in a fresh folder under the system temp
 // dir and never removes it, so every build left one behind. Give the build a folder of its own
 // (workbox reads TMPDIR when the PWA plugin loads it, at the end of the build) and remove it on exit.
@@ -73,6 +86,7 @@ export default defineConfig({
     svelte(),
     privateTempDir(),
     contentSecurityPolicy(),
+    appHead(identity),
     emitVersionFile(buildLabel, buildId),
     emitHeadersFile(),
     VitePWA({
@@ -90,18 +104,13 @@ export default defineConfig({
         importScripts: ['share-target-sw.js'],
       },
       manifest: {
-        name: 'Tarfa',
-        short_name: 'Tarfa',
+        name: identity.name,
+        short_name: identity.shortName,
         theme_color: '#111111',
         background_color: '#111111',
         display: 'standalone',
         start_url: '/',
-        icons: [
-          { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-          { src: 'icon-192-maskable.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-          { src: 'icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-        ],
+        icons: identity.icons,
         // Register Tarfa as an Android share target so "Share → Tarfa" from any app POSTs the
         // image to the SW helper (share-target-sw.js). Ignored by iOS WebKit (no Web Share Target).
         share_target: {

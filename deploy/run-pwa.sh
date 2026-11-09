@@ -8,7 +8,7 @@ PNPM=(pnpm)
 for mise_bin in "${HOME}/.local/bin/mise" /opt/homebrew/bin/mise /usr/local/bin/mise; do
   if [ -x "${mise_bin}" ]; then PNPM=("${mise_bin}" exec -- pnpm); break; fi
 done
-"${PNPM[@]}" --filter @tarfa/pwa build
+TARFA_APP_FLAVOR=dev "${PNPM[@]}" --filter @tarfa/pwa build
 # Serve via the deploy/pwa-live symlink so a worktree build can be swapped in for testing
 # (pnpm serve:build). On startup, only (re)point it at main when it's absent or dangling —
 # a healthy symlink (main OR an active serve:build worktree deploy) is preserved, so a

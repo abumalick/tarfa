@@ -327,7 +327,8 @@ setting: static assets cannot match on the scheme.
 
 The tailnet copy below is the **staging PWA**, which `pnpm serve:build` points at a worktree
 (the always-on Linux machine only). It is a separate origin, so phones install and pair it
-separately:
+separately; it installs as "Tarfa Dev" with its own icon (`TARFA_APP_FLAVOR=dev`, which
+`run-pwa.sh` and the build hooks set):
 ```sh
 sed "s#REPO_PATH#$(pwd)#g" deploy/tarfa-pwa.service > ~/.config/systemd/user/tarfa-pwa.service
 systemctl --user daemon-reload

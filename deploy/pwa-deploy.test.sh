@@ -20,7 +20,7 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 mkdir -p "${SB}/bin"
 cat > "${SB}/bin/pnpm" <<'FAKE'
 #!/usr/bin/env bash
-printf '%s|label=%s|id=%s|account=%s|token=%s|cwd=%s\n' "$*" "${TARFA_BUILD_LABEL:-}" "${TARFA_BUILD_ID:-}" "${CLOUDFLARE_ACCOUNT_ID:-}" "${CLOUDFLARE_API_TOKEN:-}" "$(basename "$PWD")" >> "${FAKE_LOG}"
+printf '%s|flavor=%s|label=%s|id=%s|account=%s|token=%s|cwd=%s\n' "$*" "${TARFA_APP_FLAVOR:-}" "${TARFA_BUILD_LABEL:-}" "${TARFA_BUILD_ID:-}" "${CLOUDFLARE_ACCOUNT_ID:-}" "${CLOUDFLARE_API_TOKEN:-}" "$(basename "$PWD")" >> "${FAKE_LOG}"
 case "$*" in
   *build*) printf '%s' "${TARFA_BUILD_ID:-}" > "${FAKE_LOG}.built" ;;
   *"wrangler deploy --env dev"*) echo "Deployed tarfa-dev triggers" ; echo "  https://tarfa-dev.someone.workers.dev" ;;
@@ -55,7 +55,7 @@ git -C "${MAIN}" worktree add -q "${MAIN}/.worktrees/feature" -b feature
 WT="${MAIN}/.worktrees/feature"
 
 run() { rm -f "${FAKE_LOG}" "${FAKE_LOG}.curl" "${FAKE_LOG}.built"; "$@" >"${SB}/out" 2>&1; }
-deployed_with() { grep -q -- "wrangler deploy $1|" "${FAKE_LOG}" 2>/dev/null; }
+deployed_with() { grep -qE -- "wrangler deploy $1( --assets [^|]*)?\|" "${FAKE_LOG}" 2>/dev/null; }
 
 # --- 1. no env file: refused, by name ------------------------------------------
 if run "${MAIN}/deploy/pwa-deploy.sh"; then fail "deployed without deploy/pwa-deploy.env"; fi
@@ -80,14 +80,16 @@ if run "${MAIN}/deploy/pwa-deploy.sh"; then fail "deployed with an empty token";
 printf "CLOUDFLARE_ACCOUNT_ID=acct-123\nPWA_DEPLOY_TOKEN_CMD='printf tok-SECRET-1'\n" > "${MAIN}/deploy/pwa-deploy.env"
 run "${MAIN}/deploy/pwa-deploy.sh" || { cat "${SB}/out"; fail "clean main did not deploy"; }
 grep -q "^install --frozen-lockfile|" "${FAKE_LOG}" || fail "no frozen install before a production deploy"
-build="$(grep -- "--filter @tarfa/pwa build|" "${FAKE_LOG}")" || fail "no build"
-case "${build}" in *"|label=main|"*) ;; *) fail "production build label: ${build}" ;; esac
+# Even production builds outside dist: main's dist is the staging PWA, with the dev identity.
+build="$(grep -- "--filter @tarfa/pwa build --outDir .*/.tmp/pwa-deploy-dist --emptyOutDir|" "${FAKE_LOG}")" || fail "production built into dist: $(cat "${FAKE_LOG}")"
+grep -q -- "wrangler deploy --env production --assets .*/.tmp/pwa-deploy-dist|" "${FAKE_LOG}" || fail "production did not deploy its own build"
+case "${build}" in *"|flavor=production|label=main|"*) ;; *) fail "production build label or flavor: ${build}" ;; esac
 sha="$(git -C "${MAIN}" rev-parse --short=12 HEAD)"
 case "${build}" in *"|id=${sha}-"*) ;; *) fail "build id does not start with the commit: ${build}" ;; esac
 deployed_with "--env production" || fail "did not deploy env.production: $(cat "${FAKE_LOG}")"
-grep -q -- "wrangler deploy --env production|.*account=acct-123|token=[^|]*|cwd=pwa" "${FAKE_LOG}" || fail "wrangler not run from packages/pwa with the account"
-grep -q -- "wrangler deploy --env production|.*token=tok-SECRET-1|" "${FAKE_LOG}" || fail "wrangler did not get the token"
-grep -q -- "build|.*token=|" "${FAKE_LOG}" || fail "the build saw the token"
+grep -q -- "wrangler deploy --env production [^|]*|.*account=acct-123|token=[^|]*|cwd=pwa" "${FAKE_LOG}" || fail "wrangler not run from packages/pwa with the account"
+grep -q -- "wrangler deploy --env production [^|]*|.*token=tok-SECRET-1|" "${FAKE_LOG}" || fail "wrangler did not get the token"
+grep -q -- "build --outDir [^|]*|.*token=|" "${FAKE_LOG}" || fail "the build saw the token"
 grep -q "tok-SECRET-1" "${SB}/out" && fail "the token was printed"
 grep -q "https://tarfa.app/version.json" "${FAKE_LOG}.curl" || fail "did not check tarfa.app/version.json"
 grep -q "tarfa.app" "${SB}/out" || fail "does not say where it went"
@@ -113,7 +115,7 @@ git -C "${MAIN}" push -q origin main
 run "${WT}/deploy/pwa-deploy.sh" --dry-run || { cat "${SB}/out"; fail "dry run from a worktree refused"; }
 grep -q -- "wrangler deploy --env production --assets .*/.tmp/pwa-deploy-dist --dry-run|" "${FAKE_LOG}" || fail "dry run not passed to wrangler with its own build: $(cat "${FAKE_LOG}")"
 # A build outside production goes to its own directory: main's dist is the staging PWA.
-grep -q -- "--filter @tarfa/pwa build --outDir .*/.tmp/pwa-deploy-dist --emptyOutDir|" "${FAKE_LOG}" || fail "dry run built into dist: $(cat "${FAKE_LOG}")"
+grep -q -- "--filter @tarfa/pwa build --outDir .*/.tmp/pwa-deploy-dist --emptyOutDir|flavor=production|" "${FAKE_LOG}" || fail "dry run built into dist: $(cat "${FAKE_LOG}")"
 [ -f "${FAKE_LOG}.curl" ] && fail "a dry run checked tarfa.app"
 grep -q "^install" "${FAKE_LOG}" && fail "a dry run reinstalled dependencies"
 grep -q "token=tok" "${FAKE_LOG}" && fail "a dry run fetched the token"
@@ -126,7 +128,7 @@ done
 # --- 5. --dev deploys this checkout to tarfa-dev and prints its URL -------------
 run "${WT}/deploy/pwa-deploy.sh" --dev || { cat "${SB}/out"; fail "--dev from a worktree refused"; }
 grep -q -- "wrangler deploy --env dev --assets .*/.tmp/pwa-deploy-dist|" "${FAKE_LOG}" || fail "--dev did not deploy its own build to env.dev: $(cat "${FAKE_LOG}")"
-grep -q -- "--filter @tarfa/pwa build --outDir .*|label=tarfa-dev|" "${FAKE_LOG}" || fail "dev build not labelled tarfa-dev"
+grep -q -- "--filter @tarfa/pwa build --outDir .*|flavor=dev|label=tarfa-dev|" "${FAKE_LOG}" || fail "dev build not labelled tarfa-dev with the dev flavor"
 grep -q -- "wrangler deploy --env dev .*token=tok-SECRET-1|" "${FAKE_LOG}" || fail "--dev did not hand wrangler the token"
 grep -q "https://tarfa-dev.someone.workers.dev" "${SB}/out" || fail "--dev does not print the dev URL"
 grep -q "\-\-dev \-\-delete" "${SB}/out" || fail "--dev does not say how to delete it"

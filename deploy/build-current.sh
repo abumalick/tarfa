@@ -20,4 +20,5 @@ for mise_bin in "${HOME}/.local/bin/mise" /opt/homebrew/bin/mise /usr/local/bin/
 done
 
 echo "Building @tarfa/pwa in ${REPO}…"
-"${PNPM[@]}" --filter @tarfa/pwa --dir "${REPO}" build
+# Dev flavor: what this builds is served only by the staging PWA (main) or serve:build.
+TARFA_APP_FLAVOR=dev "${PNPM[@]}" --filter @tarfa/pwa --dir "${REPO}" build

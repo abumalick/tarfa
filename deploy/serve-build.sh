@@ -59,7 +59,7 @@ SLUG="$(basename "${WT}")"
 WT_DIST="${WT}/packages/pwa/dist"
 
 echo "Building '${SLUG}' PWA (TARFA_BUILD_LABEL=${SLUG})…"
-TARFA_BUILD_LABEL="${SLUG}" "${PNPM[@]}" --filter @tarfa/pwa --dir "${WT}" build
+TARFA_APP_FLAVOR=dev TARFA_BUILD_LABEL="${SLUG}" "${PNPM[@]}" --filter @tarfa/pwa --dir "${WT}" build
 
 ln -sfn "${WT_DIST}" "${LIVE}"
 echo "Now serving '${SLUG}'. The PWA updates within ~60s (app must be foregrounded)."

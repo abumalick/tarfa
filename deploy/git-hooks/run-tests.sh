@@ -34,7 +34,8 @@ echo "${1:-test-gate}: running typecheck + unit tests…"
 # live preview. Requires WebKit once per machine:
 # `pnpm --filter @tarfa/pwa exec playwright install webkit`.
 echo "${1:-test-gate}: building PWA + running e2e…"
-"${PNPM[@]}" --dir "${REPO}" --filter @tarfa/pwa build
+# Dev flavor: in the main checkout this dist is what the staging PWA serves.
+TARFA_APP_FLAVOR=dev "${PNPM[@]}" --dir "${REPO}" --filter @tarfa/pwa build
 # console.log(String(port)), not console.log(port): a bare number goes through
 # util.inspect, which Node auto-colors with ANSI escape codes whenever stdout looks
 # like a TTY (as it can when this hook runs under an agent harness's pseudo-terminal).

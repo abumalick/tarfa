@@ -86,20 +86,17 @@ fi
 [ "$dev" = 0 ] || fetch_token
 
 # The build's id names the commit and the time, so the check below can tell this build from the
-# one it replaces. A dev build carries a label, which the app shows as a badge. Outside
-# production the build goes to its own directory: packages/pwa/dist in the main checkout is
-# what the tailnet staging PWA serves, and a dry run may come from uncommitted work.
+# one it replaces. A dev build carries a label, which the app shows as a badge. Every build goes
+# to its own directory: packages/pwa/dist in the main checkout is what the tailnet staging PWA
+# serves (with the dev name and icon), and a dry run may come from uncommitted work.
 build_id="$(git -C "$root" rev-parse --short=12 HEAD)-$(date +%s)"
 label=main
-[ "$dev" = 1 ] && label=tarfa-dev
-assets=()
-build=(pnpm --filter @tarfa/pwa build)
-if [ "$production" = 0 ]; then
-  out="$root/.tmp/pwa-deploy-dist"
-  assets=(--assets "$out")
-  build+=(--outDir "$out" --emptyOutDir)
-fi
-(cd "$root" && TARFA_BUILD_LABEL="$label" TARFA_BUILD_ID="$build_id" "${build[@]}")
+flavor=production
+[ "$dev" = 1 ] && { label=tarfa-dev; flavor=dev; }
+out="$root/.tmp/pwa-deploy-dist"
+assets=(--assets "$out")
+build=(pnpm --filter @tarfa/pwa build --outDir "$out" --emptyOutDir)
+(cd "$root" && TARFA_APP_FLAVOR="$flavor" TARFA_BUILD_LABEL="$label" TARFA_BUILD_ID="$build_id" "${build[@]}")
 
 cd "$pwa"
 if [ "$dev" = 1 ]; then
@@ -114,7 +111,7 @@ if [ "$dry_run" = 1 ]; then
   exit 0
 fi
 
-wrangler deploy --env production
+wrangler deploy --env production "${assets[@]}"
 # A new custom-domain version takes a few seconds to answer everywhere.
 deadline=$(( $(date +%s) + ${PWA_DEPLOY_WAIT_S:-60} ))
 mkdir -p "$root/.tmp"

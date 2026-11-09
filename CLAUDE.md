@@ -266,21 +266,30 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   custom domain alone (no workers.dev host, no preview URLs; a test keeps it so); the top level
   is a local Worker of its own, so a bare `wrangler deploy` never reaches production.
   `--dev` deploys any checkout to a throwaway `tarfa-dev` Worker on workers.dev for an
-  on-device test (badge `tarfa-dev`), and `--dev --delete` removes it afterwards. Both, and
-  `--dry-run`, build into `.tmp/pwa-deploy-dist`, never main's `dist`, which the staging PWA
-  serves; `--dry-run` does not combine with `--dev`. The account is
+  on-device test (badge `tarfa-dev`), and `--dev --delete` removes it afterwards. Every run,
+  production included, builds into `.tmp/pwa-deploy-dist` and deploys that, never main's `dist`,
+  which the staging PWA serves with its own name and icon; `--dry-run` does not combine with `--dev`. The account is
   `CLOUDFLARE_ACCOUNT_ID` in main's gitignored `deploy/pwa-deploy.env` (or `--env-file`), with `PWA_DEPLOY_TOKEN_CMD` printing the scoped API token wrangler gets (never a wrangler login).
   **Its storage keys are `tarfa.*`** (localStorage), `tarfa-device` (IndexedDB) and
   `tarfa-shared` (Cache Storage): it reads nothing an older build stored and needs no migration.
 - The tailnet origin is the **staging PWA** for worktree tests: it is built and served on the
   always-on machine via `deploy/run-pwa.sh` + `tailscale serve`, from the same code. It is a
   separate origin, so a separate install and pairing on each phone.
+  - **It installs as "Tarfa Dev" with a cyan-on-teal icon**, so it never looks like tarfa.app on
+    a home screen. `TARFA_APP_FLAVOR=dev` picks the name, title and `*-dev.png` icons at build
+    time (`core/app-flavor.ts`); unset means production, so a self-hoster's plain build is
+    "Tarfa". Every script that builds for a non-production origin sets it: `run-pwa.sh`,
+    `build-current.sh` (the post-commit/post-merge hooks), `serve-build.sh`, the test gate
+    (it rebuilds main's `dist`) and `pwa-deploy.sh --dev`; production and `--dry-run` build
+    production. iOS bakes the name and icon in at Add to Home Screen, so an existing install
+    keeps the old ones until it is re-added (a new install has new storage, so it pairs again).
   - **The host running `run-pwa.sh`:** it keeps a `vite preview`
     process serving the `deploy/pwa-live` symlink (defaults to `packages/pwa/dist/`), fronted
     by `tailscale serve` on :8443. The preview stays up and serves whatever the symlink points
-    at, so `pnpm --filter @tarfa/pwa build` alone re-deploys here — no process restart, just
-    reload the PWA. `pnpm serve:build` temporarily repoints the symlink at a worktree build
-    (see above).
+    at, so `deploy/build-current.sh` (a dev-flavored build) re-deploys here — no process
+    restart, just reload the PWA; a bare `pnpm --filter @tarfa/pwa build` would serve the
+    production name and icon. `pnpm serve:build` temporarily repoints the symlink at a worktree
+    build (see above).
 - Install Claude Code hooks on each agent machine: the agent CLI `install-hooks` command.
 - **Hidden folders are per-machine, file-based config — not a protocol/PWA feature.** A
   gitignored `~/.tarfa/hidden-folders.json` (JSON array of folder names) on each agent
