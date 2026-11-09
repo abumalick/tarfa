@@ -35,6 +35,8 @@ describe('app-flavor', () => {
     expect(dev.name).toBe('Tarfa Dev');
     expect(dev.shortName).toBe('Tarfa Dev');
     expect(dev.appleTouchIcon).toBe('/apple-touch-icon-dev.png');
+    expect(dev.flavor).toBe('dev');
+    expect(prod.flavor).toBe('production');
     expect(dev.icons).toEqual(prod.icons.map((i) => ({ ...i, src: i.src.replace('.png', '-dev.png') })));
   });
 });

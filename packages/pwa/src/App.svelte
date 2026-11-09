@@ -187,6 +187,10 @@
     --idle: #4fb0c6;
     --radius: 8px;
   }
+  /* The staging build ("Tarfa Dev") sits on a faint teal, after its icon, so it is never taken for tarfa.app. */
+  :global(:root[data-flavor='dev']) {
+    --bg: #0a1618;
+  }
   :global(body) { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
   /* Dark form controls. Native inputs default to a light background, which looks broken
      on the dark canvas; 16px font keeps iOS from zooming on focus. */

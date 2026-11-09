@@ -5,3 +5,5 @@
 // Injected at build time by vite's `define` (see vite.config.ts). The slug of the
 // build currently being served, or 'main' for a normal production build.
 declare const __TARFA_BUILD_LABEL__: string;
+// The name the build installs as (appIdentity in core/app-flavor.ts).
+declare const __TARFA_APP_NAME__: string;
