@@ -380,7 +380,7 @@ None of this is required by Tarfa.
 - **Tell Claude where it is.** A few lines in `~/.claude/CLAUDE.md` go a long way: every session
   runs in a Tarfa workspace you read on a small screen; never kill tmux sessions it did not
   create; never give `localhost` links (step 10); Tarfa questions are answered from
-  `~/workspace/perch` and its `docs/`; `heavy` for big jobs.
+  `~/workspace/tarfa` and its `docs/`; `heavy` for big jobs.
 - **Library docs:** [Context7](https://github.com/upstash/context7) as an HTTP MCP server, which
   works without a key: `claude mcp add --transport http --scope user context7 https://mcp.context7.com/mcp`
   ([MCP in Claude Code](https://code.claude.com/docs/en/mcp)).
