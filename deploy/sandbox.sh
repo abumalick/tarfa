@@ -7,6 +7,11 @@
 #   pnpm sandbox up      [--worktree <path>]   start one for the worktree you are in
 #   pnpm sandbox down    [--worktree <path>]   stop it and delete it
 #   pnpm sandbox env     [--worktree <path>]   print the path of its env.sh
+#   pnpm sandbox exec    [--worktree <path>] -- <cmd...>   run a command in its environment
+#   pnpm sandbox status  [--worktree <path>]   units, tmux sessions, the agent's last log lines
+#   pnpm sandbox rebuild [--worktree <path>] [--agent|--pwa]   pick up a code change
+#   pnpm sandbox ls                            every sandbox on this machine
+#   pnpm sandbox gc [--older-than-hours N]     remove sandboxes whose worktree or agent is gone
 set -euo pipefail
 
 REAL_HOME="${HOME}"
@@ -164,6 +169,68 @@ cmd_down() { # <root>
   echo "sandbox ${slug} is down"
 }
 
+cmd_exec() { # <root> <cmd...>
+  local root="$1"; shift
+  (. "${root}/env.sh"; exec "$@")
+}
+
+cmd_status() { # <root>
+  local root="$1" unit
+  jq -r '"sandbox \(.slug)  worktree \(.worktree)\n  ports  hooks \(.ports.hooks)  phone \(.ports.phone)  pwa \(.ports.pwa)"' "${root}/manifest.json"
+  for unit in $(jq -r '.units.agent, .units.pwa' "${root}/manifest.json"); do
+    if sb_unit_active "${unit}"; then echo "  ${unit}: active"; else echo "  ${unit}: not running"; fi
+  done
+  echo "tmux sessions:"
+  tmux -S "$(sb_socket "${root}")" ls 2>/dev/null | sed 's/^/  /' || echo "  no tmux server"
+  echo "agent log:"
+  journalctl --user -u "$(jq -r .units.agent "${root}/manifest.json")" -n 15 --no-pager 2>/dev/null | sed 's/^/  /' || true
+}
+
+cmd_rebuild() { # <root> <agent|pwa|both>
+  local root="$1" what="$2"
+  if [ "${what}" != agent ]; then build_pwa "${root}"; echo "PWA rebuilt"; fi
+  if [ "${what}" != pwa ]; then
+    install_hooks "${root}"
+    rm -f "${root}/home/.tarfa/token"
+    systemctl --user restart "$(jq -r .units.agent "${root}/manifest.json")"
+    wait_agent_ready "${root}" || die "the agent did not come back within ${READY_SECONDS}s (its log is above)"
+    echo "agent restarted; workspaces kept"
+  fi
+}
+
+age_hours() { # <ISO time>
+  echo $(( ($(date +%s) - $(date -d "$1" +%s)) / 3600 ))
+}
+
+cmd_ls() {
+  local m slug wt state
+  for m in "${BASE}"/*/manifest.json; do
+    [ -f "${m}" ] || continue
+    slug="$(jq -r .slug "${m}")"; wt="$(jq -r .worktree "${m}")"
+    [ -d "${wt}" ] || wt="${wt} (gone)"
+    if sb_unit_active "$(jq -r .units.agent "${m}")"; then state=up; else state=down; fi
+    printf '%s  %s  %s  pwa=%s  %sh\n' "${slug}" "${wt}" "${state}" "$(jq -r .ports.pwa "${m}")" "$(age_hours "$(jq -r .createdAt "${m}")")"
+  done
+}
+
+# By default only sandboxes nobody can be using: a peer's live sandbox is never collected by age
+# unless asked.
+cmd_gc() { # [max age in hours]
+  local max="${1:-}" m root why
+  for m in "${BASE}"/*/manifest.json; do
+    [ -f "${m}" ] || continue
+    root="$(dirname "${m}")"; why=""
+    if [ ! -d "$(jq -r .worktree "${m}")" ]; then why="worktree gone"
+    elif ! sb_unit_active "$(jq -r .units.agent "${m}")"; then why="agent not running"
+    elif [ -n "${max}" ] && [ "$(age_hours "$(jq -r .createdAt "${m}")")" -ge "${max}" ]; then why="older than ${max}h"
+    fi
+    if [ -n "${why}" ]; then
+      echo "removing $(basename "${root}") (${why})"
+      cmd_down "${root}" > /dev/null
+    fi
+  done
+}
+
 cmd_up() { # <worktree>
   local wt="$1" slug root
   slug="$(sb_slug "${wt}")"; root="$(sb_root "${slug}")"
@@ -224,20 +291,34 @@ EOF
 
 main() {
   local cmd="${1:-}"; shift || true
-  local wt_arg=""
+  local wt_arg="" what=both max=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --worktree) wt_arg="${2:?--worktree needs a path}"; shift 2 ;;
+      --agent) what=agent; shift ;;
+      --pwa) what=pwa; shift ;;
+      --older-than-hours) max="${2:?--older-than-hours needs a number}"; shift 2 ;;
+      --) shift; break ;;
       *) break ;;
     esac
   done
+  case "${cmd}" in
+    ls) cmd_ls; return ;;
+    gc) cmd_gc "${max}"; return ;;
+  esac
   local wt slug root
   wt="$(resolve_worktree "${wt_arg}")"; slug="$(sb_slug "${wt}")"; root="$(sb_root "${slug}")"
   case "${cmd}" in
-    up) cmd_up "${wt}" ;;
-    down) cmd_down "${root}" ;;
-    env) [ -f "${root}/env.sh" ] || die "no sandbox for ${slug}; pnpm sandbox up"; echo "${root}/env.sh" ;;
-    *) die "usage: sandbox.sh up|down|env [--worktree <path>]" ;;
+    up) cmd_up "${wt}"; return ;;
+    down) cmd_down "${root}"; return ;;
+    exec | status | rebuild | env) [ -f "${root}/manifest.json" ] || die "no sandbox for ${slug}; pnpm sandbox up" ;;
+    *) die "usage: sandbox.sh up|down|env|exec|status|rebuild|ls|gc [--worktree <path>] (see the header of this script)" ;;
+  esac
+  case "${cmd}" in
+    exec) [ $# -gt 0 ] || die "usage: sandbox.sh exec -- <cmd...>"; cmd_exec "${root}" "$@" ;;
+    status) cmd_status "${root}" ;;
+    rebuild) cmd_rebuild "${root}" "${what}" ;;
+    env) echo "${root}/env.sh" ;;
   esac
 }
 

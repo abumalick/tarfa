@@ -46,7 +46,9 @@ for a in "$@"; do
   case "$a" in --setenv=HOME=*) home="${a#--setenv=HOME=}";; tarfa-sb-*-agent) agent=yes;; esac
 done
 if [ "$agent" = yes ] && [ -n "$home" ]; then mkdir -p "$home/.tarfa"; echo t > "$home/.tarfa/token"; fi'
-stub systemctl "if [ \"\${2:-}\" = is-active ]; then grep -qxF \"\${4:-}\" \"${T}/active\"; exit; fi"
+stub systemctl "
+if [ \"\${2:-}\" = is-active ]; then grep -qxF \"\${4:-}\" \"${T}/active\"; exit; fi
+if [ \"\${2:-}\" = restart ]; then s=\"\${3#tarfa-sb-}\"; s=\"\${s%-agent}\"; echo t > \"${T}/root/\$s/home/.tarfa/token\"; fi"
 stub tmux ''
 stub journalctl ''
 stub ab ''
@@ -173,6 +175,57 @@ check "no node_modules: refused" "1" "${rc}"
 check "no node_modules: says pnpm install" "yes" "$(printf '%s' "${out}" | has 'pnpm install' /dev/stdin)"
 check "no node_modules: nothing created" "no" "$([ -e "${ROOT}" ] && echo yes || echo no)"
 mkdir "${WT}/node_modules"
+
+echo "exec, ls, status"
+sb up --worktree "${WT}" > /dev/null
+check "exec runs in the sandbox env" "${ROOT}/home unset" "$(sb exec --worktree "${WT}" -- sh -c 'echo "$HOME ${TMUX-unset}"')"
+set +e; sb exec --worktree "${WT}" -- sh -c 'exit 3' > /dev/null; rc=$?; set -e
+check "exec passes the exit code through" "3" "${rc}"
+echo "tarfa-sb-${SLUG}-agent" > "${T}/active"
+check "ls shows a live sandbox" "yes" "$(sb ls | grep -qE "^${SLUG} +$(cd "${WT}" && pwd -P) +up +pwa=[0-9]+ " && echo yes || echo no)"
+: > "${CALLS}"
+sb status --worktree "${WT}" > "${T}/status.out" || true
+check "status names the units" "yes" "$(has "tarfa-sb-${SLUG}-agent" "${T}/status.out")"
+check "status lists tmux on the sandbox socket" "yes" "$(has "tmux -S ${SOCK} ls" "${CALLS}")"
+check "status reads the agent journal" "yes" "$(has "journalctl --user -u tarfa-sb-${SLUG}-agent" "${CALLS}")"
+
+echo "rebuild"
+: > "${CALLS}"
+sb rebuild --worktree "${WT}" --agent > /dev/null
+check "rebuild --agent reinstalls the hooks in the sandbox" "yes" \
+  "$(grep -A1 'cli.ts install-hooks' "${CALLS}" | has "HOME=${ROOT}/home" /dev/stdin)"
+check "rebuild --agent restarts the agent unit" "yes" "$(has "systemctl --user restart tarfa-sb-${SLUG}-agent" "${CALLS}")"
+check "rebuild --agent keeps the workspaces" "no" "$(grep -qE 'kill-server|systemctl --user stop' "${CALLS}" && echo yes || echo no)"
+check "rebuild --agent keeps the model" "sonnet" "$(jq -r .model "${ROOT}/home/.claude/settings.json")"
+: > "${CALLS}"
+sb rebuild --worktree "${WT}" --pwa > /dev/null
+check "rebuild --pwa rebuilds into the sandbox" "yes" "$(has "build --outDir ${ROOT}/pwa-dist --emptyOutDir" "${CALLS}")"
+check "rebuild --pwa restarts nothing" "no" "$(has "systemctl --user restart" "${CALLS}")"
+
+echo "gc"
+WT2="${T}/gone-tree"; WT3="${T}/dead-agent"; WT4="${T}/old-live"
+for w in "${WT2}" "${WT3}" "${WT4}"; do mkdir -p "${w}/node_modules"; git -C "${w}" init -q; sb up --worktree "${w}" > /dev/null; done
+rm -rf "${WT2}"
+printf '%s\n' "tarfa-sb-${SLUG}-agent" "tarfa-sb-old-live-agent" > "${T}/active"
+jq '.createdAt = "2000-01-01T00:00:00Z"' "${T}/root/old-live/manifest.json" > "${T}/m" && mv "${T}/m" "${T}/root/old-live/manifest.json"
+check "ls marks a gone worktree" "yes" "$(sb ls | grep -E '^gone-tree ' | grep -qF '(gone)' && echo yes || echo no)"
+sb gc > /dev/null
+check "gc removes a sandbox whose worktree is gone" "no" "$([ -e "${T}/root/gone-tree" ] && echo yes || echo no)"
+check "gc removes a sandbox whose agent is down" "no" "$([ -e "${T}/root/dead-agent" ] && echo yes || echo no)"
+check "gc keeps a live old sandbox" "yes" "$([ -e "${T}/root/old-live" ] && echo yes || echo no)"
+check "gc keeps a live fresh sandbox" "yes" "$([ -e "${ROOT}" ] && echo yes || echo no)"
+sb gc --older-than-hours 24 > /dev/null
+check "gc --older-than-hours takes the old one" "no" "$([ -e "${T}/root/old-live" ] && echo yes || echo no)"
+check "and keeps the fresh one" "yes" "$([ -e "${ROOT}" ] && echo yes || echo no)"
+: > "${T}/active"
+sb down --worktree "${WT}" > /dev/null
+
+echo "no sandbox"
+for c in exec status rebuild env; do
+  set +e; out="$(sb "${c}" --worktree "${WT}" -- true)"; rc=$?; set -e
+  check "${c} without a sandbox exits 1" "1" "${rc}"
+  check "${c} without a sandbox says so" "yes" "$(printf '%s' "${out}" | has "no sandbox for ${SLUG}; pnpm sandbox up" /dev/stdin)"
+done
 
 if [ "${fails}" -gt 0 ]; then
   echo "${fails} check(s) failed"
