@@ -1,6 +1,8 @@
 <script lang="ts">
   import { isAndroid } from './android-input';
+  import { untrack } from 'svelte';
   import { flip } from 'svelte/animate';
+  import { SvelteSet } from 'svelte/reactivity';
   import { slide } from 'svelte/transition';
   import { imageMediaType, type Workspace } from '@tarfa/contracts';
   import type { TarfaStore } from '../store.svelte';
@@ -10,10 +12,11 @@
   import { displayProjectPath } from '../core/resolve-path';
   import { isConnectable } from '../core/settings-store';
   import { deriveProjectFolders, filterWorkspaces, projectFolderLabel, pruneStaleFilter } from '../core/project-folders';
-  import { motionDuration, prefersReducedMotion, REORDER_MS, ENTER_LEAVE_MS } from './motion';
+  import { motionDuration, prefersReducedMotion, reorderDuration, REORDER_MS, ENTER_LEAVE_MS } from './motion';
   import { statusLabel } from './workspace-status-display';
   import { nestWorkspaces } from '../core/nest-workspaces';
   import { projectSections } from '../core/project-sections';
+  import { risers, urgency, type Ranked } from '../core/risers';
   import { statusAge } from '../core/status-age';
   import { msg } from '../i18n.svelte';
 
@@ -108,6 +111,46 @@
       behavior: prefersReducedMotion() ? 'auto' : 'smooth',
     });
   const rowKey = (ws: Workspace) => ws.machineId + ':' + ws.id;
+  const sectionKey = (label: string) => '§' + label;
+
+  // What climbed past another since the last list glows for a moment, so the eye lands on the
+  // workspace (or project) that now needs attention rather than on everything that slid.
+  const RISE_MS = 1600;
+  const rising = new SvelteSet<string>();
+  const riseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let lastOrder = new Map<string, Ranked[]>();
+  const rankedGroup = (g: (typeof activeGroups)[number]): Ranked => ({
+    key: rowKey(g.workspace),
+    score: urgency([g.workspace, ...g.children]),
+  });
+  // Each glow keeps its own timer; climbing again restarts it, and the class is dropped for a
+  // frame so the animation plays again.
+  const glow = (key: string) => {
+    clearTimeout(riseTimers.get(key));
+    riseTimers.set(key, setTimeout(() => (riseTimers.delete(key), rising.delete(key)), RISE_MS));
+    if (rising.delete(key)) requestAnimationFrame(() => riseTimers.has(key) && rising.add(key));
+    else rising.add(key);
+  };
+  $effect(() => {
+    const order: Map<string, Ranked[]> = store.groupByProject
+      ? new Map([
+          [
+            '§',
+            sections.map((s) => ({
+              key: sectionKey(s.label),
+              score: urgency(s.groups.flatMap((g) => [g.workspace, ...g.children])),
+            })),
+          ],
+          ...sections.map((s): [string, Ranked[]] => [s.label, s.groups.map(rankedGroup)]),
+        ])
+      : new Map([['rows', activeGroups.map(rankedGroup)]]);
+    const rose = risers(lastOrder, order);
+    lastOrder = order;
+    // A project sits where its top workspace sits, so that workspace is what lifted it.
+    for (const s of sections) if (rose.has(sectionKey(s.label))) rose.add(rowKey(s.groups[0]!.workspace));
+    untrack(() => rose.forEach(glow));
+  });
+  $effect(() => () => riseTimers.forEach(clearTimeout));
   const expanded = (ws: Workspace) => store.expandedParents.has(rowKey(ws));
 
   const toggleFolder = (key: string) => {
@@ -297,8 +340,9 @@
       <section
         class="project"
         role="group"
+        class:rose={rising.has(sectionKey(section.label))}
         aria-label={msg().home.projectSection(section.label, sectionSize(section))}
-        animate:flip={{ duration: motionDuration(REORDER_MS) }}
+        animate:flip={{ duration: reorderDuration }}
         in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
         out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
       >
@@ -309,7 +353,8 @@
         <ul>
           {#each section.groups as { workspace: ws, children } (rowKey(ws))}
             <li
-              animate:flip={{ duration: motionDuration(REORDER_MS) }}
+              class:rose={rising.has(rowKey(ws))}
+              animate:flip={{ duration: reorderDuration }}
               in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
               out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
             >
@@ -323,7 +368,8 @@
     <ul>
       {#each activeGroups as { workspace: ws, children } (rowKey(ws))}
         <li
-          animate:flip={{ duration: motionDuration(REORDER_MS) }}
+          class:rose={rising.has(rowKey(ws))}
+          animate:flip={{ duration: reorderDuration }}
           in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
           out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
         >
@@ -632,6 +678,20 @@
   .project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .project-count { flex: 0 0 auto; font-weight: 400; }
   .project > ul { margin-top: 0; }
+  /* A glow that fades out on whatever just climbed. Color only, so it stays under reduced
+     motion: it says what moved without moving anything. */
+  li.rose > .row,
+  li.rose > .parent > .row {
+    animation: rose 1.6s ease-out;
+  }
+  .project.rose > h2 { animation: rose-heading 1.6s ease-out; }
+  @keyframes rose {
+    from { box-shadow: 0 0 0 2px var(--accent), 0 0 16px 2px var(--accent); }
+    to { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; }
+  }
+  @keyframes rose-heading {
+    from { color: var(--accent); }
+  }
 
   /* Unattached browser sessions: a quiet bucket under the workspaces. */
   .browser-sessions { margin-top: 1.25rem; }

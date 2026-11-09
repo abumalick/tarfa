@@ -684,6 +684,7 @@ describe('WorkspaceList grouped by project', () => {
   });
   const machines = [{ id: 'mac', name: 'Mac', defaultPath: '/home/u/workspace' }];
   const list = [at('a1', 'api', 'needs-feedback'), at('w1', 'web', 'review'), at('a2', 'api', 'working')];
+  const climbed = at('a2', 'api', 'needs-feedback', { urgent: true });
 
   it('lists each project under a header, ranked by its most urgent workspace', () => {
     const store = { ...fakeStore(list, machines), groupByProject: true };
@@ -704,6 +705,49 @@ describe('WorkspaceList grouped by project', () => {
     const { container } = render(WorkspaceList, { props: { store: store as never } });
     const paths = [...container.querySelectorAll('section.project .path')].map((p) => p.textContent);
     expect(paths).toEqual(['tools']);
+  });
+
+  it('marks the project that climbed past another, and the workspace that lifted it', async () => {
+    const store = { ...fakeStore(list, machines), groupByProject: true };
+    const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
+    expect(container.querySelector('.rose')).toBeNull();
+    const w1 = at('w1', 'web', 'needs-feedback', { urgent: true });
+    await rerender({ store: { ...store, workspaces: [w1, list[0], list[2]] } as never });
+    const sections = [...container.querySelectorAll('section.project')];
+    expect(sections.map((s) => [s.querySelector('.project-name')!.textContent, s.classList.contains('rose')])).toEqual([
+      ['web', true],
+      ['api', false],
+    ]);
+    expect([...container.querySelectorAll('li.rose .name')].map((n) => n.textContent)).toEqual(['w1']);
+  });
+
+  it('marks only the workspace that climbed in the plain list', async () => {
+    const store = fakeStore(list, machines);
+    const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
+    await rerender({ store: { ...store, workspaces: [climbed, list[0], list[1]] } as never });
+    expect([...container.querySelectorAll('li.rose .name')].map((n) => n.textContent)).toEqual(['a2']);
+  });
+
+  it('marks nothing when a workspace sinks past the others', async () => {
+    const store = { ...fakeStore(list, machines), groupByProject: true };
+    const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
+    const answered = at('a1', 'api', 'working');
+    await rerender({ store: { ...store, workspaces: [list[1], list[2], answered] } as never });
+    expect(container.querySelector('.rose')).toBeNull();
+  });
+
+  it('lets the mark fade after a moment', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = fakeStore(list, machines);
+      const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
+      await rerender({ store: { ...store, workspaces: [climbed, list[0], list[1]] } as never });
+      expect(container.querySelector('li.rose')).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(container.querySelector('li.rose')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows no headers while grouping is off', () => {

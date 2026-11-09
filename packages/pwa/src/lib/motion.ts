@@ -14,3 +14,10 @@ export function prefersReducedMotion(): boolean {
 export function motionDuration(baseMs: number): number {
   return prefersReducedMotion() ? 0 : baseMs;
 }
+
+// A reorder slide's length follows how far the row travels, so a workspace climbing the whole
+// list moves slowly enough to follow while a swap with its neighbour stays quick.
+const MAX_REORDER_MS = 600;
+export function reorderDuration(distancePx: number): number {
+  return motionDuration(Math.min(MAX_REORDER_MS, Math.max(REORDER_MS, Math.sqrt(distancePx) * 25)));
+}

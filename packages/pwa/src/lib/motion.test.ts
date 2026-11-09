@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { motionDuration, prefersReducedMotion, REORDER_MS, ENTER_LEAVE_MS } from './motion';
+import { motionDuration, prefersReducedMotion, reorderDuration, REORDER_MS, ENTER_LEAVE_MS } from './motion';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -41,5 +41,19 @@ describe('motionDuration', () => {
     stubReducedMotion(true);
     expect(motionDuration(REORDER_MS)).toBe(0);
     expect(motionDuration(ENTER_LEAVE_MS)).toBe(0);
+  });
+});
+
+describe('reorderDuration', () => {
+  it('gives a long climb more time than a short one, within bounds', () => {
+    stubReducedMotion(false);
+    expect(reorderDuration(10)).toBe(REORDER_MS);
+    expect(reorderDuration(400)).toBeGreaterThan(reorderDuration(100));
+    expect(reorderDuration(10_000)).toBe(600);
+  });
+
+  it('collapses to zero when motion is reduced', () => {
+    stubReducedMotion(true);
+    expect(reorderDuration(400)).toBe(0);
   });
 });
