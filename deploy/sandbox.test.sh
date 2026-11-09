@@ -46,22 +46,29 @@ for a in "$@"; do
   case "$a" in --setenv=HOME=*) home="${a#--setenv=HOME=}";; tarfa-sb-*-agent) agent=yes;; esac
 done
 if [ "$agent" = yes ] && [ -n "$home" ]; then mkdir -p "$home/.tarfa"; echo t > "$home/.tarfa/token"; fi'
+# is-active prints the state; like systemd, it exits non-zero for anything but active.
 stub systemctl "
-if [ \"\${2:-}\" = is-active ]; then grep -qxF \"\${4:-}\" \"${T}/active\"; exit; fi
+if [ \"\${2:-}\" = is-active ]; then
+  u=\"\${!#}\"
+  if grep -qxF \"\$u\" \"${T}/active\"; then echo active; exit 0; fi
+  if grep -qxF \"\$u\" \"${T}/activating\" 2>/dev/null; then echo activating; exit 3; fi
+  echo inactive; exit 3
+fi
 if [ \"\${2:-}\" = restart ]; then s=\"\${3#tarfa-sb-}\"; s=\"\${s%-agent}\"; echo t > \"${T}/root/\$s/home/.tarfa/token\"; fi"
-stub tmux ''
+stub tmux 'if [ "$1 ${2:-} ${3:-}" = "display-message -p #S" ]; then echo tarfa-9; fi'
+stub curl ''
 stub journalctl ''
-# ab names the session as it would inside workspace tarfa-9; accepting the pairing prompt enrols
-# a device in the (only) sandbox, as the real agent would.
-stub ab "
-echo \"  ab-env AB_SESSION=\${AB_SESSION:-} XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR:-}\" >> \"${CALLS}\"
-case \"\$1 \${2:-}\" in
-  'use '*) echo \"session: tarfa-9__\$2\";;
-  'dialog accept') for d in \"${T}\"/root/*/home/.tarfa; do
-      [ -f \"\$d/devices.json\" ] || echo '{\"devices\":[],\"revoked\":[]}' > \"\$d/devices.json\"
-      jq '.devices += [{\"id\":\"d\"}]' \"\$d/devices.json\" > \"\$d/x\" && mv \"\$d/x\" \"\$d/devices.json\"
-    done;;
-esac"
+# Accepting the pairing prompt enrols a device in every sandbox, as the real agent would; with
+# ${T}/spend it only marks the code spent (a browser already enrolled), with ${T}/no-enrol nothing.
+stub agent-browser "
+echo \"  ab-env XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR:-}\" >> \"${CALLS}\"
+if [ \"\$3 \${4:-}\" = 'dialog accept' ] && [ ! -e \"${T}/no-enrol\" ]; then
+  for d in \"${T}\"/root/*/home/.tarfa; do
+    if [ -e \"${T}/spend\" ]; then echo '[{\"secret\":\"y\",\"expiresAt\":\"x\",\"usedAt\":\"now\"}]' > \"\$d/pairing.json\"; continue; fi
+    [ -f \"\$d/devices.json\" ] || echo '{\"devices\":[],\"revoked\":[]}' > \"\$d/devices.json\"
+    jq '.devices += [{\"id\":\"d\"}]' \"\$d/devices.json\" > \"\$d/x\" && mv \"\$d/x\" \"\$d/devices.json\"
+  done
+fi"
 stub claude 'echo "9.9.9 (Claude Code)"'
 stub pnpm "
 echo \"  env HOME=\$HOME XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR:-} TMUX=\${TMUX-unset} FLAVOR=\${TARFA_APP_FLAVOR:-} LABEL=\${TARFA_BUILD_LABEL:-}\" >> \"${CALLS}\"
@@ -81,7 +88,10 @@ sb() { # <args...>  run sandbox.sh as a caller inside a Tarfa pane would
     bash "${HERE}/sandbox.sh" "$@" 2>&1
 }
 
-SLUG="my-feature-branch"
+# The sandbox's name: the folder name's first 12 characters and a hash of its physical path.
+slug_of() { printf '%s-%s' "$(basename "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | cut -c1-12)" \
+  "$(printf '%s' "$(cd "$1" 2>/dev/null && pwd -P || echo "$1")" | sha1sum | cut -c1-8)"; }
+SLUG="$(slug_of "${WT}")"
 ROOT="${T}/root/${SLUG}"
 SOCK="${ROOT}/tmux/tmux-$(id -u)/default"
 
@@ -142,7 +152,8 @@ done
 check "PWA unit previews the sandbox build" "yes" \
   "$(grep "^systemd-run .*tarfa-sb-${SLUG}-pwa" "${CALLS}" | has "vite preview --host 127.0.0.1 --port ${WP} --strictPort --outDir ${ROOT}/pwa-dist" /dev/stdin)"
 check "PWA unit memory cap" "yes" "$(grep "^systemd-run .*tarfa-sb-${SLUG}-pwa" "${CALLS}" | has "MemoryMax=1G" /dev/stdin)"
-check "no bare tmux call" "0" "$(grep '^tmux ' "${CALLS}" | grep -cvF -- "-S ${SOCK}" || true)"
+check "no bare tmux call" "0" "$(grep '^tmux ' "${CALLS}" | grep -v '^tmux display-message -p #S$' | grep -cvF -- "-S ${SOCK}" || true)"
+check "the slug is a short name and a path hash" "yes" "$(printf '%s' "${SLUG}" | grep -qE '^my-feature-b-[0-9a-f]{8}$' && echo yes || echo no)"
 check "token never in an argv" "no" "$(has "${TOKEN}" "${CALLS}")"
 check "token not in the manifest" "no" "$(has "${TOKEN}" "${M}")"
 check "token not printed" "no" "$(printf '%s' "${out}" | has "${TOKEN}" /dev/stdin)"
@@ -151,6 +162,7 @@ echo "env"
 check "env prints env.sh" "${ROOT}/env.sh" "$(sb env --worktree "${WT}")"
 check "env.sh unsets TMUX and sets HOME" "unset ${ROOT}/home" \
   "$(env TMUX=x TMUX_PANE=%1 bash -c ". '${ROOT}/env.sh'; echo \"\${TMUX-unset} \${HOME}\"")"
+check "env.sh gives Claude its token" "${TOKEN}" "$(env -i bash -c ". '${ROOT}/env.sh'; echo \"\${CLAUDE_CODE_OAUTH_TOKEN:-}\"")"
 
 echo "up again"
 echo "tarfa-sb-${SLUG}-agent" > "${T}/active"
@@ -176,8 +188,11 @@ echo "refusals"
 mv "${REALHOME}/.config/tarfa-sandbox/claude-oauth-token" "${T}/token.bak"
 set +e; out="$(sb up --worktree "${WT}")"; rc=$?; set -e
 check "no token: refused" "1" "${rc}"
-check "no token: names the Bitwarden item" "yes" "$(printf '%s' "${out}" | has 'Tarfa sandbox - Claude Code OAuth token' /dev/stdin)"
+check "no token: says how to make one" "yes" "$(printf '%s' "${out}" | has 'claude setup-token' /dev/stdin)"
 check "no token: nothing created" "no" "$([ -e "${ROOT}" ] && echo yes || echo no)"
+printf '  \n' > "${REALHOME}/.config/tarfa-sandbox/claude-oauth-token"
+set +e; sb up --worktree "${WT}" > /dev/null; rc=$?; set -e
+check "a blank token: refused" "1" "${rc}"
 mv "${T}/token.bak" "${REALHOME}/.config/tarfa-sandbox/claude-oauth-token"
 rmdir "${WT}/node_modules"
 set +e; out="$(sb up --worktree "${WT}")"; rc=$?; set -e
@@ -214,18 +229,31 @@ check "rebuild --pwa restarts nothing" "no" "$(has "systemctl --user restart" "$
 
 echo "gc"
 WT2="${T}/gone-tree"; WT3="${T}/dead-agent"; WT4="${T}/old-live"
-for w in "${WT2}" "${WT3}" "${WT4}"; do mkdir -p "${w}/node_modules"; git -C "${w}" init -q; sb up --worktree "${w}" > /dev/null; done
+WT5="${T}/being-made"
+for w in "${WT2}" "${WT3}" "${WT4}" "${WT5}"; do mkdir -p "${w}/node_modules"; git -C "${w}" init -q; sb up --worktree "${w}" > /dev/null; done
+R2="${T}/root/$(slug_of "${WT2}")"; R3="${T}/root/$(slug_of "${WT3}")"; R4="${T}/root/$(slug_of "${WT4}")"; R5="${T}/root/$(slug_of "${WT5}")"
 rm -rf "${WT2}"
-printf '%s\n' "tarfa-sb-${SLUG}-agent" "tarfa-sb-old-live-agent" > "${T}/active"
-jq '.createdAt = "2000-01-01T00:00:00Z"' "${T}/root/old-live/manifest.json" > "${T}/m" && mv "${T}/m" "${T}/root/old-live/manifest.json"
-check "ls marks a gone worktree" "yes" "$(sb ls | grep -E '^gone-tree ' | grep -qF '(gone)' && echo yes || echo no)"
+printf '%s\n' "tarfa-sb-${SLUG}-agent" "tarfa-sb-$(basename "${R4}")-agent" > "${T}/active"
+jq '.createdAt = "2000-01-01T00:00:00Z"' "${R4}/manifest.json" > "${T}/m" && mv "${T}/m" "${R4}/manifest.json"
+# A sandbox whose agent is still starting, and one another command holds the lock of.
+echo "tarfa-sb-$(basename "${R3}")-agent" > "${T}/activating"
+bash -c 'exec 7> "$1"; flock 7; exec sleep 30' _ "${T}/root/$(basename "${R5}").lock" &
+LOCKER=$!
+sleep 0.3
+check "ls marks a gone worktree" "yes" "$(sb ls | grep -E "^$(basename "${R2}") " | grep -qF '(gone)' && echo yes || echo no)"
 sb gc > /dev/null
-check "gc removes a sandbox whose worktree is gone" "no" "$([ -e "${T}/root/gone-tree" ] && echo yes || echo no)"
-check "gc removes a sandbox whose agent is down" "no" "$([ -e "${T}/root/dead-agent" ] && echo yes || echo no)"
-check "gc keeps a live old sandbox" "yes" "$([ -e "${T}/root/old-live" ] && echo yes || echo no)"
+check "gc removes a sandbox whose worktree is gone" "no" "$([ -e "${R2}" ] && echo yes || echo no)"
+check "gc keeps a sandbox whose agent is starting" "yes" "$([ -e "${R3}" ] && echo yes || echo no)"
+check "gc keeps a sandbox another command holds" "yes" "$([ -e "${R5}" ] && echo yes || echo no)"
+check "gc keeps a live old sandbox" "yes" "$([ -e "${R4}" ] && echo yes || echo no)"
+kill "${LOCKER}" 2>/dev/null; wait "${LOCKER}" 2>/dev/null || true
+: > "${T}/activating"
+sb gc > /dev/null
+check "gc removes a sandbox whose agent is down" "no" "$([ -e "${R3}" ] && echo yes || echo no)"
+check "and the one no command holds any more" "no" "$([ -e "${R5}" ] && echo yes || echo no)"
 check "gc keeps a live fresh sandbox" "yes" "$([ -e "${ROOT}" ] && echo yes || echo no)"
 sb gc --older-than-hours 24 > /dev/null
-check "gc --older-than-hours takes the old one" "no" "$([ -e "${T}/root/old-live" ] && echo yes || echo no)"
+check "gc --older-than-hours takes the old one" "no" "$([ -e "${R4}" ] && echo yes || echo no)"
 check "and keeps the fresh one" "yes" "$([ -e "${ROOT}" ] && echo yes || echo no)"
 : > "${T}/active"
 sb down --worktree "${WT}" > /dev/null
@@ -240,32 +268,78 @@ done
 echo "browser"
 sbb() { # like sb, with the browser step on
   env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:${PATH}" TMUX="/real/server,1,0" TMUX_PANE="%1" \
-    XDG_RUNTIME_DIR="/run/user/caller" TARFA_SANDBOX_ROOT="${T}/root" bash "${HERE}/sandbox.sh" "$@" 2>&1
+    XDG_RUNTIME_DIR="/run/user/caller" TARFA_SANDBOX_ROOT="${T}/root" TARFA_SANDBOX_READY_SECONDS=1 \
+    bash "${HERE}/sandbox.sh" "$@" 2>&1
 }
 : > "${CALLS}"
 sbb up --worktree "${WT}" > /dev/null
 LINK="$(jq -r .pairLink "${M}")"
-SESSION="tarfa-9__sb-${SLUG:0:16}"
+SESSION="tarfa-9__sb-${SLUG}"
 check "up pairs the browser in order" \
-  "ab use sb-${SLUG:0:16}|ab set viewport 412 900|ab open ${LINK}|ab dialog accept|ab wait --text No workspaces yet" \
-  "$(grep '^ab ' "${CALLS}" | paste -sd '|')"
+  "agent-browser --session ${SESSION} set viewport 412 900|agent-browser --session ${SESSION} open ${LINK}|agent-browser --session ${SESSION} dialog accept|agent-browser --session ${SESSION} wait --text No workspaces yet" \
+  "$(grep '^agent-browser ' "${CALLS}" | paste -sd '|')"
+check "up waits for the PWA before pairing" "yes" "$(has "curl -sf -o /dev/null http://127.0.0.1:$(jq -r .ports.pwa "${M}")/" "${CALLS}")"
 check "the manifest names the session" "${SESSION}" "$(jq -r .browser "${M}")"
 check "the device is enrolled" "1" "$(jq '.devices | length' "${ROOT}/home/.tarfa/devices.json")"
-check "ab runs in the caller's runtime dir" "0" "$(grep '^  ab-env' "${CALLS}" | grep -cv 'XDG_RUNTIME_DIR=/run/user/caller' || true)"
-check "ab after use names the session" "0" "$(grep '^  ab-env' "${CALLS}" | sed 1d | grep -cv "AB_SESSION=${SESSION} " || true)"
+check "agent-browser runs in the caller's runtime dir" "0" "$(grep '^  ab-env' "${CALLS}" | grep -cv 'XDG_RUNTIME_DIR=/run/user/caller' || true)"
 : > "${CALLS}"
 sbb pair --worktree "${WT}" > /dev/null
 check "pair mints a new link" "yes" "$(has 'cli.ts pair' "${CALLS}")"
-check "pair opens it and accepts" "yes" "$(grep '^ab ' "${CALLS}" | paste -sd '|' | grep -qF "ab open http://127.0.0.1:1/#pair?u=ws://127.0.0.1:2&k=x&s=y&n=z|ab dialog accept" && echo yes || echo no)"
+check "pair opens it and accepts" "yes" "$(grep '^agent-browser ' "${CALLS}" | paste -sd '|' | grep -qF "open http://127.0.0.1:1/#pair?u=ws://127.0.0.1:2&k=x&s=y&n=z|agent-browser --session ${SESSION} dialog accept" && echo yes || echo no)"
 check "pair waits for a second device" "2" "$(jq '.devices | length' "${ROOT}/home/.tarfa/devices.json")"
+touch "${T}/spend"
+set +e; sbb pair --worktree "${WT}" > /dev/null; rc=$?; set -e
+check "pair on an enrolled browser succeeds once the code is spent" "0" "${rc}"
+rm -f "${T}/spend"
 : > "${CALLS}"
 sbb rebuild --worktree "${WT}" --pwa > /dev/null
 PWAP="$(jq -r .ports.pwa "${M}")"
-check "rebuild --pwa reloads the browser" "yes" "$(has "ab open http://127.0.0.1:${PWAP}/" "${CALLS}")"
-check "and taps the update banner" "yes" "$(grep -q '^ab eval .*Reload' "${CALLS}" && echo yes || echo no)"
+check "rebuild --pwa reloads the browser" "yes" "$(has "agent-browser --session ${SESSION} open http://127.0.0.1:${PWAP}/" "${CALLS}")"
+check "and taps the update banner" "yes" "$(grep -q '^agent-browser .* eval .*Reload' "${CALLS}" && echo yes || echo no)"
 : > "${CALLS}"
 sbb down --worktree "${WT}" > /dev/null
-check "down closes the browser" "yes" "$(grep -A1 '^ab close' "${CALLS}" | has "AB_SESSION=${SESSION} " /dev/stdin)"
+check "down closes the browser" "yes" "$(has "agent-browser --session ${SESSION} close" "${CALLS}")"
+
+echo "failures leave nothing running"
+touch "${T}/no-enrol"
+: > "${CALLS}"
+set +e; out="$(sbb up --worktree "${WT}")"; rc=$?; set -e
+check "a failed pairing fails up" "1" "${rc}"
+check "and takes the sandbox down" "no" "$([ -e "${ROOT}" ] && echo yes || echo no)"
+check "and stops its units" "yes" "$(has "systemctl --user stop tarfa-sb-${SLUG}-agent tarfa-sb-${SLUG}-pwa" "${CALLS}")"
+check "and keeps a screenshot" "yes" "$(has "screenshot ${T}/root/${SLUG}-pair-failed.png" "${CALLS}")"
+rm -f "${T}/no-enrol"
+mv "${T}/bin/agent-browser" "${T}/agent-browser.bak"
+: > "${CALLS}"
+set +e; out="$(env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:/usr/bin:/bin" TARFA_SANDBOX_ROOT="${T}/root" bash "${HERE}/sandbox.sh" up --worktree "${WT}" 2>&1)"; rc=$?; set -e
+check "no agent-browser: refused" "1" "${rc}"
+check "no agent-browser: says how to skip the browser" "yes" "$(printf '%s' "${out}" | has 'TARFA_SANDBOX_NO_BROWSER=1' /dev/stdin)"
+check "no agent-browser: nothing started" "no" "$(has 'systemd-run' "${CALLS}")"
+mv "${T}/agent-browser.bak" "${T}/bin/agent-browser"
+sb up --worktree "${WT}" > /dev/null
+set +e; out="$(sb rebuild --worktree "${WT}" --agent)"; rc=$?; set -e
+check "rebuild with the agent down is refused" "1" "${rc}"
+check "and points at up" "yes" "$(printf '%s' "${out}" | has 'pnpm sandbox up' /dev/stdin)"
+sb down --worktree "${WT}" > /dev/null
+
+echo "one sandbox per worktree"
+TWIN_A="${T}/one/tarfa"; TWIN_B="${T}/two/tarfa"
+for w in "${TWIN_A}" "${TWIN_B}"; do mkdir -p "${w}/node_modules"; git -C "${w}" init -q; sb up --worktree "${w}" > /dev/null; done
+check "same folder name, two sandboxes" "2" "$(find "${T}/root" -maxdepth 1 -name 'tarfa-*' -type d | wc -l | tr -d ' ')"
+jq --arg w "${TWIN_B}" '.worktree = $w' "${T}/root/$(slug_of "${TWIN_A}")/manifest.json" > "${T}/m" && mv "${T}/m" "${T}/root/$(slug_of "${TWIN_A}")/manifest.json"
+set +e; out="$(sb status --worktree "${TWIN_A}")"; rc=$?; set -e
+check "a sandbox naming another worktree is refused" "1" "${rc}"
+check "and says whose it is" "yes" "$(printf '%s' "${out}" | has "belongs to ${TWIN_B}" /dev/stdin)"
+
+echo "down after the worktree is gone"
+GONE="${T}/removed-tree"
+mkdir -p "${GONE}/node_modules"; git -C "${GONE}" init -q
+GONE_PHYS="$(cd "${GONE}" && pwd -P)"; GONE_ROOT="${T}/root/$(slug_of "${GONE}")"
+sb up --worktree "${GONE}" > /dev/null
+rm -rf "${GONE}"
+set +e; sb down --worktree "${GONE_PHYS}" > /dev/null; rc=$?; set -e
+check "down by the path of a removed worktree" "0" "${rc}"
+check "removes its sandbox" "no" "$([ -e "${GONE_ROOT}" ] && echo yes || echo no)"
 
 if [ "${fails}" -gt 0 ]; then
   echo "${fails} check(s) failed"

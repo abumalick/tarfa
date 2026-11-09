@@ -66,14 +66,14 @@ own, beside every other agent's, so there is nothing to queue for. From the work
 
 ```bash
 pnpm sandbox up                  # your worktree's agent + PWA, paired to a headless browser
-ab snapshot -i                   # drive it: ab click/fill, ab screenshot .tmp/<name>.png
+agent-browser --session <name it printed> snapshot -i    # then click/fill, screenshot .tmp/<name>.png
 pnpm sandbox rebuild             # after a code change (workspaces survive)
 ```
 
 Pick **Sonnet** in the create form for a Claude workspace. Take screenshots of what the
-user should look at and send them with one line saying what to check (`telegram-send` skill:
-`tg-send file <png…> --photo`). Keep the sandbox up until the verdict, in case they ask for
-more; `pnpm worktree:remove` takes it down.
+user should look at and send them, with one line saying what to check, the way the user asked
+to be reached. Keep the sandbox up until the verdict, in case they ask for more;
+`pnpm worktree:remove` takes it down.
 
 **Staging and the phone, only for what needs the device:** the Android keyboard, iOS
 Safari or install, voice and the mic, read-aloud, the share target, links handed to other

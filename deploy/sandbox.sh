@@ -18,23 +18,43 @@ set -euo pipefail
 REAL_HOME="${HOME}"
 BASE="${TARFA_SANDBOX_ROOT:-${REAL_HOME}/.cache/tarfa-sandbox}"
 TOKEN_FILE="${TARFA_SANDBOX_CLAUDE_TOKEN_FILE:-${REAL_HOME}/.config/tarfa-sandbox/claude-oauth-token}"
-TOKEN_ITEM="Tarfa sandbox - Claude Code OAuth token"
-READY_SECONDS=30
+READY_SECONDS="${TARFA_SANDBOX_READY_SECONDS:-30}"
+LOCK_HELD=""
+UP_ROOT=""
 
 die() { echo "sandbox: $*" >&2; exit 1; }
 
+# A short readable prefix and a hash of the worktree's physical path: two checkouts with the same
+# folder name get two sandboxes, and the tmux socket path stays well under its ~100-byte limit.
 sb_slug() { # <worktree>
   local s
   s="$(basename "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
-  printf '%s' "${s:0:24}"
+  printf '%s-%s' "${s:0:12}" "$(printf '%s' "$1" | sha1sum | cut -c1-8)"
 }
 sb_root() { printf '%s/%s' "${BASE}" "$1"; }
 # The tmux socket the sandbox's server listens on; every tmux call names it, never the default.
 sb_socket() { printf '%s/tmux/tmux-%s/default' "$1" "$(id -u)"; }
-sb_unit_active() { systemctl --user is-active --quiet "$1" 2>/dev/null; }
+# Starting or reloading counts as live: a unit is "activating" while a peer's up or rebuild waits on it.
+sb_unit_active() {
+  case "$(systemctl --user is-active "$1" 2>/dev/null)" in active | activating | reloading) return 0 ;; esac
+  return 1
+}
 
-resolve_worktree() { # <path or empty>
+# One sandbox command at a time per sandbox; gc skips a sandbox whose lock is held (an up still
+# building, say), so it never removes one a peer is making.
+take_lock() { # <slug>
+  mkdir -p "${BASE}"
+  exec 9> "${BASE}/$1.lock"
+  flock -n 9 || die "another sandbox command is running on $1; try again when it is done"
+  LOCK_HELD="$1"
+}
+
+resolve_worktree() { # <path or empty> [allow-missing]
   local wt="${1:-${PWD}}"
+  # A worktree already removed can still be named by its absolute path, to take its sandbox down.
+  if [ -n "${2:-}" ] && [ ! -e "${wt}" ]; then
+    case "${wt}" in /*) printf '%s' "${wt}"; return ;; esac
+  fi
   wt="$(git -C "${wt}" rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git checkout: ${1:-${PWD}}"
   (cd "${wt}" && pwd -P)
 }
@@ -61,6 +81,7 @@ write_env_sh() { # <root>
   local kv
   {
     while IFS= read -r kv; do printf 'export %s=%q\n' "${kv%%=*}" "${kv#*=}"; done < <(sb_env_pairs "$1")
+    printf 'set -a; . %q; set +a\n' "$1/secrets.env"
     printf 'unset TMUX TMUX_PANE\n'
   } > "$1/env.sh"
 }
@@ -149,6 +170,17 @@ start_pwa() { # <root>
     pnpm exec vite preview --host 127.0.0.1 --port "${pwa}" --strictPort --outDir "${root}/pwa-dist"
 }
 
+wait_pwa_ready() { # <root>
+  local url i
+  url="http://127.0.0.1:$(jq -r .ports.pwa "$1/manifest.json")/"
+  for ((i = 0; i < READY_SECONDS * 5; i++)); do
+    curl -sf -o /dev/null "${url}" && return 0
+    sleep 0.2
+  done
+  journalctl --user -u "$(jq -r .units.pwa "$1/manifest.json")" -n 30 --no-pager >&2 || true
+  return 1
+}
+
 pair_link() { # <root>  mint a pairing link, one use, ten minutes
   in_sandbox "$1" pnpm --filter @tarfa/cli exec tsx src/cli.ts pair | grep -oE 'http://127\.0\.0\.1:[0-9]+/#pair\?[^[:space:]]+' | head -n 1
 }
@@ -162,38 +194,51 @@ devices_enrolled() { # <root>
   jq '.devices | length' "$1/home/.tarfa/devices.json" 2>/dev/null || echo 0
 }
 
-# ab always runs in the caller's environment, never env.sh's: its sidecar must land in the real
-# runtime dir, where the real agent attaches the browser to the caller's workspace.
-browser() { # <root> <ab args...>
-  local root="$1"; shift
-  AB_SESSION="$(jq -r .browser "${root}/manifest.json")" ab "$@"
+pairing_spent() { # <root> <link>
+  local secret
+  secret="$(printf '%s' "$2" | grep -oE '[?&]s=[^&]+' | head -n 1 | cut -d= -f2)"
+  jq -e --arg s "${secret}" 'any(.[]; .secret == $s and .usedAt != null)' "$1/home/.tarfa/pairing.json" > /dev/null 2>&1
 }
 
-# Opens a pairing link in the sandbox's headless browser and waits until the agent enrolled it.
+# agent-browser always runs in the caller's environment, never env.sh's: its sidecar must land in
+# the real runtime dir, where the real agent attaches the browser to the caller's workspace.
+browser() { # <root> <agent-browser args...>
+  local root="$1"; shift
+  agent-browser --session "$(jq -r .browser "${root}/manifest.json")" "$@"
+}
+
+# The real agent shows a browser on the workspace whose tmux session name prefixes it with `__`.
+browser_name() { # <slug>
+  local ws=""
+  [ -n "${TMUX:-}" ] && ws="$(tmux display-message -p '#S' 2>/dev/null || true)"
+  printf '%ssb-%s' "${ws:+${ws}__}" "$1"
+}
+
+# Opens a pairing link in the sandbox's headless browser and waits until the agent enrolled it, or
+# spent the code on a browser already enrolled.
 browser_pair() { # <root> <link>
-  local root="$1" link="$2" slug name before i
+  local root="$1" link="$2" slug before i
   slug="$(jq -r .slug "${root}/manifest.json")"
   if [ "$(jq -r .browser "${root}/manifest.json")" = null ]; then
-    name="$(ab use "sb-${slug:0:16}" | sed -n 's/^session: \([^ ]*\).*/\1/p' | head -n 1)"
-    [ -n "${name}" ] || die "ab use did not name a session"
-    manifest_set "${root}" '.browser = $n' --arg n "${name}"
+    manifest_set "${root}" '.browser = $n' --arg n "$(browser_name "${slug}")"
     browser "${root}" set viewport 412 900 > /dev/null
   fi
   before="$(devices_enrolled "${root}")"
+  # The pairing prompt is a confirm() that holds the page's load, so open returns an error.
   browser "${root}" open "${link}" > /dev/null 2>&1 || true
   browser "${root}" dialog accept > /dev/null
   for ((i = 0; i < READY_SECONDS * 5; i++)); do
-    [ "$(devices_enrolled "${root}")" -gt "${before}" ] && break
+    if [ "$(devices_enrolled "${root}")" -gt "${before}" ] || pairing_spent "${root}" "${link}"; then
+      # The empty list renders only once the machine is online; a sandbox with workspaces shows them.
+      if [ "$(tmux -S "$(sb_socket "${root}")" ls 2>/dev/null | wc -l)" -eq 0 ]; then
+        browser "${root}" wait --text "No workspaces yet" > /dev/null
+      fi
+      return 0
+    fi
     sleep 0.2
   done
-  if [ "$(devices_enrolled "${root}")" -le "${before}" ]; then
-    browser "${root}" screenshot "${root}/pair-failed.png" > /dev/null 2>&1 || true
-    die "the browser did not pair within ${READY_SECONDS}s; see ${root}/pair-failed.png"
-  fi
-  # The empty list renders only once the machine is online; a sandbox with workspaces shows them.
-  if [ "$(tmux -S "$(sb_socket "${root}")" ls 2>/dev/null | wc -l)" -eq 0 ]; then
-    browser "${root}" wait --text "No workspaces yet" > /dev/null
-  fi
+  browser "${root}" screenshot "${BASE}/${slug}-pair-failed.png" > /dev/null 2>&1 || true
+  die "the browser did not pair within ${READY_SECONDS}s; see ${BASE}/${slug}-pair-failed.png"
 }
 
 cmd_pair() { # <root>
@@ -211,6 +256,8 @@ browser_reload() { # <root>
   browser "${root}" open "http://127.0.0.1:$(jq -r .ports.pwa "${root}/manifest.json")/" > /dev/null
   if browser "${root}" wait --fn '[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Reload")' --timeout 10000 > /dev/null 2>&1; then
     browser "${root}" eval '(() => { const b = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Reload"); b?.click(); return !!b; })()' > /dev/null
+  else
+    echo "no update banner within 10s: if the browser still shows the old build, open the PWA again and tap Reload" >&2
   fi
 }
 
@@ -219,13 +266,14 @@ cmd_down() { # <root>
   slug="$(basename "${root}")"
   if [ ! -d "${root}" ]; then echo "no sandbox for ${slug}"; return 0; fi
   case "${root}" in "${BASE}/"?*) ;; *) die "refusing to remove ${root}: outside ${BASE}" ;; esac
+  [ "${LOCK_HELD}" = "${slug}" ] || take_lock "${slug}"
   tmux -S "$(sb_socket "${root}")" kill-server 2>/dev/null || true
   if [ -f "${root}/manifest.json" ] && [ "$(jq -r .browser "${root}/manifest.json")" != null ]; then
     browser "${root}" close > /dev/null 2>&1 || true
   fi
   systemctl --user stop "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" 2>/dev/null || true
   systemctl --user reset-failed "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" 2>/dev/null || true
-  rm -rf "${root}"
+  rm -rf "${root}" "${BASE}/${slug}.lock"
   echo "sandbox ${slug} is down"
 }
 
@@ -250,6 +298,7 @@ cmd_rebuild() { # <root> <agent|pwa|both>
   local root="$1" what="$2"
   if [ "${what}" != agent ]; then build_pwa "${root}"; browser_reload "${root}"; echo "PWA rebuilt"; fi
   if [ "${what}" != pwa ]; then
+    sb_unit_active "$(jq -r .units.agent "${root}/manifest.json")" || die "the sandbox's agent is not running: pnpm sandbox down, then pnpm sandbox up"
     install_hooks "${root}"
     rm -f "${root}/home/.tarfa/token"
     systemctl --user restart "$(jq -r .units.agent "${root}/manifest.json")"
@@ -284,9 +333,11 @@ cmd_gc() { # [max age in hours]
     elif ! sb_unit_active "$(jq -r .units.agent "${m}")"; then why="agent not running"
     elif [ -n "${max}" ] && [ "$(age_hours "$(jq -r .createdAt "${m}")")" -ge "${max}" ]; then why="older than ${max}h"
     fi
-    if [ -n "${why}" ]; then
-      echo "removing $(basename "${root}") (${why})"
-      cmd_down "${root}" > /dev/null
+    [ -n "${why}" ] || continue
+    if ( exec 8> "${BASE}/$(basename "${root}").lock"; flock -n 8 && LOCK_HELD="$(basename "${root}")" && cmd_down "${root}" > /dev/null ); then
+      echo "removed $(basename "${root}") (${why})"
+    else
+      echo "skipped $(basename "${root}") (${why}, but a sandbox command is running on it)"
     fi
   done
 }
@@ -295,7 +346,11 @@ cmd_up() { # <worktree>
   local wt="$1" slug root
   slug="$(sb_slug "${wt}")"; root="$(sb_root "${slug}")"
   [ -d "${wt}/node_modules" ] || die "no node_modules in ${wt}: run pnpm install in ${wt}"
-  [ -s "${TOKEN_FILE}" ] || die "no Claude token at ${TOKEN_FILE}: copy it from the Bitwarden item \"${TOKEN_ITEM}\" (0600), or make one with \`claude setup-token\`"
+  [ -n "$(tr -d '[:space:]' < "${TOKEN_FILE}" 2>/dev/null)" ] || die "no Claude token at ${TOKEN_FILE}: make one with \`claude setup-token\` and save it there (mode 0600)"
+  if [ -z "${TARFA_SANDBOX_NO_BROWSER:-}" ] && ! command -v agent-browser > /dev/null; then
+    die "agent-browser is not installed: install it, or set TARFA_SANDBOX_NO_BROWSER=1 to pair a browser yourself"
+  fi
+  take_lock "${slug}"
   if [ -e "${root}" ]; then
     if sb_unit_active "tarfa-sb-${slug}-agent"; then
       die "sandbox ${slug} is already up — pnpm sandbox rebuild, or pnpm sandbox down first"
@@ -304,6 +359,9 @@ cmd_up() { # <worktree>
   fi
 
   umask 077
+  UP_ROOT="${root}"
+  # Whatever fails from here on, nothing is left running: the next up would refuse it as "already up".
+  trap 'if [ $? -ne 0 ] && [ -n "${UP_ROOT}" ]; then cmd_down "${UP_ROOT}" > /dev/null 2>&1 || true; fi' EXIT
   mkdir -p "${BASE}" "${root}"/{home/.tarfa,home/.claude,home/.codex,tmux,run,projects,pwa-dist}
   chmod 700 "${root}"
   local hooks phone pwa
@@ -334,10 +392,8 @@ EOF
   build_pwa "${root}"
   start_agent "${root}"
   start_pwa "${root}"
-  if ! wait_agent_ready "${root}"; then
-    cmd_down "${root}" > /dev/null
-    die "the agent did not start within ${READY_SECONDS}s (its log is above)"
-  fi
+  wait_agent_ready "${root}" || die "the agent did not start within ${READY_SECONDS}s (its log is above)"
+  wait_pwa_ready "${root}" || die "the PWA preview did not answer within ${READY_SECONDS}s (its log is above)"
   local link
   link="$(pair_link "${root}")"
   manifest_set "${root}" '.pairLink = $l' --arg l "${link}"
@@ -347,10 +403,11 @@ EOF
   echo "  PWA       http://127.0.0.1:${pwa}/"
   echo "  pair      ${link}"
   if [ "$(jq -r .browser "${root}/manifest.json")" != null ]; then
-    echo "  browser   $(jq -r .browser "${root}/manifest.json") (your current ab session: ab snapshot -i, ab screenshot <png>)"
+    echo "  browser   agent-browser --session $(jq -r .browser "${root}/manifest.json") snapshot -i   (or screenshot <png>)"
   fi
   echo "  env       ${root}/env.sh   (pnpm sandbox exec -- <cmd> runs a command in it)"
   echo "  tmux      tmux -S $(sb_socket "${root}") ls"
+  UP_ROOT=""
 }
 
 main() {
@@ -370,8 +427,14 @@ main() {
     ls) cmd_ls; return ;;
     gc) cmd_gc "${max}"; return ;;
   esac
-  local wt slug root
-  wt="$(resolve_worktree "${wt_arg}")"; slug="$(sb_slug "${wt}")"; root="$(sb_root "${slug}")"
+  local wt slug root owner
+  if [ "${cmd}" = down ]; then wt="$(resolve_worktree "${wt_arg}" allow-missing)"; else wt="$(resolve_worktree "${wt_arg}")"; fi
+  slug="$(sb_slug "${wt}")"; root="$(sb_root "${slug}")"
+  if [ -f "${root}/manifest.json" ]; then
+    owner="$(jq -r .worktree "${root}/manifest.json")"
+    [ "${owner}" = "${wt}" ] || die "sandbox ${slug} belongs to ${owner}, not ${wt}"
+  fi
+  case "${cmd}" in rebuild | pair) take_lock "${slug}" ;; esac
   case "${cmd}" in
     up) cmd_up "${wt}"; return ;;
     down) cmd_down "${root}"; return ;;

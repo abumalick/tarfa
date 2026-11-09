@@ -39,13 +39,14 @@ case "${AGENT_TARGET}/" in
     ;;
 esac
 
+git -C "${REPO}" worktree remove "${WT}"
+echo "Removed worktree '${WT}'."
+
+# After the removal, so a worktree git refuses to remove (uncommitted changes) keeps its sandbox.
 SANDBOX="${REPO}/deploy/sandbox.sh"
 if [ -x "${SANDBOX}" ]; then
   "${SANDBOX}" down --worktree "${WT}" >/dev/null || echo "warning: sandbox down failed for ${WT}" >&2
 fi
-
-git -C "${REPO}" worktree remove "${WT}"
-echo "Removed worktree '${WT}'."
 
 # Backstop: heal a still-dangling symlink (e.g. the worktree was already half-gone).
 "${SERVE_BUILD}" --heal

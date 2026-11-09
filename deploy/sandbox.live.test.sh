@@ -25,13 +25,17 @@ cleanup() {
   git -C "${A_WT}" worktree remove --force "${B_WT}" > /dev/null 2>&1 || true
   git -C "${A_WT}" branch -D sandbox-live-b > /dev/null 2>&1 || true
 }
+if "${SB}" env --worktree "${A_WT}" > /dev/null 2>&1; then
+  echo "this worktree has a sandbox up; the live test would replace it: pnpm sandbox down first" >&2
+  exit 1
+fi
 trap cleanup EXIT
 cleanup
 
 root_of() { echo "${BASE}/$(jq -r .slug <<< "$(cat "${BASE}"/*/manifest.json | jq -s --arg w "$1" '.[] | select(.worktree == $w)')")"; }
 sock() { echo "$1/tmux/tmux-$(id -u)/default"; }
 in_sb() { local wt="$1"; shift; (cd "${wt}" && "${SB}" exec --worktree "${wt}" -- "$@"); }
-ab_in() { local root="$1"; shift; AB_SESSION="$(jq -r .browser "${root}/manifest.json")" ab "$@"; }
+ab_in() { local root="$1"; shift; agent-browser --session "$(jq -r .browser "${root}/manifest.json")" "$@"; }
 ref() { ab_in "$1" snapshot -i | grep -F -- "$2" | grep -oE 'ref=e[0-9]+' | head -n 1 | sed 's/ref=/@/'; }
 
 REAL_LOG="${HOME}/.tarfa/workspace-log.jsonl"
@@ -43,6 +47,7 @@ git -C "${A_WT}" worktree add -q "${B_WT}" -b sandbox-live-b HEAD
 "${SB}" up --worktree "${A_WT}" > /dev/null
 "${SB}" up --worktree "${B_WT}" > /dev/null
 A="$(root_of "${A_WT}")"; B="$(root_of "${B_WT}")"
+OURS="tarfa-sb-($(basename "${A}")|$(basename "${B}"))-"
 check "both are paired" "1 1" "$(jq '.devices | length' "${A}/home/.tarfa/devices.json") $(jq '.devices | length' "${B}/home/.tarfa/devices.json")"
 check "distinct ports" "6" "$(jq -r '.ports[]' "${A}/manifest.json" "${B}/manifest.json" | sort -u | wc -l | tr -d ' ')"
 
@@ -98,8 +103,9 @@ echo "down"
 "${SB}" down --worktree "${A_WT}" > /dev/null
 "${SB}" down --worktree "${B_WT}" > /dev/null
 # A stopped transient unit stays listed for a moment before systemd collects it.
-for _ in $(seq 1 25); do [ "$(systemctl --user list-units 'tarfa-sb-*' --all --no-legend | wc -l)" -eq 0 ] && break; sleep 0.2; done
-check "no sandbox unit left" "0" "$(systemctl --user list-units 'tarfa-sb-*' --all --no-legend | wc -l | tr -d ' ')"
+ours() { systemctl --user list-units 'tarfa-sb-*' --all --no-legend | grep -cE "${OURS}" || true; }
+for _ in $(seq 1 25); do [ "$(ours)" -eq 0 ] && break; sleep 0.2; done
+check "no unit of either sandbox left" "0" "$(ours)"
 check "no sandbox process left" "0" "$(pgrep -f "${A}|${B}" | wc -l | tr -d ' ')"
 
 if [ "${fails}" -gt 0 ]; then echo "${fails} check(s) failed"; exit 1; fi

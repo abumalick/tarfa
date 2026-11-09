@@ -4,12 +4,14 @@ A sandbox is a disposable Tarfa machine for one worktree: that worktree's agent 
 running beside every other sandbox and apart from the real agent, paired to a headless Chrome.
 Agents use it to see a change working (create a workspace, run Claude or a shell in it, watch
 its status) without the phone, the staging PWA or the real agent, so any number of them can
-test at once. Linux only (systemd user units).
+test at once. Linux only (systemd user units); the browser is
+[agent-browser](https://github.com/vercel-labs/agent-browser).
 
 ```bash
 pnpm sandbox up                      # from the worktree: start it, pair the browser
-ab snapshot -i                       # the browser is your current ab session
-ab screenshot .tmp/list.png
+B="$(jq -r .browser "$(dirname "$(pnpm -s sandbox env)")/manifest.json")"
+agent-browser --session "$B" snapshot -i
+agent-browser --session "$B" screenshot .tmp/list.png
 pnpm sandbox rebuild                 # after a code change; --agent or --pwa for one side
 pnpm sandbox exec -- pnpm -s tarfa ls
 pnpm sandbox down
@@ -31,8 +33,9 @@ verdict (`.claude/skills/work/SKILL.md`, Phase 4).
 All take `--worktree <path>`; without it they act on the checkout you are in.
 
 - `up` — builds the PWA, starts the agent and a `vite preview`, pairs the browser, prints the
-  PWA address, the tmux socket and the env file. A sandbox already up is refused; one whose
-  agent died is replaced.
+  PWA address, the browser session, the tmux socket and the env file. A sandbox already up is
+  refused; one whose agent died is replaced. If anything fails on the way, it is taken down
+  again. `TARFA_SANDBOX_NO_BROWSER=1` skips the browser and only prints the pairing link.
 - `down` — stops the tmux server, the browser and both units, and deletes the sandbox.
   `pnpm worktree:remove` does it for you.
 - `rebuild [--agent|--pwa]` — rebuilds the PWA and taps the browser's update banner, and/or
@@ -42,13 +45,19 @@ All take `--worktree <path>`; without it they act on the checkout you are in.
 - `pair` — pairs the browser again with a fresh link (after its idle reap, say).
 - `status` — ports, units, tmux sessions, the agent's last log lines.
 - `ls` — every sandbox on the machine; `gc` removes those whose worktree is gone or whose
-  agent is not running, never a live one unless given `--older-than-hours N`.
+  agent is not running, never a live one unless given `--older-than-hours N`, and never one
+  another sandbox command is working on (each takes `<root>.lock`).
+
+A sandbox is named after its worktree: the folder name's first 12 characters and a hash of its
+path, so two checkouts with the same folder name never share one. A command run from another
+checkout than the sandbox's own is refused.
 
 ## Driving it
 
-The browser is the `ab` session `up` names (`<workspace>__sb-<slug>`), and the real agent shows
-it on your own workspace. Open a workspace through the PWA's form, and pick **Sonnet** for
-Claude: the form still preselects Opus. To type into a workspace from the shell, send the text
+The browser is the agent-browser session `up` prints: `sb-<slug>`, prefixed with your own
+workspace's id and `__` when you run inside a Tarfa workspace, so the real agent shows it there
+for the maintainer to watch. Open a workspace through the PWA's form and pick **Sonnet** for
+Claude: the form preselects Opus, which stays available for a test that needs it. To type into a workspace from the shell, send the text
 and the Enter as two calls, or Claude Code keeps the text unsubmitted:
 
 ```bash
@@ -75,17 +84,17 @@ user. Not the worktree's `.tmp`: a tmux socket path must fit about 100 bytes.
 - mise's directories point at the real home: its installs and its list of trusted folders
   live there, and a fake `HOME` would make every worktree untrusted.
 - `secrets.env` holds the Claude token, read by the agent unit through `EnvironmentFile`, so it
-  is in no command line; every pane inherits it.
+  is in no command line; every pane inherits it, and `env.sh` loads it, so
+  `pnpm sandbox exec -- claude` is logged in too.
 - `manifest.json` has the ports, units and browser session; `env.sh` exports the environment.
 
 ## The Claude login
 
 Sandboxes log Claude Code in with a one-year token from `claude setup-token`, read from
 `~/.config/tarfa-sandbox/claude-oauth-token` (`TARFA_SANDBOX_CLAUDE_TOKEN_FILE` overrides it;
-0600). A machine without it: copy it from the password manager item "Tarfa sandbox - Claude
-Code OAuth token", or make a new one with `claude setup-token`, which needs the account
-owner's approval. Login files are never copied: each copy refreshes on its own and can log the
-original out.
+0600). On a machine without it, make one with `claude setup-token` (it needs the account
+owner's approval in a browser) and keep a copy in your password manager. Login files are never
+copied: each copy refreshes on its own and can log the original out.
 
 Codex is not set up in sandboxes yet: its login and the trust its hooks need are still open.
 
