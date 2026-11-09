@@ -51,7 +51,17 @@ if [ \"\${2:-}\" = is-active ]; then grep -qxF \"\${4:-}\" \"${T}/active\"; exit
 if [ \"\${2:-}\" = restart ]; then s=\"\${3#tarfa-sb-}\"; s=\"\${s%-agent}\"; echo t > \"${T}/root/\$s/home/.tarfa/token\"; fi"
 stub tmux ''
 stub journalctl ''
-stub ab ''
+# ab names the session as it would inside workspace tarfa-9; accepting the pairing prompt enrols
+# a device in the (only) sandbox, as the real agent would.
+stub ab "
+echo \"  ab-env AB_SESSION=\${AB_SESSION:-} XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR:-}\" >> \"${CALLS}\"
+case \"\$1 \${2:-}\" in
+  'use '*) echo \"session: tarfa-9__\$2\";;
+  'dialog accept') for d in \"${T}\"/root/*/home/.tarfa; do
+      [ -f \"\$d/devices.json\" ] || echo '{\"devices\":[],\"revoked\":[]}' > \"\$d/devices.json\"
+      jq '.devices += [{\"id\":\"d\"}]' \"\$d/devices.json\" > \"\$d/x\" && mv \"\$d/x\" \"\$d/devices.json\"
+    done;;
+esac"
 stub claude 'echo "9.9.9 (Claude Code)"'
 stub pnpm "
 echo \"  env HOME=\$HOME XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR:-} TMUX=\${TMUX-unset} FLAVOR=\${TARFA_APP_FLAVOR:-} LABEL=\${TARFA_BUILD_LABEL:-}\" >> \"${CALLS}\"
@@ -226,6 +236,36 @@ for c in exec status rebuild env; do
   check "${c} without a sandbox exits 1" "1" "${rc}"
   check "${c} without a sandbox says so" "yes" "$(printf '%s' "${out}" | has "no sandbox for ${SLUG}; pnpm sandbox up" /dev/stdin)"
 done
+
+echo "browser"
+sbb() { # like sb, with the browser step on
+  env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:${PATH}" TMUX="/real/server,1,0" TMUX_PANE="%1" \
+    XDG_RUNTIME_DIR="/run/user/caller" TARFA_SANDBOX_ROOT="${T}/root" bash "${HERE}/sandbox.sh" "$@" 2>&1
+}
+: > "${CALLS}"
+sbb up --worktree "${WT}" > /dev/null
+LINK="$(jq -r .pairLink "${M}")"
+SESSION="tarfa-9__sb-${SLUG:0:16}"
+check "up pairs the browser in order" \
+  "ab use sb-${SLUG:0:16}|ab set viewport 412 900|ab open ${LINK}|ab dialog accept|ab wait --text No workspaces yet" \
+  "$(grep '^ab ' "${CALLS}" | paste -sd '|')"
+check "the manifest names the session" "${SESSION}" "$(jq -r .browser "${M}")"
+check "the device is enrolled" "1" "$(jq '.devices | length' "${ROOT}/home/.tarfa/devices.json")"
+check "ab runs in the caller's runtime dir" "0" "$(grep '^  ab-env' "${CALLS}" | grep -cv 'XDG_RUNTIME_DIR=/run/user/caller' || true)"
+check "ab after use names the session" "0" "$(grep '^  ab-env' "${CALLS}" | sed 1d | grep -cv "AB_SESSION=${SESSION} " || true)"
+: > "${CALLS}"
+sbb pair --worktree "${WT}" > /dev/null
+check "pair mints a new link" "yes" "$(has 'cli.ts pair' "${CALLS}")"
+check "pair opens it and accepts" "yes" "$(grep '^ab ' "${CALLS}" | paste -sd '|' | grep -qF "ab open http://127.0.0.1:1/#pair?u=ws://127.0.0.1:2&k=x&s=y&n=z|ab dialog accept" && echo yes || echo no)"
+check "pair waits for a second device" "2" "$(jq '.devices | length' "${ROOT}/home/.tarfa/devices.json")"
+: > "${CALLS}"
+sbb rebuild --worktree "${WT}" --pwa > /dev/null
+PWAP="$(jq -r .ports.pwa "${M}")"
+check "rebuild --pwa reloads the browser" "yes" "$(has "ab open http://127.0.0.1:${PWAP}/" "${CALLS}")"
+check "and taps the update banner" "yes" "$(grep -q '^ab eval .*Reload' "${CALLS}" && echo yes || echo no)"
+: > "${CALLS}"
+sbb down --worktree "${WT}" > /dev/null
+check "down closes the browser" "yes" "$(grep -A1 '^ab close' "${CALLS}" | has "AB_SESSION=${SESSION} " /dev/stdin)"
 
 if [ "${fails}" -gt 0 ]; then
   echo "${fails} check(s) failed"

@@ -10,6 +10,7 @@
 #   pnpm sandbox exec    [--worktree <path>] -- <cmd...>   run a command in its environment
 #   pnpm sandbox status  [--worktree <path>]   units, tmux sessions, the agent's last log lines
 #   pnpm sandbox rebuild [--worktree <path>] [--agent|--pwa]   pick up a code change
+#   pnpm sandbox pair    [--worktree <path>]   pair the headless browser again (a fresh link)
 #   pnpm sandbox ls                            every sandbox on this machine
 #   pnpm sandbox gc [--older-than-hours N]     remove sandboxes whose worktree or agent is gone
 set -euo pipefail
@@ -157,12 +158,71 @@ manifest_set() { # <root> <jq filter> [--arg k v]...
   jq "$@" "${filter}" "${root}/manifest.json" > "${root}/manifest.json.new" && mv "${root}/manifest.json.new" "${root}/manifest.json"
 }
 
+devices_enrolled() { # <root>
+  jq '.devices | length' "$1/home/.tarfa/devices.json" 2>/dev/null || echo 0
+}
+
+# ab always runs in the caller's environment, never env.sh's: its sidecar must land in the real
+# runtime dir, where the real agent attaches the browser to the caller's workspace.
+browser() { # <root> <ab args...>
+  local root="$1"; shift
+  AB_SESSION="$(jq -r .browser "${root}/manifest.json")" ab "$@"
+}
+
+# Opens a pairing link in the sandbox's headless browser and waits until the agent enrolled it.
+browser_pair() { # <root> <link>
+  local root="$1" link="$2" slug name before i
+  slug="$(jq -r .slug "${root}/manifest.json")"
+  if [ "$(jq -r .browser "${root}/manifest.json")" = null ]; then
+    name="$(ab use "sb-${slug:0:16}" | sed -n 's/^session: \([^ ]*\).*/\1/p' | head -n 1)"
+    [ -n "${name}" ] || die "ab use did not name a session"
+    manifest_set "${root}" '.browser = $n' --arg n "${name}"
+    browser "${root}" set viewport 412 900 > /dev/null
+  fi
+  before="$(devices_enrolled "${root}")"
+  browser "${root}" open "${link}" > /dev/null 2>&1 || true
+  browser "${root}" dialog accept > /dev/null
+  for ((i = 0; i < READY_SECONDS * 5; i++)); do
+    [ "$(devices_enrolled "${root}")" -gt "${before}" ] && break
+    sleep 0.2
+  done
+  if [ "$(devices_enrolled "${root}")" -le "${before}" ]; then
+    browser "${root}" screenshot "${root}/pair-failed.png" > /dev/null 2>&1 || true
+    die "the browser did not pair within ${READY_SECONDS}s; see ${root}/pair-failed.png"
+  fi
+  # The empty list renders only once the machine is online; a sandbox with workspaces shows them.
+  if [ "$(tmux -S "$(sb_socket "${root}")" ls 2>/dev/null | wc -l)" -eq 0 ]; then
+    browser "${root}" wait --text "No workspaces yet" > /dev/null
+  fi
+}
+
+cmd_pair() { # <root>
+  local link
+  link="$(pair_link "$1")"
+  manifest_set "$1" '.pairLink = $l' --arg l "${link}"
+  browser_pair "$1" "${link}"
+  echo "browser $(jq -r .browser "$1/manifest.json") paired"
+}
+
+# The service worker serves the old build until its update banner is tapped (registerType: prompt).
+browser_reload() { # <root>
+  local root="$1"
+  [ "$(jq -r .browser "${root}/manifest.json")" != null ] || return 0
+  browser "${root}" open "http://127.0.0.1:$(jq -r .ports.pwa "${root}/manifest.json")/" > /dev/null
+  if browser "${root}" wait --fn '[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Reload")' --timeout 10000 > /dev/null 2>&1; then
+    browser "${root}" eval '(() => { const b = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Reload"); b?.click(); return !!b; })()' > /dev/null
+  fi
+}
+
 cmd_down() { # <root>
   local root="$1" slug
   slug="$(basename "${root}")"
   if [ ! -d "${root}" ]; then echo "no sandbox for ${slug}"; return 0; fi
   case "${root}" in "${BASE}/"?*) ;; *) die "refusing to remove ${root}: outside ${BASE}" ;; esac
   tmux -S "$(sb_socket "${root}")" kill-server 2>/dev/null || true
+  if [ -f "${root}/manifest.json" ] && [ "$(jq -r .browser "${root}/manifest.json")" != null ]; then
+    browser "${root}" close > /dev/null 2>&1 || true
+  fi
   systemctl --user stop "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" 2>/dev/null || true
   systemctl --user reset-failed "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" 2>/dev/null || true
   rm -rf "${root}"
@@ -188,7 +248,7 @@ cmd_status() { # <root>
 
 cmd_rebuild() { # <root> <agent|pwa|both>
   local root="$1" what="$2"
-  if [ "${what}" != agent ]; then build_pwa "${root}"; echo "PWA rebuilt"; fi
+  if [ "${what}" != agent ]; then build_pwa "${root}"; browser_reload "${root}"; echo "PWA rebuilt"; fi
   if [ "${what}" != pwa ]; then
     install_hooks "${root}"
     rm -f "${root}/home/.tarfa/token"
@@ -281,10 +341,14 @@ EOF
   local link
   link="$(pair_link "${root}")"
   manifest_set "${root}" '.pairLink = $l' --arg l "${link}"
+  if [ -z "${TARFA_SANDBOX_NO_BROWSER:-}" ]; then browser_pair "${root}" "${link}"; fi
 
   echo "sandbox ${slug} is up"
   echo "  PWA       http://127.0.0.1:${pwa}/"
   echo "  pair      ${link}"
+  if [ "$(jq -r .browser "${root}/manifest.json")" != null ]; then
+    echo "  browser   $(jq -r .browser "${root}/manifest.json") (your current ab session: ab snapshot -i, ab screenshot <png>)"
+  fi
   echo "  env       ${root}/env.sh   (pnpm sandbox exec -- <cmd> runs a command in it)"
   echo "  tmux      tmux -S $(sb_socket "${root}") ls"
 }
@@ -311,7 +375,7 @@ main() {
   case "${cmd}" in
     up) cmd_up "${wt}"; return ;;
     down) cmd_down "${root}"; return ;;
-    exec | status | rebuild | env) [ -f "${root}/manifest.json" ] || die "no sandbox for ${slug}; pnpm sandbox up" ;;
+    exec | status | rebuild | env | pair) [ -f "${root}/manifest.json" ] || die "no sandbox for ${slug}; pnpm sandbox up" ;;
     *) die "usage: sandbox.sh up|down|env|exec|status|rebuild|ls|gc [--worktree <path>] (see the header of this script)" ;;
   esac
   case "${cmd}" in
@@ -319,6 +383,7 @@ main() {
     status) cmd_status "${root}" ;;
     rebuild) cmd_rebuild "${root}" "${what}" ;;
     env) echo "${root}/env.sh" ;;
+    pair) cmd_pair "${root}" ;;
   esac
 }
 
