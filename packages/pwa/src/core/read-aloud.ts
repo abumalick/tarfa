@@ -11,6 +11,9 @@ export const START_TIMEOUT_MS = 12_000;
 
 export type ReadAloudState = 'idle' | 'playing' | 'paused' | 'ended';
 
+// The speeds the player offers; 1 is the voice's own.
+export const READ_ALOUD_RATES = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
+
 // Plays a reply with the phone's voice, one utterance per chunk. It never uses the voice's own
 // pause/resume (unreliable on iOS and Android): pausing cancels the queue and remembers the
 // chunk, and playing queues again from it, so a pause or a skip restarts at a chunk's start.
@@ -22,6 +25,8 @@ export class ReadAloud {
   // Bumped by every cancel: the voice may still fire `end` on what it dropped.
   private generation = 0;
   private lang = '';
+  // Positions and skips are in seconds at this speed; `starts` stays at the voice's own.
+  rate = 1;
 
   constructor(
     private readonly speech: SpeechPort,
@@ -36,11 +41,19 @@ export class ReadAloud {
 
   get duration(): number {
     const last = this.chunks.length - 1;
-    return last < 0 ? 0 : this.starts[last]! + this.chunks[last]!.length / CHARS_PER_SECOND;
+    return last < 0 ? 0 : (this.starts[last]! + this.chunks[last]!.length / CHARS_PER_SECOND) / this.rate;
   }
 
   get position(): number {
-    return this.starts[this.index] ?? 0;
+    return (this.starts[this.index] ?? 0) / this.rate;
+  }
+
+  // A reading under way restarts its sentence at the new speed.
+  setRate(rate: number): void {
+    if (rate === this.rate) return;
+    this.rate = rate;
+    if (this.state === 'playing') this.play();
+    else this.onChange();
   }
 
   // `lang` names the voice: the language the reply is written in.
@@ -69,7 +82,7 @@ export class ReadAloud {
 
   skip(seconds: number): void {
     if (this.state !== 'playing' && this.state !== 'paused') return;
-    const target = this.position + seconds;
+    const target = this.starts[this.index]! + seconds * this.rate;
     let next = this.starts.findLastIndex((start) => start <= target + 1e-9);
     if (seconds > 0) next = Math.max(next, this.index + 1);
     this.index = Math.min(Math.max(next, 0), this.chunks.length - 1);
@@ -94,7 +107,7 @@ export class ReadAloud {
       if (generation === this.generation && !started) this.fail('no-start');
     }, START_TIMEOUT_MS) ?? null;
     for (let i = this.index; i <= last; i++) {
-      this.speech.speak(this.chunks[i]!, this.lang, {
+      this.speech.speak(this.chunks[i]!, { lang: this.lang, rate: this.rate }, {
         start: () => {
           if (generation !== this.generation) return;
           started = true;

@@ -18,6 +18,8 @@
   import SharedFileConfirm from './SharedFileConfirm.svelte';
   import CopyOffer from './CopyOffer.svelte';
   import ReadAloudPlayer from './ReadAloudPlayer.svelte';
+  import VoiceHelp from './VoiceHelp.svelte';
+  import { voicePlatform } from './voice-platform';
   import { trackStatusInline, trackViewport, trackWide } from './viewport';
   import { attachTerminalScroll, type TerminalScroll } from './terminal-scroll';
   import { attachCopyOnSelect, type CopyOnSelect } from './copy-on-select';
@@ -87,6 +89,7 @@
   // A program in the workspace set the clipboard (OSC 52, e.g. Claude Code's /copy). WebKit
   // refuses a write that no tap started, so a refused one waits for the user to tap Copy.
   let copyOffer = $state<string | null>(null);
+  let voiceHelpOpen = $state(false);
   let copySeq = 0;
   const copyFromProgram = async (text: string) => {
     const seq = ++copySeq;
@@ -415,14 +418,22 @@
         onToggle={() => store.toggleReadAloud()}
         onSkip={(s) => store.skipReadAloud(s)}
         onClose={() => store.closeReadAloud()}
+        rate={store.readAloudRate}
+        onRate={(r) => store.setReadAloudRate(r)}
       />
     {:else if store.readAloudNotice}
       <div class="read-aloud-notice" role="status">
         <span>{store.readAloudNotice}</span>
+        {#if store.readAloudVoiceHelp}
+          <button type="button" class="help" onclick={() => (voiceHelpOpen = true)}>{msg().readAloud.howToFix}</button>
+        {/if}
         <button type="button" aria-label={msg().readAloud.dismiss} onpointerdown={keepFocus} onclick={() => store.dismissReadAloudNotice()}>✕</button>
       </div>
     {/if}
   </div>
+  {#if voiceHelpOpen}
+    <VoiceHelp platform={voicePlatform(navigator.userAgent, navigator.maxTouchPoints)} onClose={() => (voiceHelpOpen = false)} />
+  {/if}
   <WorkspaceMenu
     bind:open={menuOpen}
     {wide}
@@ -622,6 +633,11 @@
     background: transparent;
     color: var(--text);
     touch-action: manipulation;
+  }
+  .read-aloud-notice .help {
+    padding: 0 0.75rem;
+    border-color: var(--accent);
+    white-space: nowrap;
   }
   .copied-toast {
     position: absolute;

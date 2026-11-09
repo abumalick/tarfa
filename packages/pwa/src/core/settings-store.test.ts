@@ -48,6 +48,16 @@ describe('SettingsStore', () => {
     expect(new SettingsStore(storage).shareLinks()).toBe(false);
   });
 
+  it('keeps the read-aloud speed, and reads anything it does not offer as the voice\'s own', () => {
+    const storage = memStorage();
+    const store = new SettingsStore(storage);
+    expect(store.readAloudRate()).toBe(1);
+    store.setReadAloudRate(1.5);
+    expect(new SettingsStore(storage).readAloudRate()).toBe(1.5);
+    storage.write('tarfa.readAloudRate', '9');
+    expect(store.readAloudRate()).toBe(1);
+  });
+
   it('follows the phone language until one is picked, and persists the pick', () => {
     const storage = memStorage();
     expect(new SettingsStore(storage).languageChoice()).toBe('auto');

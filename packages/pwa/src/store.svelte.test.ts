@@ -2183,15 +2183,17 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
     function fakeSpeech() {
       const spoken: string[] = [];
       const langs: string[] = [];
+      const rates: number[] = [];
       let cancels = 0;
       return {
         spoken,
         langs,
+        rates,
         get cancels() {
           return cancels;
         },
         port: {
-          speak: (text: string, lang: string) => void (spoken.push(text), langs.push(lang)),
+          speak: (text: string, voice: { lang: string; rate: number }) => void (spoken.push(text), langs.push(voice.lang), rates.push(voice.rate)),
           cancel: () => void cancels++,
           unlock: () => undefined,
         },
@@ -2274,6 +2276,32 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       timer.timers.at(-1)!();
       expect(store.readAloud).toBeNull();
       expect(store.readAloudNotice).toContain('did not start');
+      expect(store.readAloudVoiceHelp).toBe(true);
+      store.dismissReadAloudNotice();
+      expect(store.readAloudVoiceHelp).toBe(false);
+    });
+
+    it('offers no voice help for a reply that is missing', () => {
+      const speech = fakeSpeech();
+      const { store, deliver } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: null });
+      expect(store.readAloudNotice).toBeTruthy();
+      expect(store.readAloudVoiceHelp).toBe(false);
+    });
+
+    it('reads at the chosen speed and keeps it', () => {
+      const speech = fakeSpeech();
+      const { store, deliver } = buildKeyed({ speech: speech.port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.setReadAloudRate(1.5);
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Faster.' });
+      expect(speech.rates).toEqual([1.5]);
+      expect(store.readAloudRate).toBe(1.5);
     });
 
     it('is not offered in a workspace that does not run Claude', () => {

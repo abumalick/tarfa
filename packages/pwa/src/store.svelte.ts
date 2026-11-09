@@ -293,6 +293,9 @@ export class TarfaStore {
   // The open read-aloud player, mirrored from `readAloudPlayer` (null when closed).
   readAloud = $state<{ state: ReadAloudState; position: number; duration: number } | null>(null);
   readAloudNotice = $state<string | null>(null);
+  // The notice is about a voice that would not speak, so it offers the help for this device.
+  readAloudVoiceHelp = $state(false);
+  readAloudRate = $state(1);
   private readonly readAloudPlayer: ReadAloud | null = null;
   private pendingReply: { machineId: string; workspaceId: string; cancel: () => void } | null = null;
   // Push-to-talk dictation state, mirrored from the SpeechToText controller for the UI.
@@ -357,6 +360,7 @@ export class TarfaStore {
         onError: (code) => {
           this.readAloudPlayer?.stop();
           this.readAloudNotice = code === 'no-start' ? msg().readAloud.voiceSilent : msg().readAloud.voiceFailed(code);
+          this.readAloudVoiceHelp = true;
         },
       });
     }
@@ -391,6 +395,8 @@ export class TarfaStore {
     this.lastCommand = this.deps.settings.lastCommand();
     this.fileWrap = this.deps.settings.fileWrap();
     this.shareLinks = this.deps.settings.shareLinks();
+    this.readAloudRate = this.deps.settings.readAloudRate();
+    this.readAloudPlayer?.setRate(this.readAloudRate);
     this.languageChoice = this.deps.settings.languageChoice();
     setLanguage(resolveLanguage(this.languageChoice, phoneLanguages()));
     this.terminalFontSize = this.deps.settings.terminalFontSize();
@@ -914,6 +920,12 @@ export class TarfaStore {
     this.readAloudPlayer?.toggle();
   }
 
+  setReadAloudRate(rate: number): void {
+    this.readAloudRate = rate;
+    this.deps.settings.setReadAloudRate(rate);
+    this.readAloudPlayer?.setRate(rate);
+  }
+
   skipReadAloud(seconds: number): void {
     this.readAloudPlayer?.skip(seconds);
   }
@@ -921,6 +933,7 @@ export class TarfaStore {
   closeReadAloud(): void {
     this.cancelPendingReply();
     this.readAloudNotice = null;
+    this.readAloudVoiceHelp = false;
     if (this.readAloudPlayer && this.readAloudPlayer.state !== 'idle') this.readAloudPlayer.stop();
   }
 
@@ -931,6 +944,7 @@ export class TarfaStore {
 
   dismissReadAloudNotice(): void {
     this.readAloudNotice = null;
+    this.readAloudVoiceHelp = false;
   }
 
   private syncReadAloud(): void {

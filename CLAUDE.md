@@ -425,7 +425,11 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     with Samsung's engine as the default and Google's absent: no voices, and an utterance that
     never starts; with "Speech Services by Google" installed it speaks. The first utterance after
     a browser start waits for the engine to start (4.2 s), so the player gives a silent voice
-    12 s (`START_TIMEOUT_MS`) before it says so, naming that app.
+    12 s (`START_TIMEOUT_MS`) before it says so. That notice (and a voice error) offers "How
+    to fix", whose steps follow the device (`lib/voice-platform.ts`: iOS, Android Chromium
+    browsers, Android Firefox, which uses the phone's own engine, desktop).
+  - **The speed (0.75–2×, `tarfa.readAloudRate`) is the utterance's `rate`;** positions and the
+    ±10 s skips are in seconds at that speed, and a change restarts the sentence under way.
   - **The voice follows the reply's language, not the app's** (`core/reply-language.ts`: Arabic
     by its script, English or French by their commonest words, else the app's language): a French
     voice reading English is barely understandable.

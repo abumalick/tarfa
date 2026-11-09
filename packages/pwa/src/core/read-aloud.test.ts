@@ -7,7 +7,9 @@ type Queued = { text: string; start: () => void; end: () => void; error: (code: 
 class FakeSpeech implements SpeechPort {
   queue: Queued[] = [];
   spoken: string[] = [];
-  speak(text: string, _lang: string, events: { start: () => void; end: () => void; error: (code: string) => void }) {
+  rates: number[] = [];
+  speak(text: string, voice: { lang: string; rate: number }, events: { start: () => void; end: () => void; error: (code: string) => void }) {
+    this.rates.push(voice.rate);
     this.queue.push({ text, ...events });
   }
   unlock() {}
@@ -175,5 +177,37 @@ describe('ReadAloud', () => {
     timers.at(-1)!();
     expect(errors).toEqual([]);
     expect(p.state).toBe('playing');
+  });
+
+  it('restarts the sentence under way at a new speed, and times itself at that speed', () => {
+    player.start(text, 'en');
+    speech.playNext();
+    speech.startNext();
+    expect(player.position).toBe(5);
+    player.setRate(2);
+    expect(player.state).toBe('playing');
+    expect(speech.queue[0]!.text).toBe(sentence(1));
+    expect(speech.rates.at(-1)).toBe(2);
+    expect(player.position).toBe(2.5);
+    expect(player.duration).toBe(15);
+  });
+
+  it('skips about ten seconds of what is heard at the chosen speed', () => {
+    player.setRate(2);
+    player.start(text, 'en');
+    speech.startNext();
+    player.skip(10);
+    expect(player.index).toBe(4);
+  });
+
+  it('keeps a pause paused when the speed changes', () => {
+    player.start(text, 'en');
+    speech.startNext();
+    player.toggle();
+    player.setRate(1.5);
+    expect(player.state).toBe('paused');
+    expect(speech.queue).toHaveLength(0);
+    player.toggle();
+    expect(speech.rates.at(-1)).toBe(1.5);
   });
 });

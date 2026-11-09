@@ -14,21 +14,25 @@ test.afterAll(async () => {
 
 // A stand-in for the phone's voice: records what it is asked to say, and starts each utterance
 // at once and finishes it only when the spec says so.
-async function fakeVoice(page: Page) {
-  await page.addInitScript(() => {
-    type U = { text: string; onstart?: () => void; onend?: () => void };
+// `silent`: a voice that takes every utterance and never starts one (no engine for it).
+async function fakeVoice(page: Page, silent = false) {
+  await page.addInitScript((silent) => {
+    type U = { text: string; rate: number; onstart?: () => void; onend?: () => void };
     const queue: U[] = [];
     const spoken: string[] = [];
-    (window as unknown as { spoken: string[] }).spoken = spoken;
+    const rates: number[] = [];
+    (window as unknown as { spoken: string[]; rates: number[] }).spoken = spoken;
+    (window as unknown as { rates: number[] }).rates = rates;
     class Utterance {
       lang = '';
+      rate = 1;
       volume = 1;
       onstart?: () => void;
       onend?: () => void;
       onerror?: () => void;
       constructor(public text: string) {}
     }
-    const startHead = () => queue[0]?.onstart?.();
+    const startHead = () => (silent ? undefined : queue[0]?.onstart?.());
     Object.defineProperty(window, 'SpeechSynthesisUtterance', { value: Utterance });
     Object.defineProperty(window, 'speechSynthesis', {
       value: {
@@ -44,6 +48,7 @@ async function fakeVoice(page: Page) {
         speak(u: U) {
           if (u.text.trim() === '') return;
           spoken.push(u.text);
+          rates.push(u.rate);
           queue.push(u);
           if (queue.length === 1) startHead();
         },
@@ -52,7 +57,7 @@ async function fakeVoice(page: Page) {
         },
       },
     });
-  });
+  }, silent);
 }
 
 async function openDemo(page: Page) {
@@ -97,4 +102,45 @@ test('offers no listen key where the browser has no voice', async ({ page }) => 
   await openDemo(page);
   await expect(page.getByRole('toolbar', { name: 'Terminal keys' }).getByRole('button', { name: 'Cursor pad' })).toBeVisible();
   await expect(listen(page)).toHaveCount(0);
+});
+
+test('the player fits a 320 px screen', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await fakeVoice(page);
+  await openDemo(page);
+  await listen(page).click();
+  const player = await page.getByTestId('read-aloud-player').boundingBox();
+  const close = await page.getByTestId('read-aloud-player').getByRole('button', { name: 'Stop and close' }).boundingBox();
+  expect(close!.x + close!.width).toBeLessThanOrEqual(player!.x + player!.width);
+  expect(player!.x + player!.width).toBeLessThanOrEqual(320);
+});
+
+test('reads at the speed picked in the player, and keeps it', async ({ page }) => {
+  await fakeVoice(page);
+  await openDemo(page);
+  await listen(page).click();
+  const player = page.getByTestId('read-aloud-player');
+  await player.getByRole('button', { name: 'Speed 1×' }).click();
+  await player.getByRole('group', { name: 'Reading speed' }).getByRole('button', { name: '1.5×' }).click();
+  await expect(player.getByRole('button', { name: 'Speed 1.5×' })).toBeVisible();
+  // The sentence restarts at the new speed once the adapter's pause after a cancel is over.
+  await expect.poll(() => page.evaluate(() => (window as unknown as { rates: number[] }).rates.at(-1))).toBe(1.5);
+  expect(await page.evaluate(() => localStorage.getItem('tarfa.readAloudRate'))).toBe('1.5');
+});
+
+test('a silent voice closes the player and offers this device\'s help', async ({ page }) => {
+  await page.clock.install();
+  await fakeVoice(page, true);
+  await openDemo(page);
+  await listen(page).click();
+  await expect(page.getByTestId('read-aloud-player')).toBeVisible();
+  await page.clock.fastForward(13_000);
+  const notice = page.getByRole('status').filter({ hasText: 'did not start' });
+  await expect(notice).toBeVisible();
+  await notice.getByRole('button', { name: 'How to fix' }).click();
+  const help = page.getByRole('dialog', { name: 'Turning on the phone’s voice' });
+  await expect(help).toBeVisible();
+  await expect(help.getByRole('button', { name: 'Done' })).toBeFocused();
+  await help.getByRole('button', { name: 'Done' }).click();
+  await expect(help).toHaveCount(0);
 });

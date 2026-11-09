@@ -19,10 +19,11 @@ export function webSpeech(ios: boolean): SpeechPort | null {
   const voiceFor = (lang: string) => synth.getVoices().find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()));
 
   return {
-    speak(text, lang, events) {
+    speak(text, { lang, rate }, events) {
       const run = () => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = lang;
+        utterance.rate = rate;
         const voice = voiceFor(lang);
         if (voice) utterance.voice = voice;
         utterance.onstart = events.start;

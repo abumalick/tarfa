@@ -1,4 +1,5 @@
 import type { StoragePort } from './ports/storage';
+import { READ_ALOUD_RATES } from './read-aloud';
 import type { FilterMode } from './project-folders';
 import { parseAgentKey } from './agent-key';
 import { normalizeAddress } from './machine-addresses';
@@ -41,6 +42,7 @@ const LAST_COMMAND_KEY = 'tarfa.lastCommand';
 const FILE_WRAP_KEY = 'tarfa.fileWrap';
 const TERMINAL_FONT_SIZE_KEY = 'tarfa.terminalFontSize';
 const SHARE_LINKS_KEY = 'tarfa.shareLinks';
+const READ_ALOUD_RATE_KEY = 'tarfa.readAloudRate';
 const LANGUAGE_KEY = 'tarfa.language';
 const ELEVENLABS_API_KEY = 'tarfa.elevenLabsApiKey';
 const OPENROUTER_API_KEY = 'tarfa.openRouterApiKey';
@@ -195,6 +197,16 @@ export class SettingsStore {
 
   setShareLinks(on: boolean): void {
     this.storage.write(SHARE_LINKS_KEY, on ? '1' : '0');
+  }
+
+  // The read-aloud speed; anything but an offered one reads as the voice's own.
+  readAloudRate(): number {
+    const rate = Number(this.storage.read(READ_ALOUD_RATE_KEY));
+    return (READ_ALOUD_RATES as readonly number[]).includes(rate) ? rate : 1;
+  }
+
+  setReadAloudRate(rate: number): void {
+    this.storage.write(READ_ALOUD_RATE_KEY, String(rate));
   }
 
   // The app's language; unset (or unknown) follows the phone.

@@ -9,6 +9,37 @@ export const readAloud = {
   nothingToRead: 'No reply to read yet. Claude’s next reply can be read once it finishes.',
   noAnswer: 'The machine did not send the reply. Try again.',
   dismiss: 'Dismiss',
-  voiceSilent: 'The phone’s voice did not start. On Android, Chrome needs Google’s speech engine: install “Speech Services by Google” from the Play Store, with a voice for this language.',
+  voiceSilent: 'The phone’s voice did not start.',
   voiceFailed: (code: string) => `The phone’s voice failed (${code}).`,
+  speed: 'Reading speed',
+  speedIs: (rate: string) => `Speed ${rate}×`,
+  howToFix: 'How to fix',
+  helpTitle: 'Turning on the phone’s voice',
+  // One list per platform (lib/voice-platform.ts).
+  helpSteps: {
+    'android-chrome': [
+      'Chrome on Android speaks only with Google’s speech engine, even when the phone has another one set (Samsung’s, for one).',
+      'Install “Speech Services by Google” from the Play Store. If it says the app is disabled, tap Enable.',
+      'In Android’s Settings, search for “Text-to-speech”, open Speech Services by Google and install the voice for your language.',
+      'Close Tarfa completely (swipe it away from recent apps) and open it again: Chrome finds the engine when it starts.',
+      'Turn the media volume up: the voice plays on it.',
+    ],
+    'android-firefox': [
+      'Firefox speaks with the phone’s own speech engine.',
+      'In Android’s Settings, search for “Text-to-speech”, choose an engine and install the voice for your language.',
+      'Close the browser completely and open it again.',
+      'Turn the media volume up: the voice plays on it.',
+    ],
+    ios: [
+      'Check that Silent mode is off and the volume is up.',
+      'In Settings → Accessibility → Spoken Content → Voices, download a voice for your language.',
+      'Close Tarfa completely and open it again.',
+    ],
+    desktop: [
+      'Install a voice for your language in the system’s speech settings.',
+      'Restart the browser, and check the sound output.',
+    ],
+  },
+  openStore: 'Open in the Play Store',
+  done: 'Done',
 };
