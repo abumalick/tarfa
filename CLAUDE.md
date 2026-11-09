@@ -77,7 +77,16 @@ Build each feature in its own git worktree; full runbook in `docs/WORKTREES.md`.
   somehow already have uncommitted edits in the main checkout, surface it and move them into a
   worktree — do not `checkout -b` in place to "branch" them.
 - Create: `git worktree add .worktrees/<feature> -b <feature>` (`.worktrees/` is gitignored),
-  then `pnpm install` (node_modules is per-worktree). Unit/integration tests bind ephemeral
+  then `pnpm install` (node_modules is per-worktree). Docs and version bumps too: nothing is
+  committed in the main checkout.
+- **Land with `pnpm land <feature>` (`deploy/land.sh`), never by hand.** It merges `origin/main`
+  into the branch and runs the gate in the worktree, then, under a lock every checkout shares,
+  fast-forwards main and pushes. A gate run in the shared checkout held an open merge there for
+  minutes, and concurrent sessions tripped over it, reverted it, or pushed around it. A conflict
+  stays in the worktree to resolve and re-land; a dirty or mid-merge main checkout is someone
+  else's and is reported, never restored or reset. **Only local main is pushed to `main`:** the
+  pre-push hook refuses `git push origin HEAD:main` (or any `<ref>:main`) and a `v*` tag whose
+  commit is not on `origin/main` yet. Unit/integration tests bind ephemeral
   ports, so they run in parallel across worktrees with no clash.
 - **e2e ports clash** — `vite preview` uses a fixed port. On the host running `run-pwa.sh`,
   **4173 is the standing deploy**; give each checkout its own:
@@ -1426,6 +1435,8 @@ reaches `origin`, including FF merges and `git update-ref` advances no commit ho
   `git commit --no-verify`, `git push --no-verify`, or `git update-ref refs/heads/main`
   to integrate — every one of these bypasses the suite and is how red code reached `main`
   before these hooks existed. If the gate is in your way, the tests are red — fix them.
+  `TARFA_GATE_PASSED` (pre-push skips the suite for the tree it names, never the leak check) is
+  set by `deploy/land.sh` alone, for the tree it has just gated; never set it by hand.
 - The gate first runs `deploy/check-leaks.sh`: gitleaks over the staged diff and history,
   then a whole-word check of tracked files against a word list kept **outside** the repo
   (`~/.tarfa/leak-words.txt`, or `$TARFA_LEAK_WORDS`) — names of other projects,
@@ -1447,16 +1458,16 @@ gate runs entirely on the local git hooks (commit/merge/push) before anything re
 So after a `git push`, do **not** wait for a remote test run — there is none (a pushed tag starts `release.yml`, which only stages a package). Verifying locally with
 `pnpm -s test` + e2e is the whole story.
 
-`origin` is a real GitHub remote (no push CI). The post-merge hook auto-pushes `main`, but that
-push **fails whenever `origin/main` has advanced** since you branched. When a push fails —
-the hook's auto-push or a manual `git push` — integrate automatically; do **not** stop and
-ask:
-1. `git fetch origin`, then `git merge origin/main` into local `main`.
-2. Resolve any conflicts by reading **both** sides and integrating the real intent — never
+`origin` is a real GitHub remote (no push CI). `pnpm land` is what pushes main, and it
+integrates a moved `origin/main` itself (merge into the branch, gate, retry); do **not** stop
+and ask. When its merge of `origin/main` conflicts:
+1. Resolve in the worktree by reading **both** sides and integrating the real intent — never
    blind-pick `-X ours`/`-X theirs`, which silently drops code.
-3. Gate on the suite (`pnpm -s test`): green → `git push origin main`; red, or a conflict
-   hunk that's genuinely ambiguous → **stop and hand back**. Never push a red or guessed
-   `main`.
+2. Commit, then run `pnpm land <feature>` again (its gate decides): green → it lands; red, or a
+   conflict hunk that's genuinely ambiguous → **stop and hand back**. Never push a red or
+   guessed `main`.
+If `land` reports local commits on main that origin lacks, they reached main without it: find
+whose they are and hand back rather than pushing them.
 
 ## Reference
 - Deploy and release runbook: `docs/DEPLOY.md`. Worktree runbook: `docs/WORKTREES.md`.

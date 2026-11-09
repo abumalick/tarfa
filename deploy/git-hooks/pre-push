@@ -4,5 +4,43 @@
 # `git update-ref`, and commits made with `git commit --no-verify`. A non-zero
 # exit aborts the push (the work stays committed locally; fix and re-push).
 # Bypass with `git push --no-verify` — don't, for main.
+#
+# It also guards main and releases:
+# - only local main may update a remote's main (`git push origin HEAD:main` from a
+#   worktree skipped every other session's landing and left them all diverged), and
+#   main is never deleted; branches land through deploy/land.sh;
+# - a `v*` tag must name a commit already on the remote's main, since release.yml
+#   refuses a tag that is not on main (so a tag goes only to a named remote with a main).
+# The suite is skipped (the leak check never is) when every ref pushed carries the
+# tree deploy/land.sh just gated, which it passes as TARFA_GATE_PASSED.
 set -euo pipefail
-exec "$(git rev-parse --show-toplevel)/deploy/git-hooks/run-tests.sh" pre-push "$1"
+
+REMOTE="$1"
+ZERO='0000000000000000000000000000000000000000'
+REFS="$(cat)"
+
+refuse() { echo "pre-push: $*" >&2; exit 1; }
+
+skip_suite="${TARFA_GATE_PASSED:+leaks-only}"
+while read -r lref lsha rref _; do
+  [ -n "${lref:-}" ] || continue
+  case "${rref}" in
+    refs/heads/main)
+      [ "${lsha}" != "${ZERO}" ] || refuse "refusing to delete ${REMOTE}'s main"
+      if [ "${lref}" != refs/heads/main ] \
+        && ! { [ "${lref}" = HEAD ] && [ "$(git symbolic-ref -q HEAD)" = refs/heads/main ]; }; then
+        refuse "only local main may be pushed to ${REMOTE}'s main (this pushes ${lref}). Land a branch with deploy/land.sh <branch>."
+      fi ;;
+    refs/tags/v*)
+      if [ "${lsha}" != "${ZERO}" ] \
+        && ! git merge-base --is-ancestor "${lsha}^{commit}" "refs/remotes/${REMOTE}/main" 2>/dev/null; then
+        refuse "${rref#refs/tags/} names a commit that is not on ${REMOTE}/main yet: land the version bump first (deploy/land.sh), then tag (git fetch if it just landed)."
+      fi ;;
+  esac
+  if [ -n "${skip_suite}" ] \
+    && [ "$(git rev-parse -q --verify "${lsha}^{tree}" 2>/dev/null)" != "${TARFA_GATE_PASSED}" ]; then
+    skip_suite=""
+  fi
+done <<<"${REFS}"
+
+exec "$(git rev-parse --show-toplevel)/deploy/git-hooks/run-tests.sh" pre-push "${REMOTE}" ${skip_suite} <<<"${REFS}"

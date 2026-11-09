@@ -362,9 +362,11 @@ Staging PWA URL: `https://mini.<tailnet>.ts.net:8443/`.
 ## Releasing
 `@tarfa/cli` reaches machines as an npm package. A release publishes the package only: it never
 deploys tarfa.app, and `tarfa update` never touches Claude Code or Codex.
-1. Bump `version` in `packages/agent/package.json` and commit it to main.
-2. Tag the commit `v<version>` and push the tag (the pre-push gate runs the suite):
-   `git tag v<version> && git push origin v<version>`.
+1. Bump `version` in `packages/agent/package.json` on a branch in its own worktree, like any
+   change, and land it: `pnpm land <branch>` (never a commit in the main checkout).
+2. Tag the landed commit `v<version>` and push the tag (the pre-push gate runs the suite):
+   `git tag v<version> <branch> && git push origin v<version>`. The pre-push hook refuses a `v*`
+   tag whose commit is not on `origin/main` yet, which `release.yml` would refuse too.
 3. `.github/workflows/release.yml` checks that the tag equals the package version and that the
    tagged commit is on `origin/main`, runs the frozen install, typecheck and unit tests, packs the
    tarball, runs the packaging test (`TARFA_PACK_TEST=1`) and **stages** it with

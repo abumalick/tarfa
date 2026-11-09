@@ -43,7 +43,7 @@ E2E_PORT=4175 pnpm --filter @tarfa/pwa e2e
 ## Recipe
 
 ```sh
-# from the primary checkout (e.g. ~/workspace/perch)
+# from the primary checkout (e.g. ~/workspace/tarfa)
 git worktree add .worktrees/<feature> -b <feature>
 cd .worktrees/<feature>
 mise trust                         # new path, so mise.toml isn't trusted yet — see note below
@@ -147,9 +147,10 @@ The repo ships git hooks in `deploy/git-hooks/`, activated once per clone with:
 pnpm hooks:install   # sets core.hooksPath=deploy/git-hooks
 ```
 
-`core.hooksPath` is shared via the common git dir and resolves relative to each
-worktree's own top-level, so this single command covers `main` and every current or
-future worktree — no per-worktree setup.
+`core.hooksPath` is shared via the common git dir and holds an absolute path, so every
+worktree runs the main checkout's hook scripts; each one then calls the `run-tests.sh` or
+`build-current.sh` of the worktree it runs in. This single command covers `main` and every
+current or future worktree — no per-worktree setup.
 
 What they do:
 
@@ -173,10 +174,20 @@ the live deploy. To actually serve it on the phone, still use `pnpm serve:build`
 ## Cleanup
 
 ```sh
-# from any checkout
+# from the main checkout's directory (nothing here edits its working tree)
+pnpm land <feature>                          # merge origin/main, gate here, land on main, push
 pnpm worktree:remove .worktrees/<feature>   # safe removal (see below)
-git branch -d <feature>                      # once merged
+git branch -d <feature>                      # once landed
 ```
+
+`pnpm land` (`deploy/land.sh`) is the only way onto main. The slow part (merging
+`origin/main` into the branch and running the gate) happens in the worktree, in parallel
+with other sessions; the main checkout is touched only under a lock shared by every
+checkout, for a fast-forward and a push whose suite pre-push skips because `land` just gated
+that exact tree (`TARFA_GATE_PASSED`; the leak check still runs). It refuses a main checkout
+that is dirty or mid-merge, and local commits on main that origin lacks, and goes round again
+when `origin/main` moved during its gate. The pre-push hook refuses any push to a remote's
+`main` but local `main`'s, and a `v*` tag not yet on `origin/main`.
 
 `pnpm worktree:remove` wraps `git worktree remove` with a deploy safety check: if a live
 symlink is currently serving that worktree — `deploy/pwa-live` (you ran `serve:build`),

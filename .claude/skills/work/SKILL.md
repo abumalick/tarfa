@@ -1,6 +1,6 @@
 ---
 name: work
-description: Use to implement any Tarfa feature, fix, or change. Enforces the project development flow — brainstorm first, mandatory git worktree for code changes, TDD on a clean/hexagonal architecture, an on-device deploy-test gate, then a direct local merge to main with worktree cleanup. Use whenever the user asks to build, add, implement, fix, or change behavior in Tarfa.
+description: Use to implement any Tarfa feature, fix, or change. Enforces the project development flow — brainstorm first, a mandatory git worktree for every change, TDD on a clean/hexagonal architecture, an on-device deploy-test gate, then `pnpm land` (a locked landing on main) with worktree cleanup. Use whenever the user asks to build, add, implement, fix, or change behavior in Tarfa.
 ---
 
 # Work — Tarfa development flow
@@ -29,10 +29,9 @@ them uncommitted. Anything a future reader of the repo needs belongs in the code
 
 Decide from the agreed scope:
 
-- **Provably docs-only** — every file in scope is under `*.md` or `docs/**`. Work on the
-  current branch, no worktree. Skip to Phase 3.
-- **Anything else** — any code or config file in scope makes a worktree **mandatory**.
-  When in doubt, use a worktree (safe default).
+Every change gets a worktree, docs and version bumps included. The main checkout is
+shared: a commit or merge there holds its index for the minutes the gate runs, and every
+other session that tries to land meanwhile is refused.
 
 Create it via `superpowers:using-git-worktrees`, following Tarfa's convention:
 
@@ -81,37 +80,37 @@ Then **stop and wait** for the user's verdict. Do not proceed.
 ## Phase 5 — Iterate or integrate
 
 - **Rejected / feedback** → return to Phase 3, then re-offer Phase 4.
-- **Approved** → integrate, in this order:
+- **Approved** → integrate, in this order, from the main checkout's directory (none of
+  these edits its working tree; `land` runs its gate in the worktree):
 
 ```bash
 pnpm serve:restore                       # flip the live deploy back to main
-git checkout main
-git merge <feature>                      # direct local merge (Tarfa has no remote CI)
+pnpm land <feature>                      # deploy/land.sh: merge origin/main, gate, land, push
 pnpm worktree:remove .worktrees/<feature>  # restores main if it was still deployed, then removes
 git branch -d <feature>
 ```
 
-**If `git merge <feature>` reports conflicts:** resolve them yourself — read *both*
-sides and integrate the actual intent; never blind-pick with `-X ours`/`-X theirs`, which
-silently drops code. Then gate on the test suite (`pnpm -s test`):
+`land` merges `origin/main` into the branch and runs the gate **in the worktree**, then,
+under a lock every session shares, fast-forwards main to the branch and pushes it. Several
+sessions can land at once: each waits its turn for the few seconds the lock is held, and goes
+round again if `origin/main` moved during its gate. It never works around what it finds:
 
-- **Green** → complete the merge commit, then push explicitly with `git push origin
-  main` (the post-merge hook does *not* fire on a conflicted merge, so the auto-push is
-  skipped — you must push). Then continue the cleanup above (`worktree:remove`,
-  `branch -d`).
-- **Tests fail, or a conflict hunk is genuinely ambiguous** → stop. Leave the merge
-  in progress and hand back to the user with what you found. Never ship a guessed or red
-  main.
+- **A conflict with `origin/main`** is left open in the worktree. Resolve it there — read
+  *both* sides and integrate the actual intent; never blind-pick with `-X ours`/`-X theirs`,
+  which silently drops code — commit, and run `pnpm land <feature>` again. If a hunk is
+  genuinely ambiguous, stop and hand back to the user.
+- **A red gate** lands nothing. Fix it in the worktree and run `land` again.
+- **A dirty main checkout, or one with an open merge**, belongs to someone else: say so and
+  hand back. Never `restore`, `reset` or stash it.
+- **Never push a branch to main** (`git push origin HEAD:main`, or any `<ref>:main`): the
+  pre-push hook refuses it, since it jumps every other session's landing and leaves their
+  mains diverged. Never run `git checkout main`, `git merge` or `git commit` in the main
+  checkout either.
 
-On a **clean** merge the post-merge git hook rebuilds main's dist, so the live PWA
-returns to main automatically, and pushes main to origin (best-effort) since the merge
-landed on main.
+On landing, the post-merge hook rebuilds main's dist, so the live PWA returns to main.
 `pnpm worktree:remove` is a safe wrapper around `git worktree remove`:
 if the live deploy is still serving the worktree being removed, it flips back to main
 first so the PWA is never left pointing at a vanished build.
-
-For docs-only work (no worktree), just commit on the current branch; there is no deploy
-gate and no worktree to clean.
 
 ## Phase 6 — Closeout report
 
@@ -120,8 +119,7 @@ End every run with a short, explicit status:
 - **What was done** — one line.
 - **What's left** — anything outstanding, or "nothing".
 - **Session state** — one of:
-  - **Ready to close** — merged into main and the worktree is removed (or: docs-only
-    change committed).
+  - **Ready to close** — landed on main and the worktree is removed.
   - **Open — awaiting your deploy-test verdict** — Phase 4 served, not yet
     approved.
   - **Open — <reason>** — e.g. tests failing, merged but worktree not yet cleaned, blocked.

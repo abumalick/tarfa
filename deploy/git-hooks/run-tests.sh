@@ -9,7 +9,8 @@
 # this repo's dominant integration path, so the merge + push hooks are what
 # actually keep red code off `main` and `origin`.
 #
-# Arg 1 is the hook name; arg 2, from pre-push, is the remote pushed to (for the leak check).
+# Arg 1 is the hook name; arg 2, from pre-push, is the remote pushed to (for the leak check);
+# arg 3 `leaks-only`, from pre-push, when deploy/land.sh already gated the exact tree pushed.
 set -euo pipefail
 
 REPO="$(git rev-parse --show-toplevel)"
@@ -23,6 +24,11 @@ PNPM=("${RUN[@]}" pnpm)
 
 echo "${1:-test-gate}: checking for leaks…"
 "${RUN[@]}" bash "${REPO}/deploy/check-leaks.sh" "${1:-}" "${2:-}"
+
+if [ "${3:-}" = leaks-only ]; then
+  echo "${1:-test-gate}: deploy/land.sh gated this exact tree; skipping the suite."
+  exit 0
+fi
 
 echo "${1:-test-gate}: running typecheck + unit tests…"
 "${PNPM[@]}" --dir "${REPO}" -r typecheck
