@@ -54,20 +54,29 @@ fakes. Keep `pnpm -s test` green; add tests with every change.
 Do not advance to Phase 4 until tests pass and you have verified the change does what it
 should.
 
-## Phase 4 — Deploy-to-prod test gate
+## Phase 4 — On-device test on the staging PWA
 
-When the work is green and verified, **propose** the on-device test — do not run it
-automatically. Tell the user you will run:
+When the work is green and verified, put it on the staging PWA yourself; it needs no
+permission, since staging is a separate origin from tarfa.app. First check that no other
+worktree is being served:
+
+```bash
+readlink deploy/pwa-live                      # in the main checkout
+curl -s http://127.0.0.1:4173/version.json    # label "main" means it is free
+```
+
+If it points at another worktree (label other than `main`), another agent is testing:
+do not serve over it; tell the user and wait. Otherwise run, from the main checkout:
 
 ```bash
 pnpm serve:build .worktrees/<feature>
 ```
 
-This builds the worktree's PWA and points the live tailnet deploy at it. The installed
-PWA auto-updates within ~60s (app must be foregrounded), and the home header shows the
-`<feature>` slug as a badge.
+This builds the worktree's PWA and points the staging deploy at it. The installed
+staging PWA offers the update within ~60s (app must be foregrounded), and the home header
+shows the `<feature>` slug as a badge.
 
-After running it, **stop and wait** for the user's verdict. Do not proceed.
+Then **stop and wait** for the user's verdict. Do not proceed.
 
 ## Phase 5 — Iterate or integrate
 
@@ -113,7 +122,7 @@ End every run with a short, explicit status:
 - **Session state** — one of:
   - **Ready to close** — merged into main and the worktree is removed (or: docs-only
     change committed).
-  - **Open — awaiting your deploy-test verdict** — Phase 4 proposed/running, not yet
+  - **Open — awaiting your deploy-test verdict** — Phase 4 served, not yet
     approved.
   - **Open — <reason>** — e.g. tests failing, merged but worktree not yet cleaned, blocked.
 
