@@ -2,8 +2,8 @@
 
 A sandbox is a disposable Tarfa machine for one worktree: that worktree's agent and PWA,
 running beside every other sandbox and apart from the real agent, paired to a headless Chrome.
-Agents use it to see a change working (create a workspace, run Claude or a shell in it, watch
-its status) without the phone, the staging PWA or the real agent, so any number of them can
+Agents use it to see a change working (create a workspace, run Claude, Codex or a shell in it,
+watch its status) without the phone, the staging PWA or the real agent, so any number of them can
 test at once. Linux only (systemd user units); the browser is
 [agent-browser](https://github.com/vercel-labs/agent-browser).
 
@@ -22,7 +22,7 @@ pnpm sandbox down
 | Where | What it runs | Use it for |
 |---|---|---|
 | e2e (`pnpm --filter @tarfa/pwa e2e`) | Playwright WebKit against `e2e/fake-agent.ts`, in the gate | the UI on its own: layout, states, view logic |
-| a sandbox | the real agent and PWA, Chrome, real Claude and shell workspaces | anything that touches the agent: create/close/park/unpark, hooks and status, OSC 7501, `tarfa send`/`wait`/`close`, protocol changes, pairing, the terminal |
+| a sandbox | the real agent and PWA, Chrome, real Claude, Codex and shell workspaces | anything that touches the agent: create/close/park/unpark, hooks and status, OSC 7501, `tarfa send`/`wait`/`close`, protocol changes, pairing, the terminal |
 | staging + the phone (`pnpm serve:build`) | the maintainer's device | the Android keyboard, iOS Safari and install, voice and the mic, read-aloud, the share target, links handed to other apps, cold-launch speed, Funnel |
 
 Either of the last two ends the same way: show the result and wait for the maintainer's
@@ -32,11 +32,12 @@ verdict (`.claude/skills/work/SKILL.md`, Phase 4).
 
 All take `--worktree <path>`; without it they act on the checkout you are in.
 
-- `up` — builds the PWA, starts the agent and a `vite preview`, pairs the browser, prints the
+- `up` — builds the PWA, starts the agent, a `vite preview` and (with a Codex login) the Codex
+  app server, pairs the browser, prints the
   PWA address, the browser session, the tmux socket and the env file. A sandbox already up is
   refused; one whose agent died is replaced. If anything fails on the way, it is taken down
   again. `TARFA_SANDBOX_NO_BROWSER=1` skips the browser and only prints the pairing link.
-- `down` — stops the tmux server, the browser and both units, and deletes the sandbox.
+- `down` — stops the tmux server, the browser and its units, and deletes the sandbox.
   `pnpm worktree:remove` does it for you.
 - `rebuild [--agent|--pwa]` — rebuilds the PWA and taps the browser's update banner, and/or
   reinstalls the hooks and restarts the agent. Workspaces survive (the agent unit has
@@ -70,13 +71,15 @@ Never call `tmux` without `-S` there: it would reach the real server.
 
 ## What is inside
 
-`~/.cache/tarfa-sandbox/<slug>/` (`TARFA_SANDBOX_ROOT` overrides the parent), private to the
-user. Not the worktree's `.tmp`: a tmux socket path must fit about 100 bytes.
+`~/.cache/tsb/<slug>/` (`TARFA_SANDBOX_ROOT` overrides the parent), private to the user. Kept
+short on purpose: Tarfa connects to the Codex app server's socket,
+`<slug>/home/.codex/app-server-control/app-server-control.sock`, and node refuses a socket path
+over 107 bytes, so `up` refuses a folder too deep for it.
 
 - `home/` is the sandbox's `HOME`: `.tarfa` (agent state, `agent.env`), `.claude` (hooks,
-  `"model": "sonnet"`), `.claude.json` (onboarding done and the projects trusted, so a new
-  Claude session opens on its prompt), `.gitconfig`, and a `CLAUDE.md` telling sessions where
-  they are.
+  `"model": "sonnet"`), `.codex` (hooks, a `config.toml` of its own, the login linked),
+  `.claude.json` (onboarding done and the projects trusted, so a new Claude session opens on its
+  prompt), `.gitconfig`, and a `CLAUDE.md` telling sessions where they are.
 - `projects/demo-a`, `projects/demo-b` are throwaway repositories, the machine's project root.
 - `tmux/` is `TMUX_TMPDIR` and `run/` is `XDG_RUNTIME_DIR`, so the sandbox lists only its own
   agent-browser sessions. The real user bus is kept, so `systemctl --user` and the pane scope
@@ -96,7 +99,35 @@ Sandboxes log Claude Code in with a one-year token from `claude setup-token`, re
 owner's approval in a browser) and keep a copy in your password manager. Login files are never
 copied: each copy refreshes on its own and can log the original out.
 
-Codex is not set up in sandboxes yet: its login and the trust its hooks need are still open.
+## The Codex login
+
+Sandboxes share one ChatGPT login of their own, `~/.config/tarfa-sandbox/codex/auth.json`
+(`TARFA_SANDBOX_CODEX_HOME` overrides the folder), never your `~/.codex`. Make it once, with the
+account owner's approval in a browser:
+
+```bash
+mkdir -p -m 700 ~/.config/tarfa-sandbox/codex
+printf 'cli_auth_credentials_store = "file"\n' > ~/.config/tarfa-sandbox/codex/config.toml
+CODEX_HOME=~/.config/tarfa-sandbox/codex codex login --device-auth
+```
+
+Run the last line again when Codex in a sandbox says to sign in again. Without the login `up`
+still works, says Codex is not logged in, and starts no Codex app server.
+
+- **Linked, never copied.** Codex's refresh token is single-use: a copy that refreshes signs
+  out every other copy. Each sandbox's `home/.codex/auth.json` and `auth.lock` are links to the
+  shared files; Codex writes a refreshed token onto the link's target and takes its commit lock
+  beside it, so every sandbox sees each refresh. A separate login, rather than links to your
+  own, keeps a refresh race in a sandbox from ever signing your own Codex out.
+- **The hooks are trusted by `up`.** Codex runs a hook only once it is trusted in `/hooks`, which
+  stores a hash of the hook in `config.toml`. `up` (and `rebuild --agent`) writes those hashes
+  for exactly the hooks `install-hooks` wrote, computed as Codex 0.167 computes them. If a Codex
+  release hashes differently, its hooks stop reporting in sandboxes (the live check fails);
+  trust them by hand in `/hooks`, or start Codex with `--dangerously-bypass-hook-trust`, until
+  `codex_hook_trust` in `deploy/sandbox.sh` is updated.
+- **The app server is a unit.** `tarfa spawn --cli codex` and `tarfa send` talk to
+  `codex app-server`, which `up` runs as the unit `tarfa-sb-<slug>-codex`, so `down` stops it
+  with the rest.
 
 ## Limits
 
@@ -106,13 +137,13 @@ Codex is not set up in sandboxes yet: its login and the trust its hooks need are
 - A daemon a pane starts with `setsid` escapes `down` (`tmux kill-server`) as it escapes a
   close in production; closing the workspace in the PWA reaps its scope. `pgrep -af` the
   sandbox path to find one.
-- The units cap the agent at 4 GB and the preview at 1 GB; workspaces run in their own scopes,
-  outside that cap, as real ones do. So `up` refuses a fifth sandbox while four are up
-  (`TARFA_SANDBOX_MAX` changes the limit) and names the running ones. Those are usually other
-  agents': never take one down. Wait for one to finish, run `pnpm sandbox gc` to clear dead
-  ones, or ask the maintainer; for a UI-only change, the fake-agent e2e needs no sandbox.
-  Inside a sandbox, run one Claude session at a time and wrap test runs and builds in `heavy`
-  where it exists.
+- The units cap the agent at 4 GB, the Codex app server at 2 GB and the preview at 1 GB;
+  workspaces run in their own scopes, outside that cap, as real ones do. So `up` refuses a fifth
+  sandbox while four are up (`TARFA_SANDBOX_MAX` changes the limit) and names the running ones.
+  Those are usually other agents': never take one down. Wait for one to finish, run
+  `pnpm sandbox gc` to clear dead ones, or ask the maintainer; for a UI-only change, the fake-agent
+  e2e needs no sandbox. Inside a sandbox, run one Claude session at a time and wrap test runs
+  and builds in `heavy` where it exists.
 
 ## Checking the tool itself
 
@@ -120,5 +151,5 @@ Codex is not set up in sandboxes yet: its login and the trust its hooks need are
 two sandboxes for real and confirms nothing reaches the real agent:
 
 ```bash
-TARFA_SANDBOX_LIVE=1 TARFA_SANDBOX_LIVE_CLAUDE=1 bash deploy/sandbox.live.test.sh
+TARFA_SANDBOX_LIVE=1 TARFA_SANDBOX_LIVE_CLAUDE=1 TARFA_SANDBOX_LIVE_CODEX=1 bash deploy/sandbox.live.test.sh
 ```

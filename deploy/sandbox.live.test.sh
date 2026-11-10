@@ -2,9 +2,10 @@
 # End-to-end check of deploy/sandbox.sh against the real thing: two sandboxes at once, a
 # workspace created from the PWA in a headless browser, systemd scopes under the sandbox's
 # runtime dir, and nothing reaching the real agent. Opt-in (it starts units, Chrome and, with
-# TARFA_SANDBOX_LIVE_CLAUDE=1, a Sonnet session); not part of the gate.
+# TARFA_SANDBOX_LIVE_CLAUDE=1, a Sonnet session; with TARFA_SANDBOX_LIVE_CODEX=1, Codex sessions
+# on the sandbox login); not part of the gate.
 #
-#   TARFA_SANDBOX_LIVE=1 [TARFA_SANDBOX_LIVE_CLAUDE=1] bash deploy/sandbox.live.test.sh
+#   TARFA_SANDBOX_LIVE=1 [TARFA_SANDBOX_LIVE_CLAUDE=1] [TARFA_SANDBOX_LIVE_CODEX=1] bash deploy/sandbox.live.test.sh
 set -euo pipefail
 if [ -z "${TARFA_SANDBOX_LIVE:-}" ]; then echo "sandbox live test skipped (set TARFA_SANDBOX_LIVE=1)"; exit 0; fi
 
@@ -12,7 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 A_WT="$(cd "${HERE}/.." && pwd -P)"
 SB="${HERE}/sandbox.sh"
 B_WT="${A_WT}/.tmp/sandbox-live-b"
-BASE="${TARFA_SANDBOX_ROOT:-${HOME}/.cache/tarfa-sandbox}"
+BASE="${TARFA_SANDBOX_ROOT:-${HOME}/.cache/tsb}"
 
 fails=0
 check() {
@@ -39,6 +40,7 @@ ab_in() { local root="$1"; shift; agent-browser --session "$(jq -r .browser "${r
 ref() { ab_in "$1" snapshot -i | grep -F -- "$2" | grep -oE 'ref=e[0-9]+' | head -n 1 | sed 's/ref=/@/'; }
 
 REAL_LOG="${HOME}/.tarfa/workspace-log.jsonl"
+real_codex_auth="$(stat -c %Y "${HOME}/.codex/auth.json" 2>/dev/null || echo none)"
 real_log_lines="$(wc -l < "${REAL_LOG}" 2>/dev/null || echo 0)"
 
 echo "two sandboxes"
@@ -95,7 +97,57 @@ if [ -n "${TARFA_SANDBOX_LIVE_CLAUDE:-}" ]; then
   check "hooks report the turn's end" "needs-feedback" "${status}"
 fi
 
+if [ -n "${TARFA_SANDBOX_LIVE_CODEX:-}" ]; then
+  # A Codex Stop hook that reached the sandbox's agent proves the hooks were trusted by up.
+  codex_stops() { jq -r --arg w "$1" 'select(.workspace == $w and .event == "Stop" and .agent == "codex") | .event' \
+    "${A}/home/.tarfa/hook-events.jsonl" 2>/dev/null | wc -l | tr -d ' '; }
+  wait_stops() { # <workspace> <count>
+    for _ in $(seq 1 120); do [ "$(codex_stops "$1")" -ge "$2" ] && return 0; sleep 1; done; return 1; }
+
+  echo "a Codex workspace from the PWA"
+  check "the sandbox login is linked" "yes" "$([ -L "${A}/home/.codex/auth.json" ] && echo yes || echo no)"
+  ab_in "${A}" open "http://127.0.0.1:$(jq -r .ports.pwa "${A}/manifest.json")/" > /dev/null
+  ab_in "${A}" click "$(ref "${A}" 'button "New"')" > /dev/null
+  ab_in "${A}" fill "$(ref "${A}" 'textbox "Path')" demo-a > /dev/null
+  ab_in "${A}" click "$(ref "${A}" 'radio "Codex"')" > /dev/null
+  ab_in "${A}" click "$(ref "${A}" 'button "Create"')" > /dev/null
+  for _ in $(seq 1 100); do
+    tmux -S "$(sock "${A}")" capture-pane -p -t '=demo-a-1:' 2>/dev/null | grep -q 'Ask Codex' && break; sleep 0.2
+  done
+  tmux -S "$(sock "${A}")" send-keys -t '=demo-a-1:' 'Reply with just: ok'
+  sleep 0.5
+  tmux -S "$(sock "${A}")" send-keys -t '=demo-a-1:' Enter
+  check "its hooks report the turn's end" "yes" "$(wait_stops demo-a-1 1 && echo yes || echo no)"
+
+  echo "tarfa spawn --cli codex and tarfa send"
+  before="$(tmux -S "$(sock "${A}")" ls -F '#S' | sort)"
+  echo 'Reply with just: spawned' | in_sb "${A_WT}" pnpm -s tarfa spawn --cli codex "${A}/projects/demo-b" > /dev/null 2>&1 || true
+  CX="$(comm -13 <(echo "${before}") <(tmux -S "$(sock "${A}")" ls -F '#S' | sort) | head -n 1)"
+  check "spawn made a workspace" "yes" "$([ -n "${CX}" ] && echo yes || echo no)"
+  check "its first turn reports" "yes" "$([ -n "${CX}" ] && wait_stops "${CX}" 1 && echo yes || echo no)"
+  # tarfa send names its sender by pane, so it runs in a Bash workspace, from a script: a long
+  # line typed into a narrow pane does not arrive whole.
+  before="$(tmux -S "$(sock "${A}")" ls -F '#S' | sort)"
+  ab_in "${A}" open "http://127.0.0.1:$(jq -r .ports.pwa "${A}/manifest.json")/" > /dev/null
+  ab_in "${A}" click "$(ref "${A}" 'button "New"')" > /dev/null
+  ab_in "${A}" fill "$(ref "${A}" 'textbox "Path')" demo-a > /dev/null
+  ab_in "${A}" click "$(ref "${A}" 'radio "Bash"')" > /dev/null
+  ab_in "${A}" click "$(ref "${A}" 'button "Create"')" > /dev/null
+  SENDER=""
+  for _ in $(seq 1 50); do
+    SENDER="$(comm -13 <(echo "${before}") <(tmux -S "$(sock "${A}")" ls -F '#S' | sort) | head -n 1)"
+    [ -n "${SENDER}" ] && break; sleep 0.2
+  done
+  printf 'cd %q && pnpm -s tarfa send %q %q\n' "${A_WT}" "${CX}" 'Reply with just: received' > "${A}/send.sh"
+  sleep 1
+  tmux -S "$(sock "${A}")" send-keys -t "=${SENDER}:" "bash ${A}/send.sh > ${A}/send.out 2>&1"
+  tmux -S "$(sock "${A}")" send-keys -t "=${SENDER}:" Enter
+  check "tarfa send reaches it" "yes" "$([ -n "${CX}" ] && wait_stops "${CX}" 2 && echo yes || echo no)"
+  check "the login is still a link" "yes" "$([ -L "${A}/home/.codex/auth.json" ] && echo yes || echo no)"
+fi
+
 echo "nothing reached the real machine"
+check "the real Codex login is untouched" "${real_codex_auth}" "$(stat -c %Y "${HOME}/.codex/auth.json" 2>/dev/null || echo none)"
 check "the real workspace log is unchanged" "${real_log_lines}" "$(wc -l < "${REAL_LOG}" 2>/dev/null || echo 0)"
 check "the real tarfa ls has no sandbox workspace" "no" "$(pnpm -s tarfa ls 2>/dev/null | grep -qF "${BASE}" && echo yes || echo no)"
 
