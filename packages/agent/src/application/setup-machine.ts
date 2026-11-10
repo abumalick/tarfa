@@ -17,7 +17,8 @@ export interface SetupFlags {
   defaultPath?: string;
   phonePort: number;
   slug?: string;
-  tailscale: TailscaleMode;
+  // Absent: inferred from what the machine holds (resolveReachability), or setup refuses.
+  tailscale?: TailscaleMode;
   tailscalePort?: number;
   addresses: string[];
   // Only when --pwa is given: an existing TARFA_PWA_ORIGIN is otherwise kept.
@@ -116,10 +117,10 @@ const ADDRESS = /^wss:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[\w-]{0,64})?$/;
 const PWA_ORIGIN = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?\/?$/;
 const FUNNEL_PORTS_CAP = 'https://tailscale.com/cap/funnel-ports?ports=';
 
-export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupStep[]; checks: string[] } | { error: string } {
+export function planSetup(given: SetupFlags, state: SetupState): { steps: SetupStep[]; checks: string[] } | { error: string } {
   if (state.phonePortOwner === 'other') {
     return {
-      error: `127.0.0.1:${flags.phonePort} is taken by another process (another user's agent?): pick a free one with --phone-port, e.g. ${flags.phonePort + 1}`,
+      error: `127.0.0.1:${given.phonePort} is taken by another process (another user's agent?): pick a free one with --phone-port, e.g. ${given.phonePort + 1}`,
     };
   }
   if (state.hooksPortOwner === 'other') {
@@ -136,22 +137,29 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
     return { error: `${state.adoption.agentLive.path} is not a link, and setup only ever removes a link there: move it away, then run tarfa setup again` };
   }
 
+  const reach = resolveReachability(given, state);
+  if ('error' in reach) return reach;
+  const flags = reach.flags;
+  const relayHint = (error: { error: string }) => (reach.relayDefault ? { error: `${error.error} (this machine was reached through a public relay, so setup defaults to Funnel; pass --tailscale serve for tailnet only)` } : error);
+
   const target = `http://127.0.0.1:${flags.phonePort}`;
   const path = flags.slug ? `/${flags.slug}` : '/';
   const steps: SetupStep[] = [];
-  const checks: string[] = [];
+  const checks: string[] = [...reach.notes];
   let serveStep: SetupStep | undefined;
   let operatorStep: SetupStep | undefined;
   let derived: string | undefined;
+  let publicDerived = false;
 
   if (flags.tailscale !== 'none') {
     const port = flags.tailscalePort ?? (flags.tailscale === 'funnel' ? 10000 : 443);
     const checked = checkTailscale(flags.tailscale, port, state.tailscale);
-    if ('error' in checked) return checked;
+    if ('error' in checked) return relayHint(checked);
     checks.push(...checked.checks);
     if (state.serve === null) return { error: 'could not read `tailscale serve status --json`: setup will not add a handler it cannot check against the existing ones' };
     const served = serveNeeds(state.serve, `${checked.host}:${port}`, port, path, target, flags.tailscale === 'funnel');
-    if ('error' in served) return served;
+    if ('error' in served) return relayHint(served);
+    publicDerived = flags.tailscale === 'funnel' || served.public;
     if (served.public) checks.push(`tailscale: port ${port} is on Funnel, so this address is reachable from the internet`);
     // `tailscale serve` on a port already on Funnel takes the port off Funnel, for every agent on it.
     if (served.needed) serveStep = { kind: 'tailscale-serve', port, path, target, funnel: flags.tailscale === 'funnel' || served.public };
@@ -164,6 +172,7 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
 
   const addresses = [...(derived ? [derived] : []), ...flags.addresses];
   if (addresses.length > MAX_ADDRESSES) return { error: `a machine takes at most ${MAX_ADDRESSES} addresses (got ${addresses.length})` };
+  checks.push(describeReachability(addresses.length > 0 ? addresses : reach.kept, state, derived !== undefined ? { address: derived, public: publicDerived } : null));
   // The swap from the service's old name: stop the old agent, move ~/.perch while nothing holds
   // it, then the steps below install and start the new one. Never both at once: two agents would
   // share one hooks port and one state directory.
@@ -216,6 +225,85 @@ export function planSetup(flags: SetupFlags, state: SetupState): { steps: SetupS
   if (operatorStep) steps.push(operatorStep);
   if (flags.pair) steps.push({ kind: 'pair' });
   return { steps, checks };
+}
+
+
+const CHOOSE =
+  'say whether phones must reach this machine without Tailscale: --tailscale funnel (with or without Tailscale, through Funnel) or --tailscale serve (only with Tailscale on); --tailscale none --address <wss-url> if you publish the phone port yourself';
+
+// How the phone port is published, when no --tailscale says: an --address, the addresses agent.env
+// already holds, or a serve handler already proxying to the phone port settle it, in that order (a
+// tailnet-only handler on a relay machine is refused instead). Only then does a machine that phones reached through a public relay default to Funnel: setup
+// never removes the relay line, so ranked above the others it would publish, on a bare rerun, a
+// machine someone deliberately kept on the tailnet.
+export function resolveReachability(
+  flags: SetupFlags,
+  state: SetupState,
+): { flags: SetupFlags & { tailscale: TailscaleMode }; kept: string[]; notes: string[]; relayDefault: boolean } | { error: string } {
+  const env = withLegacyEnv(parseEnvFile(state.envText ?? ''));
+  const relay = Boolean(env.TARFA_RELAY_URLS?.trim() || env.TARFA_RELAY_URL?.trim()) || state.legacyService;
+  const kept = (env.TARFA_PHONE_ADDRESSES ?? '').split(',').map((a) => a.trim()).filter(Boolean);
+  const settled = (tailscale: TailscaleMode, over: Partial<SetupFlags> = {}, notes: string[] = [], relayDefault = false) => ({
+    flags: { ...flags, ...over, tailscale },
+    kept,
+    notes,
+    relayDefault,
+  });
+  if (flags.tailscale !== undefined) {
+    const lost = relay && flags.tailscale === 'serve'
+      ? ['this machine was reached through a public relay, so phones reached it without Tailscale; with --tailscale serve they reach it only with Tailscale on (--tailscale funnel keeps the old reach)']
+      : [];
+    return settled(flags.tailscale, {}, lost);
+  }
+  if (flags.addresses.length > 0 || kept.length > 0) return settled('none');
+  const handler = phonePortHandler(state.serve, `http://127.0.0.1:${flags.phonePort}`, flags.slug, flags.tailscalePort);
+  // Phones reached a relay machine without Tailscale: a tailnet-only handler is not a choice to infer.
+  if (handler && relay && !handler.funnel) {
+    return {
+      error: `this machine was reached through a public relay, but its phone port is served on the tailnet only (port ${handler.port}): pass --tailscale funnel to keep it reachable without Tailscale, or --tailscale serve to make it tailnet-only`,
+    };
+  }
+  if (handler) {
+    return settled(handler.funnel ? 'funnel' : 'serve', { tailscalePort: handler.port, ...(handler.slug ? { slug: handler.slug } : {}) });
+  }
+  if (relay) {
+    return settled('funnel', {}, ['this machine was reached through a public relay, so setup keeps it reachable without Tailscale: --tailscale funnel (pass --tailscale serve for tailnet only)'], true);
+  }
+  return { error: CHOOSE };
+}
+
+function phonePortHandler(serve: ServeConfig | null, target: string, slug: string | undefined, port: number | undefined): { port: number; slug?: string; funnel: boolean } | null {
+  const found: Array<{ port: number; slug?: string; funnel: boolean }> = [];
+  for (const [hostPort, web] of Object.entries(serve?.Web ?? {})) {
+    for (const [path, handler] of Object.entries(web.Handlers ?? {})) {
+      if (handler.Proxy?.replace(/\/$/, '') !== target) continue;
+      if (slug !== undefined && path !== `/${slug}`) continue;
+      const at = Number(hostPort.slice(hostPort.lastIndexOf(':') + 1));
+      if (port !== undefined && at !== port) continue;
+      found.push({ port: at, ...(path === '/' ? {} : { slug: path.slice(1) }), funnel: serve?.AllowFunnel?.[hostPort] === true });
+    }
+  }
+  return found.find((h) => h.funnel) ?? found[0] ?? null;
+}
+
+// One plain line on whether a phone needs Tailscale on. Worded from the result: an address on a
+// port already on Funnel is public whatever the flag said, and one setup cannot classify (a proxy,
+// an unreadable serve config, another node) is said to be unknown rather than guessed.
+function describeReachability(addresses: string[], state: SetupState, derived: { address: string; public: boolean } | null): string {
+  if (addresses.length === 0) {
+    return 'reachability: phones cannot reach this machine yet: it has no phone address (--tailscale funnel or serve, or --address)';
+  }
+  const self = (state.tailscale?.Self?.DNSName ?? '').replace(/\.$/, '');
+  const kinds = addresses.map((address) => {
+    if (derived?.address === address) return derived.public ? 'public' : 'tailnet';
+    const url = new URL(address);
+    if (state.serve === null || !self || url.hostname !== self) return 'unknown';
+    return state.serve.AllowFunnel?.[`${url.hostname}:${url.port || 443}`] === true ? 'public' : 'tailnet';
+  });
+  const list = addresses.join(', ');
+  if (kinds.includes('public')) return `reachability: phones reach this machine with or without Tailscale (${list})`;
+  if (kinds.every((k) => k === 'tailnet')) return `reachability: phones reach this machine only with Tailscale on (${list})`;
+  return `reachability: phones reach this machine at ${list}; setup cannot tell whether that needs Tailscale`;
 }
 
 function planEnv(flags: SetupFlags, state: SetupState, addresses: string[]): SetupStep | null {
@@ -392,8 +480,8 @@ export function parseSetupFlags(argv: string[]): SetupFlags | { error: string } 
   if (phonePort === null) return { error: '--phone-port must be a port number (1-65535)' };
   const slug = single.get('--slug');
   if (slug !== undefined && !SLUG.test(slug)) return { error: '--slug takes letters, digits, _ and - (at most 64)' };
-  const tailscale = single.get('--tailscale') ?? 'none';
-  if (tailscale !== 'serve' && tailscale !== 'funnel' && tailscale !== 'none') return { error: '--tailscale takes serve, funnel or none' };
+  const tailscale = single.get('--tailscale');
+  if (tailscale !== undefined && tailscale !== 'serve' && tailscale !== 'funnel' && tailscale !== 'none') return { error: '--tailscale takes serve, funnel or none' };
   const tailscalePort = single.has('--tailscale-port') ? portNumber(single.get('--tailscale-port')!) : undefined;
   if (tailscalePort === null) return { error: '--tailscale-port must be a port number' };
   const bad = addresses.find((a) => !isMachineUrl(a) || !ADDRESS.test(a));
@@ -415,7 +503,7 @@ export function parseSetupFlags(argv: string[]): SetupFlags | { error: string } 
     ...(defaultPath !== undefined ? { defaultPath } : {}),
     phonePort,
     ...(slug !== undefined ? { slug } : {}),
-    tailscale,
+    ...(tailscale !== undefined ? { tailscale } : {}),
     ...(tailscalePort !== undefined ? { tailscalePort } : {}),
     addresses,
     ...(pwa !== undefined ? { pwa } : {}),
