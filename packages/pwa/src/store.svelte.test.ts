@@ -2617,6 +2617,31 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
         expect(store.readAloudNotice).not.toContain('test-tts-key');
       });
 
+      it('reads a reply over the cap with the phone, without a request', () => {
+        const { store, deliver, speech, el } = setUp();
+        store.startReadAloud();
+        deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Long words here. '.repeat(700) });
+        expect(el.requests).toHaveLength(0);
+        expect(speech.spoken.length).toBeGreaterThan(0);
+        expect(store.readAloudNotice).toContain('too long');
+      });
+
+      it('says why when ElevenLabs fails on a browser with no voice of its own', async () => {
+        const el = fakeElevenLabs();
+        const { store, deliver } = buildKeyed({ tts: el.tts, audio: el.audio });
+        store.open(ws);
+        store.setAgent('mac', { features: ['lastReply', 'dictationKeys'] });
+        deliver({ type: 'dictationKeys', elevenlabs: 'test-tts-key' });
+        store.setReadAloudSource('elevenlabs');
+        expect(store.canReadAloud).toBe(true);
+        store.startReadAloud();
+        deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Done.' });
+        el.requests[0]!.reject(new SynthesisError('network'));
+        await settle();
+        expect(store.readAloud).toBeNull();
+        expect(store.readAloudNotice).toBe('ElevenLabs could not read it: ElevenLabs could not be reached.');
+      });
+
       it('lists voices with a machine key from Settings, naming the machine', async () => {
         const { store } = setUp();
         store.back();

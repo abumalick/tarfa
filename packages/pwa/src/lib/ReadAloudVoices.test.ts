@@ -53,7 +53,43 @@ describe('ReadAloudVoices', () => {
     render(ReadAloudVoices, { props: { store: store as unknown as TarfaStore } });
     await fireEvent.click(screen.getByRole('button', { name: 'Show the voices' }));
     await flush();
-    expect(screen.getByRole('alert')).toHaveTextContent('not allowed to use Text to Speech');
+    expect(screen.getByRole('alert')).toHaveTextContent('not allowed to read Voices');
+  });
+
+  it('plays a sample, unlocking the element inside the tap, and a second tap during the fetch stops it', async () => {
+    const plays: string[] = [];
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
+      plays.push(this.src);
+      return Promise.resolve();
+    });
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    let n = 0;
+    URL.createObjectURL = vi.fn(() => `blob:s${(n += 1)}`);
+    URL.revokeObjectURL = vi.fn();
+    let land: (b: Blob) => void = () => undefined;
+    const store = fakeStore();
+    store.previewElevenLabsVoice = vi.fn((_url: string, signal?: AbortSignal) => new Promise<Blob>((resolve, reject) => {
+      land = resolve;
+      signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    }));
+    render(ReadAloudVoices, { props: { store: store as unknown as TarfaStore } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Show the voices' }));
+    await flush();
+    await fireEvent.click(screen.getByRole('button', { name: 'Play a sample of Ann' }));
+    expect(plays).toEqual(['blob:s1']);
+    await fireEvent.click(screen.getByRole('button', { name: 'Stop the sample' }));
+    land(new Blob(['mp3']));
+    await flush();
+    expect(plays).toEqual(['blob:s1']);
+    expect(screen.getByRole('button', { name: 'Play a sample of Ann' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    // Played to the end this time.
+    await fireEvent.click(screen.getByRole('button', { name: 'Play a sample of Ann' }));
+    land(new Blob(['mp3']));
+    await flush();
+    expect(plays).toEqual(['blob:s1', 'blob:s2', 'blob:s3']);
+    await fireEvent.click(screen.getByRole('button', { name: 'Stop the sample' }));
+    vi.restoreAllMocks();
   });
 
   it('points at a machine page when no machine holds a key', () => {

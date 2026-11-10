@@ -6,6 +6,7 @@
   import { DEFAULT_ELEVENLABS_VOICE, type ReadAloudSource } from '../core/read-aloud-voice';
   import { SynthesisError, type ListedVoice } from '../core/ports/text-to-speech';
   import { msg } from '../i18n.svelte';
+  import { silence } from '../adapters/html-audio';
 
   let { store }: { store: TarfaStore } = $props();
 
@@ -15,7 +16,10 @@
   let error = $state<string | null>(null);
   let sampleOf = $state<string | null>(null);
   let sampleError = $state(false);
-  let sample: { audio: HTMLAudioElement; url: string; abort: AbortController } | null = null;
+  // One element for every sample, unlocked in the tap (iOS plays nothing started after it).
+  let sampleAudio: HTMLAudioElement | null = null;
+  let sampleUrl: string | null = null;
+  let sampleAbort: AbortController | null = null;
   let listing: AbortController | null = null;
 
   const chosen = $derived(store.readAloudVoice.voice ?? DEFAULT_ELEVENLABS_VOICE);
@@ -40,7 +44,8 @@
       voices = await store.listElevenLabsVoices(listing.signal);
     } catch (e) {
       const kind = e instanceof SynthesisError ? e.kind : 'network';
-      error = msg().readAloud.voicesFailed(kind === 'too-long' ? msg().readAloud.failures.http : msg().readAloud.failures[kind]);
+      const reason = kind === 'permission' ? msg().readAloud.voicesPermission : kind === 'too-long' ? msg().readAloud.failures.http : msg().readAloud.failures[kind];
+      error = msg().readAloud.voicesFailed(reason);
     } finally {
       loading = false;
     }
@@ -50,12 +55,19 @@
     store.setElevenLabsVoice(voice && voice.id !== DEFAULT_ELEVENLABS_VOICE.id ? { id: voice.id, name: voice.name } : null);
   }
 
+  function setSampleSource(clip: Blob) {
+    if (sampleUrl) URL.revokeObjectURL(sampleUrl);
+    sampleUrl = URL.createObjectURL(clip);
+    sampleAudio!.src = sampleUrl;
+  }
+
   function stopSample() {
-    if (!sample) return;
-    sample.abort.abort();
-    sample.audio.pause();
-    URL.revokeObjectURL(sample.url);
-    sample = null;
+    if (!sampleOf) return;
+    sampleAbort?.abort();
+    sampleAbort = null;
+    sampleAudio?.pause();
+    if (sampleUrl) URL.revokeObjectURL(sampleUrl);
+    sampleUrl = null;
     sampleOf = null;
   }
 
@@ -66,16 +78,25 @@
     sampleOf = voice.id;
     sampleError = false;
     const abort = new AbortController();
+    sampleAbort = abort;
+    if (!sampleAudio) {
+      sampleAudio = new Audio();
+      // The silent unlock ends too, while the sample is still being fetched (`sampleAbort` set).
+      sampleAudio.onended = () => {
+        if (!sampleAbort) stopSample();
+      };
+    }
+    // Inside the tap, before anything is awaited: what lets iOS play the sample once it arrives.
+    setSampleSource(silence());
+    sampleAudio.play()?.catch(() => {});
     try {
       const clip = await store.previewElevenLabsVoice(voice.previewUrl, abort.signal);
-      if (sampleOf !== voice.id) return;
-      const url = URL.createObjectURL(clip);
-      const audio = new Audio(url);
-      sample = { audio, url, abort };
-      audio.onended = stopSample;
-      await audio.play();
-    } catch {
-      if (sampleOf === voice.id) {
+      if (abort.signal.aborted) return;
+      sampleAbort = null;
+      setSampleSource(clip);
+      await sampleAudio.play();
+    } catch (e) {
+      if (sampleOf === voice.id && !abort.signal.aborted && (e as { name?: string })?.name !== 'AbortError') {
         stopSample();
         sampleError = true;
       }

@@ -581,7 +581,10 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     "Choose a voice…"): it lists `GET /v2/voices` on request with the open workspace's machine's key,
     else the first machine holding one, naming it (listing spends no credit), with a ▶ sample
     fetched from the voice's `preview_url` into a blob (ElevenLabs serves them with CORS), so the CSP
-    needs no media host.
+    needs no media host. Samples play on one element that the ▶ tap unlocks with the same silent clip
+    before the fetch, for the same iOS rule; the silent clip's own `ended` must not stop the sample.
+    **An `AbortError` from `play()` is a pause or a load cutting the start short, never a failure**
+    (treating it as one switched a reading paused at once to the phone's voice).
 - **Connection-event log — a client→agent diagnostic that survives drops.** The PWA records
   connection lifecycle events (`connect`/`online`/`close`/`manual-reconnect` per machine —
   `manual-reconnect` = the user tapped Reconnect, `auto-reconnect` = a foreground/`online`

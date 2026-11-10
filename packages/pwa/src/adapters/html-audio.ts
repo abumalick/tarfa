@@ -2,7 +2,7 @@ import type { AudioOutput } from '../core/ports/audio-output';
 
 // A twentieth of a second of silence (8 kHz, 8-bit WAV): what the tap plays to unlock the element.
 // A blob, since the CSP's media-src takes no data: URL.
-function silence(): Blob {
+export function silence(): Blob {
   const samples = 400;
   const bytes = new Uint8Array(44 + samples);
   const view = new DataView(bytes.buffer);
@@ -68,8 +68,11 @@ export function htmlAudio(): AudioOutput | null {
     },
     play() {
       const failed = onError;
-      // A refusal (no unlock reached this element) fails the reading rather than hanging it.
-      el.play()?.catch(() => failed?.());
+      // A refusal (no unlock reached this element) fails the reading rather than hanging it. An
+      // AbortError is a pause or a new load cutting the start short, not a failure.
+      el.play()?.catch((e: unknown) => {
+        if ((e as { name?: string })?.name !== 'AbortError') failed?.();
+      });
     },
     pause() {
       el.pause();
