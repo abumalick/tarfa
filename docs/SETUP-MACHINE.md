@@ -340,12 +340,24 @@ user, shared by all of that user's workspaces, and the agent refuses a dictation
 or in tap mode (tap mode would submit the prompt). If you had to add the group, reboot: the user
 services run under a user manager that keeps the groups it started with, and restarting that
 manager would take every workspace of that user down with it. To use it before the next reboot,
-grant the user the loopback devices directly instead (lost at reboot, when the group takes over):
+grant the user the loopback devices directly instead, through udev (`sudo apt install -y acl`
+for `setfacl`):
 
 ```bash
+sudo tee /etc/udev/rules.d/99-tarfa-voice-loopback.rules >/dev/null <<'EOF'
+SUBSYSTEM=="sound", ACTION!="remove", KERNEL=="controlC*|pcmC*", ATTRS{id}=="Loopback", RUN+="/usr/bin/setfacl -m u:<user>:rw $devnode"
+EOF
+sudo udevadm control --reload
 card=$(awk '/\[Loopback/ {print $1}' /proc/asound/cards)
-for d in /dev/snd/controlC$card /dev/snd/pcmC${card}D*; do sudo setfacl -m u:<user>:rw "$d"; done
+sudo udevadm trigger --action=change /sys/class/sound/controlC$card /sys/class/sound/pcmC${card}D*
 ```
+
+A plain `setfacl` on the devices does not last: udev's `uaccess` step hands sound devices to the
+active seat's session at every udev event for them, and on a headless server, which has no such
+session, it flushes every per-user ACL. That happens a few seconds after a fresh `modprobe`, and
+again whenever a package re-triggers udev, silently. The rule runs after that step, so the grant
+comes back each time. With several users it names them all: `-m u:<user1>:rw,u:<user2>:rw`. It
+is harmless to leave once a reboot has given the users the `audio` group.
 
 On the phone: Settings →
 Add preset → Provider "Claude Code /voice".
