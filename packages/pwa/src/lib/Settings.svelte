@@ -50,6 +50,8 @@
   let apiKey = $state(untrack(() => store.elevenLabsApiKey));
   let apiKeySaved = $state(false);
   let openRouterKey = $state(untrack(() => store.openRouterApiKey));
+  const elevenlabsSources = $derived(store.dictationKeySources('elevenlabs').join(', '));
+  const openrouterSources = $derived(store.dictationKeySources('openrouter').join(', '));
   let openRouterKeySaved = $state(false);
 
   let keyHelp = $state<DictationProvider | null>(null);
@@ -198,6 +200,9 @@
       {:else}
         <p class="hint">{msg().settings.elevenLabsHint}</p>
       {/if}
+      {#if elevenlabsSources}
+        <p class="hint" data-testid="elevenlabs-key-source">{store.elevenLabsApiKey ? msg().settings.keyOverridesMachines(elevenlabsSources) : msg().settings.keyFromMachines(elevenlabsSources)}</p>
+      {/if}
       <button type="button" class="link" aria-label={msg().dictation.setup.howToGetKeyFor(PROVIDER_NAMES.elevenlabs)} onclick={() => (keyHelp = 'elevenlabs')}>{msg().settings.howToGetKey}</button>
     </form>
     <form class="card" onsubmit={saveOpenRouterKey} bind:this={keyCards.openrouter}>
@@ -210,6 +215,9 @@
         <p class="hint ok" role="status">{msg().settings.saved}</p>
       {:else}
         <p class="hint">{msg().settings.openRouterHint}</p>
+      {/if}
+      {#if openrouterSources}
+        <p class="hint" data-testid="openrouter-key-source">{store.openRouterApiKey ? msg().settings.keyOverridesMachines(openrouterSources) : msg().settings.keyFromMachines(openrouterSources)}</p>
       {/if}
       <button type="button" class="link" aria-label={msg().dictation.setup.howToGetKeyFor(PROVIDER_NAMES.openrouter)} onclick={() => (keyHelp = 'openrouter')}>{msg().settings.howToGetKey}</button>
     </form>

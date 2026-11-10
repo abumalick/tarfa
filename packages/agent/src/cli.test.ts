@@ -91,7 +91,7 @@ describe('tarfa --help', () => {
   it('lists every command with no agent.env, for a bare tarfa, --help, -h and help', async () => {
     for (const argv of [[], ['--help'], ['-h'], ['help']]) {
       const help = await run(argv, {}, '/nonexistent');
-      for (const command of ['setup', 'pair', 'update', 'apply', 'devices', 'install-hooks', 'serve', 'ls', 'spawn', 'peek', 'wait', 'send', 'unpark', 'rename', 'close']) {
+      for (const command of ['setup', 'pair', 'update', 'apply', 'devices', 'dictation-key', 'install-hooks', 'serve', 'ls', 'spawn', 'peek', 'wait', 'send', 'unpark', 'rename', 'close']) {
         expect(help).toMatch(new RegExp(`^  ${command}\\b`, 'm'));
       }
     }
@@ -1506,5 +1506,60 @@ describe('tarfa ls / spawn / peek (fake tmux)', () => {
       JSON.stringify([{ id: 'perch-pppppp', name: 'P', projectPath: '/w/foo', command: 'claude', machineId: 'm', createdAt: 1, parkedAt: NOW }]),
     );
     expect(await run(['peek', 'perch-pppppp'], env, home, io(fakeTmux().tmux))).toContain('parked: no pane until it is opened');
+  });
+});
+
+describe('tarfa dictation-key', () => {
+  async function machine() {
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-cli-home-'));
+    tmpDirs.push(home);
+    const env = { TARFA_MACHINE_ID: 'test', TARFA_AGENT_ENV: join(home, 'agent.env') };
+    const path = join(home, '.tarfa', 'dictation-keys.json');
+    const secret = (value: string): CliIo => ({ secret: async () => value });
+    return { home, env, path, secret };
+  }
+
+  it('stores a key read as a secret, 0600, and never prints it', async () => {
+    const { home, env, path, secret } = await machine();
+    const out = await run(['dictation-key', 'set', 'elevenlabs'], env, home, secret('test-key-1\n'));
+    expect(out).not.toContain('test-key-1');
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ elevenlabs: 'test-key-1' });
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  it('refuses a key given as an argument, where any local user can read it', async () => {
+    const { home, env, path, secret } = await machine();
+    await expect(run(['dictation-key', 'set', 'elevenlabs', 'test-key-1'], env, home, secret('x'))).rejects.toMatchObject({
+      exitCode: 2,
+      message: expect.not.stringContaining('test-key-1'),
+    });
+    await expect(stat(path)).rejects.toThrow();
+  });
+
+  it('refuses an unknown provider and a bad key, without echoing the key', async () => {
+    const { home, env, secret } = await machine();
+    await expect(run(['dictation-key', 'set', 'claude'], env, home, secret('test-key-1'))).rejects.toMatchObject({ exitCode: 2 });
+    await expect(run(['dictation-key', 'set', 'openrouter'], env, home, secret('test key'))).rejects.toThrow(/whitespace/);
+  });
+
+  it('shows which providers hold a key, removes one, and keeps the other', async () => {
+    const { home, env, path, secret } = await machine();
+    await run(['dictation-key', 'set', 'elevenlabs'], env, home, secret('test-key-1'));
+    await run(['dictation-key', 'set', 'openrouter'], env, home, secret('test-key-2'));
+    const status = await run(['dictation-key', 'status'], env, home);
+    expect(status).toContain('elevenlabs  set');
+    expect(status).toContain('openrouter  set');
+    expect(status).not.toContain('test-key');
+    await run(['dictation-key', 'remove', 'elevenlabs'], env, home);
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ openrouter: 'test-key-2' });
+    expect(await run(['dictation-key'], env, home)).toContain('elevenlabs  not set');
+  });
+
+  it('refuses to rewrite a malformed file rather than drop what it holds', async () => {
+    const { home, env, path, secret } = await machine();
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, '{"openrouter":', { mode: 0o600 });
+    await expect(run(['dictation-key', 'set', 'elevenlabs'], env, home, secret('test-key-1'))).rejects.toThrow(`${path} is malformed`);
+    expect(await readFile(path, 'utf8')).toBe('{"openrouter":');
   });
 });

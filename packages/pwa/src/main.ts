@@ -149,11 +149,11 @@ store = new TarfaStore({
   recorder: screenAwakeRecorder,
   transcriber: new PresetTranscriber(dictationPreset, {
     elevenlabs: new ElevenLabsTranscriber(
-      () => settings.elevenLabsApiKey(),
+      () => store.dictationKey('elevenlabs'),
       () => store.keyterms(),
     ),
     openrouter: new OpenRouterTranscriber(
-      () => settings.openRouterApiKey(),
+      () => store.dictationKey('openrouter'),
       () => {
         const preset = dictationPreset();
         return preset.provider === 'openrouter' ? preset : { model: '', prompt: '' };

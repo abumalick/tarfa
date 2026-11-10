@@ -262,6 +262,29 @@ curl -si http://127.0.0.1:8797/hooks | head -1
 To reach the phone port over the local network without Tailscale (a proxy with a real certificate),
 see `docs/LAN.md`.
 
+### Dictation keys for every paired phone
+Instead of typing an ElevenLabs or OpenRouter key into each phone's Settings, store it once on
+the machine. Every phone paired with that machine then dictates into that machine's workspaces
+with it:
+```sh
+tarfa dictation-key set elevenlabs          # asks for the key with echo off
+bw get password "<item>" | tarfa dictation-key set openrouter   # or pipe it in
+tarfa dictation-key                          # which providers hold a key (never the key itself)
+tarfa dictation-key remove elevenlabs
+```
+The key never goes on the command line (any local user can read a process's arguments). It is
+kept in `~/.tarfa/dictation-keys.json` (0600; the agent refuses to start while another user can
+read it, and sends no key from it after that). The agent reads the file on each request, so a
+change reaches a phone at its next connect, with no restart. Rules the phone follows:
+- **A key typed in the phone's Settings wins everywhere.** Leave the field empty to use the machine's key.
+- **Only the attached workspace's machine's key is used**, never another machine's: one phone
+  may reach machines with different operators, and each pays for dictation into its own.
+- The phone keeps the key in memory for the session and never writes it to storage. A phone
+  that is lost or revoked may still hold a key it already fetched, and anything served from the
+  PWA's origin can read it (see `CLAUDE.md`, "the PWA's origin"). The remedy is to rotate the key
+  at the provider, then `tarfa dictation-key set` the new one.
+- An agent older than this feature sends nothing. The phone then uses only its typed keys.
+
 ## 4. Wire Claude Code hooks (each machine)
 The agent writes a hooks-only secret to `~/.tarfa/token` at each start (mode 600); the hook reads it.
 ```sh
