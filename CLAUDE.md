@@ -458,7 +458,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     12 s (`START_TIMEOUT_MS`) before it says so. That notice (and a voice error) offers "How
     to fix", whose steps follow the device (`lib/voice-platform.ts`: iOS, Android Chromium
     browsers, Android Firefox, which uses the phone's own engine, desktop).
-    **A voice that answering `synthesis-failed` on Android Chrome leads with restarting Chrome**, the
+    **A voice answering `synthesis-failed` on Android Chrome leads with restarting Chrome**, the
     install steps below it (`VoiceHelp`'s `trouble`: `failed` for that code alone, `silent` for any other): measured on a Galaxy
     Tab, an update of Google's engine while Chrome runs leaves Chrome unbound from it for good
     (`synthesis-failed` with every voice still listed, logcat `not bound to TTS engine`), and only
