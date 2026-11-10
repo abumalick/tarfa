@@ -232,6 +232,8 @@ curl -si --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebS
   -H "Sec-WebSocket-Key: $(openssl rand -base64 16)" http://127.0.0.1:8797/x | head -1
 curl -si http://127.0.0.1:8797/hooks | head -1
 ```
+To reach the phone port over the local network without Tailscale (a proxy with a real certificate),
+see `docs/LAN.md`.
 
 ### Dictation keys for every paired phone
 Instead of typing an ElevenLabs or OpenRouter key into each phone's Settings, store it once on
