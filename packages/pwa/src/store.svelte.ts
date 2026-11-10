@@ -308,8 +308,10 @@ export class TarfaStore {
   // The open read-aloud player, mirrored from `readAloudPlayer` (null when closed).
   readAloud = $state<{ state: ReadAloudState; position: number; duration: number } | null>(null);
   readAloudNotice = $state<string | null>(null);
-  // The notice is about a voice that would not speak, so it offers the help for this device.
-  readAloudVoiceHelp = $state(false);
+  // The notice is about a voice that would not speak, so it offers the help for this device:
+  // `failed` is the voice answering `synthesis-failed` (an engine the browser lost), `silent`
+  // any other failure, which the install steps cover.
+  readAloudVoiceHelp = $state<'silent' | 'failed' | null>(null);
   readAloudRate = $state(1);
   private readonly readAloudPlayer: ReadAloud | null = null;
   private pendingReply: { machineId: string; workspaceId: string; cancel: () => void } | null = null;
@@ -380,7 +382,7 @@ export class TarfaStore {
         onError: (code) => {
           this.readAloudPlayer?.stop();
           this.readAloudNotice = code === 'no-start' ? msg().readAloud.voiceSilent : msg().readAloud.voiceFailed(code);
-          this.readAloudVoiceHelp = true;
+          this.readAloudVoiceHelp = code === 'synthesis-failed' ? 'failed' : 'silent';
         },
       });
     }
@@ -977,7 +979,7 @@ export class TarfaStore {
   closeReadAloud(): void {
     this.cancelPendingReply();
     this.readAloudNotice = null;
-    this.readAloudVoiceHelp = false;
+    this.readAloudVoiceHelp = null;
     if (this.readAloudPlayer && this.readAloudPlayer.state !== 'idle') this.readAloudPlayer.stop();
   }
 
@@ -988,7 +990,7 @@ export class TarfaStore {
 
   dismissReadAloudNotice(): void {
     this.readAloudNotice = null;
-    this.readAloudVoiceHelp = false;
+    this.readAloudVoiceHelp = null;
   }
 
   private syncReadAloud(): void {

@@ -22,7 +22,7 @@ export const readAloud: Messages['readAloud'] = {
       'Chrome sur Android ne parle qu’avec le moteur vocal de Google, même quand le téléphone en utilise un autre (celui de Samsung, par exemple).',
       'Installez « Services de reconnaissance et de synthèse vocales de Google » depuis le Play Store. S’il est indiqué comme désactivé, touchez Activer.',
       'Dans les Paramètres d’Android, cherchez « Synthèse vocale », ouvrez le moteur de Google et installez la voix de votre langue.',
-      'Fermez complètement Tarfa (balayez-la hors des applications récentes) puis rouvrez-la : Chrome trouve le moteur à son démarrage.',
+      'Redémarrez Chrome (Paramètres → Applications → Chrome → Forcer l’arrêt), puis rouvrez Tarfa : Chrome ne trouve le moteur qu’à son démarrage.',
       'Montez le volume multimédia : la voix passe par lui.',
     ],
     'android-firefox': [
@@ -41,6 +41,12 @@ export const readAloud: Messages['readAloud'] = {
       'Redémarrez le navigateur et vérifiez la sortie audio.',
     ],
   },
+  restartSteps: [
+    'Chrome a très probablement perdu le contact avec le moteur vocal. Cela arrive quand le moteur se met à jour pendant que Chrome tourne.',
+    'Dans les Paramètres d’Android → Applications → Chrome (ou le navigateur depuis lequel Tarfa a été installée), touchez Forcer l’arrêt. Balayer Tarfa ne suffit pas : le navigateur continue de tourner.',
+    'Rouvrez Tarfa et touchez 🔊.',
+  ],
+  stillFailing: 'Ça ne marche toujours pas ?',
   openStore: 'Ouvrir dans le Play Store',
   done: 'OK',
 };

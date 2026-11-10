@@ -15,9 +15,10 @@ test.afterAll(async () => {
 // A stand-in for the phone's voice: records what it is asked to say, and starts each utterance
 // at once and finishes it only when the spec says so.
 // `silent`: a voice that takes every utterance and never starts one (no engine for it).
-async function fakeVoice(page: Page, silent = false) {
-  await page.addInitScript((silent) => {
-    type U = { text: string; rate: number; onstart?: () => void; onend?: () => void };
+// `fails`: one that answers every utterance with an error (an engine Chrome lost).
+async function fakeVoice(page: Page, voice: 'speaks' | 'silent' | 'fails' = 'speaks') {
+  await page.addInitScript((voice) => {
+    type U = { text: string; rate: number; onstart?: () => void; onend?: () => void; onerror?: (e: { error: string }) => void };
     const queue: U[] = [];
     const spoken: string[] = [];
     const rates: number[] = [];
@@ -29,10 +30,13 @@ async function fakeVoice(page: Page, silent = false) {
       volume = 1;
       onstart?: () => void;
       onend?: () => void;
-      onerror?: () => void;
+      onerror?: (e: { error: string }) => void;
       constructor(public text: string) {}
     }
-    const startHead = () => (silent ? undefined : queue[0]?.onstart?.());
+    const startHead = () => {
+      if (voice === 'speaks') queue[0]?.onstart?.();
+      else if (voice === 'fails') queue.shift()?.onerror?.({ error: 'synthesis-failed' });
+    };
     Object.defineProperty(window, 'SpeechSynthesisUtterance', { value: Utterance });
     Object.defineProperty(window, 'speechSynthesis', {
       value: {
@@ -57,7 +61,7 @@ async function fakeVoice(page: Page, silent = false) {
         },
       },
     });
-  }, silent);
+  }, voice);
 }
 
 async function openDemo(page: Page) {
@@ -130,7 +134,7 @@ test('reads at the speed picked in the player, and keeps it', async ({ page }) =
 
 test('a silent voice closes the player and offers this device\'s help', async ({ page }) => {
   await page.clock.install();
-  await fakeVoice(page, true);
+  await fakeVoice(page, 'silent');
   await openDemo(page);
   await listen(page).click();
   await expect(page.getByTestId('read-aloud-player')).toBeVisible();
@@ -143,6 +147,21 @@ test('a silent voice closes the player and offers this device\'s help', async ({
   await expect(help.getByRole('button', { name: 'Done' })).toBeFocused();
   await help.getByRole('button', { name: 'Done' }).click();
   await expect(help).toHaveCount(0);
+});
+
+test.describe('on Android Chrome', () => {
+  test.use({ userAgent: 'Mozilla/5.0 (Linux; Android 16; SM-X135) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0 Mobile Safari/537.36' });
+
+  test('a voice that fails says to restart Chrome before installing anything', async ({ page }) => {
+    await fakeVoice(page, 'fails');
+    await openDemo(page);
+    await listen(page).click();
+    const notice = page.getByRole('status').filter({ hasText: 'synthesis-failed' });
+    await notice.getByRole('button', { name: 'How to fix' }).click();
+    const help = page.getByRole('dialog', { name: 'Turning on the phone’s voice' });
+    await expect(help.getByRole('listitem').first()).toContainText('lost its connection');
+    await expect(help.getByRole('heading', { name: 'Still failing?' })).toBeVisible();
+  });
 });
 
 test('the clock moves every second while a sentence is read', async ({ page }) => {
