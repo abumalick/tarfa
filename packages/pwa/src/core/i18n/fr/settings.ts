@@ -25,6 +25,7 @@ export const settings: Messages['settings'] = {
   keyOverridesMachines: (machines: string) => `Utilisée partout, à la place de la clé fournie par ${machines}.`,
   openRouterHint:
     'Stockée sur cet appareil uniquement. Les enregistrements envoyés avec un préréglage OpenRouter vont à OpenRouter et au fournisseur du modèle.',
+  howToGetKey: 'Obtenir une clé',
   presets: 'Préréglages',
   presetsHint: 'Maintenez le 🎤 dans le terminal pour passer de l’un à l’autre.',
   terminalLinks: 'Liens du terminal',

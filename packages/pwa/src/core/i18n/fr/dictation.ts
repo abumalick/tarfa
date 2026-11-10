@@ -31,4 +31,46 @@ export const dictation: Messages['dictation'] = {
   elevenLabsQuota: 'Quota ElevenLabs dépassé',
   openRouterCredit: 'Crédit OpenRouter épuisé',
   unreadableRecording: 'Impossible de lire l’enregistrement',
+  setup: {
+    title: 'Configurer la dictée',
+    intro: 'Le 🎤 a d’abord besoin de l’une de ces options.',
+    claudeSetup:
+      'Le /voice de Claude Code : si cette machine tourne sous Linux, son agent peut transmettre votre dictée à Claude Code, sans clé d’API. Elle se configure une seule fois sur la machine.',
+    claudeDocs: 'Guide de configuration de la machine',
+    claudeNotClaude: 'Claude voice fonctionne sur cette machine, dans un espace de travail Claude Code. Ouvrez-en un pour y dicter sans clé.',
+    claudeAsking: 'Claude voice fonctionne ici dès que vous aurez répondu à la question affichée.',
+    elevenlabs: 'ElevenLabs Scribe transcrit votre voix en texte, avec une clé d’API enregistrée sur cet appareil.',
+    openrouter: 'OpenRouter envoie l’enregistrement à un modèle d’IA qui le met au propre (ou suit votre propre consigne), avec une clé d’API enregistrée sur cet appareil.',
+    howToGetKey: 'Obtenir une clé',
+    howToGetKeyFor: (provider: string) => `Obtenir une clé ${provider}`,
+    openSettingsFor: (provider: string) => `Ouvrir les Réglages à la clé ${provider}`,
+    openSettings: 'Ouvrir les Réglages',
+    back: 'Retour',
+    close: 'Fermer',
+  },
+  keyHelp: {
+    title: (provider: string) => `Obtenir une clé ${provider}`,
+    steps: {
+      elevenlabs: [
+        'Créez un compte ElevenLabs, ou connectez-vous.',
+        'Ouvrez la page des clés d’API et créez une clé. Vous pouvez la limiter à Speech to Text, le seul service qu’utilise Tarfa.',
+        'Copiez la clé et collez-la dans Réglages → Dictée → Clé API ElevenLabs, puis touchez Enregistrer la clé.',
+      ],
+      openrouter: [
+        'Créez un compte OpenRouter, ou connectez-vous.',
+        'Ajoutez quelques dollars de crédits : les modèles sont payés à l’usage.',
+        'Ouvrez la page des clés d’API et créez une clé. Vous pouvez lui fixer une limite de crédits.',
+        'Copiez la clé et collez-la dans Réglages → Dictée → Clé API OpenRouter, puis touchez Enregistrer la clé.',
+      ],
+    },
+    cost: {
+      elevenlabs:
+        'Coût : ElevenLabs propose une offre gratuite avec un quota mensuel ; au-delà, la transcription coûte environ 0,22 $ par heure d’audio. Les prix changent : consultez la grille tarifaire du fournisseur.',
+      openrouter:
+        'Coût : avec les préréglages Gemini Flash par défaut, environ 0,10 à 0,30 $ par heure de parole, pris sur vos crédits. Cela dépend du modèle du préréglage : consultez la grille tarifaire du fournisseur.',
+    },
+    stored: 'La clé reste sur cet appareil ; les enregistrements partent de lui directement vers le fournisseur.',
+    openKeys: 'Ouvrir la page des clés d’API',
+    pricing: 'Tarifs',
+  },
 };

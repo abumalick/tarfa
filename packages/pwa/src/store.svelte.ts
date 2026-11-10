@@ -231,6 +231,8 @@ export class TarfaStore {
   currentPresetId = $state<string | null>(null);
   // Set by the mic menu's "Add preset…": Settings opens a new preset's form, then clears it.
   addingPreset = $state(false);
+  // The key field Settings scrolls to when opened from the mic's setup explanation.
+  dictationKeyFocus = $state<DictationProvider | null>(null);
   // Project-folder filter on the home list, persisted via settings (loaded in start()).
   // Two independent selections — the live one is whichever `folderFilterMode` names — so
   // focusing on a project for a moment doesn't discard a hide set once.
@@ -1300,6 +1302,12 @@ export class TarfaStore {
   addDictationPreset(): void {
     this.back();
     this.addingPreset = true;
+    this.view = 'settings';
+  }
+
+  openDictationKeySettings(provider: DictationProvider): void {
+    this.back();
+    this.dictationKeyFocus = provider;
     this.view = 'settings';
   }
 
