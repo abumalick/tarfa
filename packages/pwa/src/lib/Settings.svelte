@@ -198,7 +198,7 @@
       {:else}
         <p class="hint">{msg().settings.elevenLabsHint}</p>
       {/if}
-      <button type="button" class="link" onclick={() => (keyHelp = 'elevenlabs')}>{msg().settings.howToGetKey}</button>
+      <button type="button" class="link" aria-label={msg().dictation.setup.howToGetKeyFor(PROVIDER_NAMES.elevenlabs)} onclick={() => (keyHelp = 'elevenlabs')}>{msg().settings.howToGetKey}</button>
     </form>
     <form class="card" onsubmit={saveOpenRouterKey} bind:this={keyCards.openrouter}>
       <label for="openrouter-key">{msg().settings.openRouterKey}</label>
@@ -211,7 +211,7 @@
       {:else}
         <p class="hint">{msg().settings.openRouterHint}</p>
       {/if}
-      <button type="button" class="link" onclick={() => (keyHelp = 'openrouter')}>{msg().settings.howToGetKey}</button>
+      <button type="button" class="link" aria-label={msg().dictation.setup.howToGetKeyFor(PROVIDER_NAMES.openrouter)} onclick={() => (keyHelp = 'openrouter')}>{msg().settings.howToGetKey}</button>
     </form>
     <div class="card">
       <span class="name">{msg().settings.presets}</span>

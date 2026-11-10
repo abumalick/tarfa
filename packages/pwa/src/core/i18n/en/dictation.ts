@@ -40,6 +40,8 @@ export const dictation = {
     elevenlabs: 'ElevenLabs Scribe turns your speech into text, with an API key stored on this device.',
     openrouter: 'OpenRouter sends the recording to an AI model that writes it up cleanly (or follows your own prompt), with an API key stored on this device.',
     howToGetKey: 'How to get a key',
+    howToGetKeyFor: (provider: string) => `How to get an ${provider} key`,
+    openSettingsFor: (provider: string) => `Open Settings at the ${provider} key`,
     openSettings: 'Open Settings',
     back: 'Back',
     close: 'Close',

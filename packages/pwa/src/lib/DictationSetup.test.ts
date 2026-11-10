@@ -20,7 +20,7 @@ describe('DictationSetup', () => {
   it('opens Settings at the key, or that provider’s how-to', async () => {
     const onOpenSettings = vi.fn();
     render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'openrouter' }], onOpenSettings, onClose: vi.fn() } });
-    await fireEvent.click(screen.getByRole('button', { name: 'How to get a key' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'How to get an OpenRouter key' }));
     expect(screen.getByRole('dialog', { name: 'Get an OpenRouter key' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open the API keys page' })).toHaveAttribute('href', PROVIDER_LINKS.openrouter.keys);
     await fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
@@ -32,5 +32,16 @@ describe('DictationSetup', () => {
     render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'elevenlabs' }], onOpenSettings: vi.fn(), onClose } });
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('closes on a tap on the scrim, but not on a click left over from the tap that opened it', async () => {
+    const onClose = vi.fn();
+    const { container } = render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'elevenlabs' }], onOpenSettings: vi.fn(), onClose } });
+    const scrim = container.querySelector('.scrim')!;
+    await fireEvent.click(scrim);
+    expect(onClose).not.toHaveBeenCalled();
+    await fireEvent.pointerDown(scrim);
+    await fireEvent.click(scrim);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

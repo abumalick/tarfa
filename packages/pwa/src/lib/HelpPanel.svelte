@@ -7,12 +7,20 @@
   let { title, testid, onClose, children }: { title: string; testid: string; onClose: () => void; children: Snippet } = $props();
 
   let panel = $state<HTMLDivElement>();
+  // The scrim closes only a tap that began on it: the tap that opened the panel may deliver
+  // its click after the scrim is already under the finger.
+  let pressedScrim = false;
   $effect(() => panel?.focus());
 </script>
 
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }} />
 
-<button type="button" class="scrim" aria-label={msg().dictation.setup.close} tabindex="-1" onclick={onClose}></button>
+<button type="button" class="scrim" aria-label={msg().dictation.setup.close} tabindex="-1"
+  onpointerdown={() => (pressedScrim = true)}
+  onclick={() => {
+    if (pressedScrim) onClose();
+    pressedScrim = false;
+  }}></button>
 <div class="panel" role="dialog" aria-modal="true" aria-label={title} data-testid={testid} tabindex="-1" bind:this={panel}>
   <h2>{title}</h2>
   {@render children()}

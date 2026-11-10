@@ -48,7 +48,7 @@ test('with nothing set up, the mic explains how, down to the key field in Settin
   await expect(dialog.getByRole('heading', { name: 'ElevenLabs' })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'OpenRouter' })).toBeVisible();
 
-  await dialog.getByRole('button', { name: 'How to get a key' }).first().click();
+  await dialog.getByRole('button', { name: 'How to get an ElevenLabs key' }).click();
   const help = page.getByRole('dialog', { name: 'Get an ElevenLabs key' });
   await expect(help).toContainText('$0.22 per hour');
   await expect(help.getByRole('link', { name: 'Open the API keys page' })).toHaveAttribute('href', 'https://elevenlabs.io/app/developers/api-keys');

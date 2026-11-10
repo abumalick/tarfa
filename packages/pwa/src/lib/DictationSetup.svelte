@@ -42,8 +42,8 @@
             <h3>{PROVIDER_NAMES[provider]}</h3>
             <p>{t[provider]}</p>
             <div class="pair">
-              <button type="button" class="action" onclick={() => (helpFor = provider)}>{t.howToGetKey}</button>
-              <button type="button" class="action" onclick={() => onOpenSettings(provider)}>{t.openSettings}</button>
+              <button type="button" class="action" aria-label={t.howToGetKeyFor(PROVIDER_NAMES[provider])} onclick={() => (helpFor = provider)}>{t.howToGetKey}</button>
+              <button type="button" class="action" aria-label={t.openSettingsFor(PROVIDER_NAMES[provider])} onclick={() => onOpenSettings(provider)}>{t.openSettings}</button>
             </div>
           {/if}
         </li>

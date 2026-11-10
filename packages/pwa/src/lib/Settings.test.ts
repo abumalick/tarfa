@@ -146,7 +146,7 @@ describe('Settings — adding a machine', () => {
 describe('Settings — dictation', () => {
   it('explains how to get each key beside its field', async () => {
     render(Settings, { props: { store: fakeStore() as never } });
-    await fireEvent.click(screen.getAllByRole('button', { name: 'How to get a key' })[1]!);
+    await fireEvent.click(screen.getByRole('button', { name: 'How to get an OpenRouter key' }));
     const help = screen.getByRole('dialog', { name: 'Get an OpenRouter key' });
     expect(within(help).getByRole('link', { name: 'Open the API keys page' })).toHaveAttribute('href', 'https://openrouter.ai/settings/keys');
     await fireEvent.click(within(help).getByRole('button', { name: 'Close' }));
