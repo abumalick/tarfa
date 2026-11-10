@@ -37,6 +37,7 @@ export const settings = {
   keySaveFailed: (error: string) => `Not saved: ${error}`,
   keySaveOffline: 'the machine went offline',
   keySaveNoReply: 'the machine did not answer',
+  keySaveRefused: 'the machine refused it',
   machineKeysOffline: 'Connect to this machine to see or change its keys.',
   machineKeysUpdateAgent: "Update this machine's agent to store a key here.",
   // An agent that hands out keys but cannot take one from the phone.

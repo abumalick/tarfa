@@ -158,7 +158,7 @@ describe('Settings — dictation', () => {
     expect(screen.queryByTestId('openrouter-key-source')).toBeNull();
   });
 
-  it("opens the machine's page at the key a setup explanation pointed to, once", () => {
+  it("opens the machine's page at the key a setup explanation pointed to, once", async () => {
     const scrolled = vi.fn();
     const original = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = function (this: Element) {
@@ -171,6 +171,10 @@ describe('Settings — dictation', () => {
       expect(scrolled).toHaveBeenCalledWith('machine-key-openrouter');
       expect(document.activeElement?.id).toBe('machine-key-openrouter');
       expect(store.dictationKeyFocus).toBeNull();
+      await fireEvent.click(screen.getByRole('button', { name: /back/i }));
+      await fireEvent.click(screen.getByRole('button', { name: /^Mac/ }));
+      expect(screen.getByRole('heading', { name: 'Mac' })).toBeInTheDocument();
+      expect(scrolled).toHaveBeenCalledTimes(1);
     } finally {
       Element.prototype.scrollIntoView = original;
     }

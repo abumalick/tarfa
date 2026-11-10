@@ -2657,10 +2657,10 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       const { store, deliver, bySent } = buildKeyed();
       store.setAgent('mac', { features: ['dictationKeys', 'setDictationKey'] });
       store.setMachineDictationKey('mac', 'openrouter', 'test-key-3');
-      expect(bySent('setDictationKey')).toEqual([{ type: 'setDictationKey', provider: 'openrouter', key: 'test-key-3' }]);
-      expect(store.dictationKeySaves.mac?.openrouter).toEqual({ state: 'pending', removing: false });
+      expect(bySent('setDictationKey')).toEqual([{ type: 'setDictationKey', id: '1', provider: 'openrouter', key: 'test-key-3' }]);
+      expect(store.dictationKeySaves.mac?.openrouter).toEqual({ state: 'pending', id: '1', removing: false });
       const asked = bySent('getDictationKeys').length;
-      deliver({ type: 'dictationKeySet', provider: 'openrouter', ok: true });
+      deliver({ type: 'dictationKeySet', id: '1', provider: 'openrouter', ok: true });
       expect(store.dictationKeySaves.mac?.openrouter).toEqual({ state: 'saved' });
       expect(bySent('getDictationKeys')).toHaveLength(asked + 1);
       deliver({ type: 'dictationKeys', openrouter: 'test-key-3' });
@@ -2671,14 +2671,17 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       const { store, deliver, bySent } = buildKeyed();
       store.setAgent('mac', { features: ['dictationKeys', 'setDictationKey'] });
       store.setMachineDictationKey('mac', 'elevenlabs', null);
-      expect(bySent('setDictationKey')).toEqual([{ type: 'setDictationKey', provider: 'elevenlabs', key: null }]);
-      deliver({ type: 'dictationKeySet', provider: 'elevenlabs', ok: true });
+      expect(bySent('setDictationKey')).toEqual([{ type: 'setDictationKey', id: '1', provider: 'elevenlabs', key: null }]);
+      deliver({ type: 'dictationKeySet', id: '1', provider: 'elevenlabs', ok: true });
       expect(store.dictationKeySaves.mac?.elevenlabs).toEqual({ state: 'removed' });
       store.setMachineDictationKey('mac', 'elevenlabs', 'bad key');
       const asked = bySent('getDictationKeys').length;
-      deliver({ type: 'dictationKeySet', provider: 'elevenlabs', ok: false, error: 'a key holds no whitespace' });
+      deliver({ type: 'dictationKeySet', id: '2', provider: 'elevenlabs', ok: false, error: 'a key holds no whitespace' });
       expect(store.dictationKeySaves.mac?.elevenlabs).toEqual({ state: 'failed', error: 'a key holds no whitespace' });
       expect(bySent('getDictationKeys')).toHaveLength(asked);
+      store.setMachineDictationKey('mac', 'elevenlabs', 'test-key-1');
+      deliver({ type: 'dictationKeySet', id: '3', provider: 'elevenlabs', ok: false });
+      expect(store.dictationKeySaves.mac?.elevenlabs).toEqual({ state: 'failed', error: 'the machine refused it' });
     });
 
     it('sends nothing to an agent that does not take keys', () => {
@@ -2696,13 +2699,17 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
         timers.push(t);
         return () => void (t.live = false);
       };
-      const { store, deliver } = buildKeyed({ startTimer });
+      const { store, deliver, bySent } = buildKeyed({ startTimer });
       store.setAgent('mac', { features: ['dictationKeys', 'setDictationKey'] });
       store.setMachineDictationKey('mac', 'elevenlabs', 'test-key-1');
       timers.filter((t) => t.live && t.ms === KEY_SAVE_REPLY_MS).forEach((t) => t.fn());
       expect(store.dictationKeySaves.mac?.elevenlabs).toEqual({ state: 'failed', error: 'the machine did not answer' });
-      deliver({ type: 'dictationKeySet', provider: 'elevenlabs', ok: true });
-      expect(store.dictationKeySaves.mac?.elevenlabs?.state).toBe('failed');
+      store.setMachineDictationKey('mac', 'elevenlabs', null);
+      const asked = bySent('getDictationKeys').length;
+      // The first save's late answer: the file changed, but it says nothing of the removal under way.
+      deliver({ type: 'dictationKeySet', id: '1', provider: 'elevenlabs', ok: true });
+      expect(store.dictationKeySaves.mac?.elevenlabs).toEqual({ state: 'pending', id: '2', removing: true });
+      expect(bySent('getDictationKeys')).toHaveLength(asked + 1);
       store.setMachineDictationKey('mac', 'openrouter', 'test-key-2');
       store.setStatus('mac', 'offline');
       expect(store.dictationKeySaves.mac?.openrouter).toEqual({ state: 'failed', error: 'the machine went offline' });

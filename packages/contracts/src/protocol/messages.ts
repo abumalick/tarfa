@@ -98,8 +98,9 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('getDictationKeys') }),
   // Store (`key`) or remove (`null`) one of the machine's dictation keys, as `tarfa dictation-key`
   // does. Sent only to an agent whose authResult lists AGENT_FEATURES.setDictationKey; the key is
-  // checked by the agent, which answers `dictationKeySet`.
-  z.object({ type: z.literal('setDictationKey'), provider: dictationProviderSchema, key: z.string().nullable() }),
+  // checked by the agent, which answers `dictationKeySet` with the same `id`, so a late answer to
+  // an earlier save is never taken for this one's.
+  z.object({ type: z.literal('setDictationKey'), id: z.string(), provider: dictationProviderSchema, key: z.string().nullable() }),
   z.object({ type: z.literal('readFile'), path: z.string() }),
   z.object({ type: z.literal('attach'), workspaceId: z.string(), cols: dim, rows: dim }),
   z.object({ type: z.literal('detach'), workspaceId: z.string() }),
@@ -202,7 +203,7 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
   }),
   // The answer to setDictationKey. `error` is the agent's fixed wording of a refusal and never
   // holds the key.
-  z.object({ type: z.literal('dictationKeySet'), provider: dictationProviderSchema, ok: z.boolean(), error: z.string().optional() }),
+  z.object({ type: z.literal('dictationKeySet'), id: z.string(), provider: dictationProviderSchema, ok: z.boolean(), error: z.string().optional() }),
   // `files` is additive: older agents that predate it omit the field, so it defaults to []
   // (a strictly-required field would make the strict client parser silently drop their
   // dirEntries during a version-skewed rollout, hanging the browser on "Loading…").

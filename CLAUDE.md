@@ -379,14 +379,17 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   every read since the file may appear later; a malformed file reports a fixed message, since
   `JSON.parse`'s quotes the text), by `tarfa dictation-key set <provider>` (stdin or an echo-off
   prompt, never argv) or by a paired phone from the machine's page in Settings
-  (`MachineDictationKeys.svelte`): `setDictationKey { provider, key | null }`, answered
-  `dictationKeySet { provider, ok, error? }`, after which the phone asks `getDictationKeys` again. Both
+  (`MachineDictationKeys.svelte`): `setDictationKey { id, provider, key | null }`, answered
+  `dictationKeySet { id, provider, ok, error? }`; a save is settled only by its own `id` (a late answer
+  to one that timed out must not settle the next), and any `ok` makes the phone ask `getDictationKeys`
+  again. Other phones on that machine get the change at their next connect. Both
   paths run `changeDictationKey` (`application/dictation-keys.ts`: `checkKey` trims and refuses
   whitespace inside or over 512 characters) and write under `withFileLock`, since the CLI and the agent
   are different processes. The agent advertises `AGENT_FEATURES.dictationKeys` (it hands keys out) and
   `AGENT_FEATURES.setDictationKey` (it takes one), and the PWA sends `getDictationKeys` on each
-  accepted `authResult`; the handler answers both only behind `authed`, and a failed write is a
-  `dictationKeySet` refusal with fixed wording, never the generic `error`. Things not to
+  accepted `authResult`; the handler answers both only behind `authed`, and a refusal or a failed
+  write is a `dictationKeySet` with `checkKey`'s fixed wording or the file's problem line (its path,
+  never its text), never the generic `error`. Things not to
   "simplify": **a request, not a field on `authResult.agent`** (a malformed field there would
   wipe `features` too, and the transport layer should read no secret file); **held in memory per
   machine, never in localStorage**, dropped when the machine goes offline, is removed, or stops

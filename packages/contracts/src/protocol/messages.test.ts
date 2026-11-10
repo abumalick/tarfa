@@ -245,30 +245,34 @@ describe('agentMessageSchema', () => {
   });
 
   it('parses a setDictationKey request, a null key removing it', () => {
-    expect(parseClientMessage({ type: 'setDictationKey', provider: 'openrouter', key: 'test-key' })).toEqual({
+    expect(parseClientMessage({ type: 'setDictationKey', id: 's1', provider: 'openrouter', key: 'test-key' })).toEqual({
       type: 'setDictationKey',
+      id: 's1',
       provider: 'openrouter',
       key: 'test-key',
     });
-    expect(parseClientMessage({ type: 'setDictationKey', provider: 'elevenlabs', key: null })).toEqual({
+    expect(parseClientMessage({ type: 'setDictationKey', id: 's1', provider: 'elevenlabs', key: null })).toEqual({
       type: 'setDictationKey',
+      id: 's1',
       provider: 'elevenlabs',
       key: null,
     });
   });
 
   it('refuses a setDictationKey for an unknown provider', () => {
-    expect(() => parseClientMessage({ type: 'setDictationKey', provider: 'claude', key: 'x' })).toThrow();
+    expect(() => parseClientMessage({ type: 'setDictationKey', id: 's1', provider: 'claude', key: 'x' })).toThrow();
   });
 
   it('parses a dictationKeySet reply, with an error only on a refusal', () => {
-    expect(parseAgentMessage({ type: 'dictationKeySet', provider: 'elevenlabs', ok: true })).toEqual({
+    expect(parseAgentMessage({ type: 'dictationKeySet', id: 's1', provider: 'elevenlabs', ok: true })).toEqual({
       type: 'dictationKeySet',
+      id: 's1',
       provider: 'elevenlabs',
       ok: true,
     });
-    expect(parseAgentMessage({ type: 'dictationKeySet', provider: 'openrouter', ok: false, error: 'a key holds no whitespace' })).toEqual({
+    expect(parseAgentMessage({ type: 'dictationKeySet', id: 's1', provider: 'openrouter', ok: false, error: 'a key holds no whitespace' })).toEqual({
       type: 'dictationKeySet',
+      id: 's1',
       provider: 'openrouter',
       ok: false,
       error: 'a key holds no whitespace',

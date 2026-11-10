@@ -36,6 +36,7 @@ export const settings: Messages['settings'] = {
   keySaveFailed: (error: string) => `Non enregistrée : ${error}`,
   keySaveOffline: 'la machine s’est déconnectée',
   keySaveNoReply: 'la machine n’a pas répondu',
+  keySaveRefused: 'la machine l’a refusée',
   machineKeysOffline: 'Connectez-vous à cette machine pour voir ou modifier ses clés.',
   machineKeysUpdateAgent: 'Mettez à jour l’agent de cette machine pour y enregistrer une clé.',
   machineKeysCli: 'En attendant, son administrateur peut en enregistrer une sur la machine :',

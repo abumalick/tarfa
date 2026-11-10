@@ -28,6 +28,7 @@
   let inputs = $state<Partial<Record<DictationProvider, HTMLInputElement>>>({});
   let cards = $state<Partial<Record<DictationProvider, HTMLElement>>>({});
   let keyHelp = $state<DictationProvider | null>(null);
+  const sent: Record<DictationProvider, string | null> = { elevenlabs: null, openrouter: null };
 
   onMount(() => {
     if (!focusKey) return;
@@ -44,8 +45,19 @@
     const key = drafts[provider].trim();
     if (!key) return;
     store.setMachineDictationKey(machine.id, provider, key);
-    drafts[provider] = '';
+    sent[provider] = key;
   }
+
+  // The typed key stays until the machine stored it, so a refusal or a drop needs no new paste.
+  $effect(() => {
+    for (const provider of PROVIDERS) {
+      const saved = store.dictationKeySaves[machine.id]?.[provider]?.state === 'saved';
+      if (saved && sent[provider]) {
+        if (drafts[provider].trim() === sent[provider]) drafts[provider] = '';
+        sent[provider] = null;
+      }
+    }
+  });
 
   function outcome(provider: DictationProvider): { text: string; tone: 'dim' | 'ok' | 'diag' } | null {
     const save = store.dictationKeySaves[machine.id]?.[provider];
@@ -86,7 +98,7 @@
             <input
               id="machine-key-{provider}"
               type="password"
-              autocomplete="off"
+              autocomplete="new-password"
               autocapitalize="off"
               spellcheck="false"
               placeholder={has ? '••••••' : PLACEHOLDERS[provider]}

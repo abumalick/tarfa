@@ -298,7 +298,7 @@ export class ConnectionHandler {
         this.conn.send({ type: 'dictationKeys', ...(await this.deps.dictationKeys?.read()) });
         return;
       case 'setDictationKey':
-        this.conn.send({ type: 'dictationKeySet', provider: message.provider, ...(await this.setDictationKey(message.provider, message.key)) });
+        this.conn.send({ type: 'dictationKeySet', id: message.id, provider: message.provider, ...(await this.setDictationKey(message.provider, message.key)) });
         return;
       case 'readFile': {
         const { binary, data, truncated } = await readFile({ reader }, message.path, await this.allowedRoots());

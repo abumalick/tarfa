@@ -91,7 +91,7 @@ export const KEY_SAVE_REPLY_MS = 10_000;
 const DICTATION_KEY_PROVIDERS: DictationProvider[] = ['elevenlabs', 'openrouter'];
 
 // `removing` says which word an ok reply earns; `error` is the agent's wording or ours.
-export type DictationKeySave = { state: 'pending'; removing: boolean } | { state: 'saved' | 'removed' } | { state: 'failed'; error: string };
+export type DictationKeySave = { state: 'pending'; id: string; removing: boolean } | { state: 'saved' | 'removed' } | { state: 'failed'; error: string };
 // How long the phone waits for the agent's `lastReply` before saying it got no answer.
 export const READ_ALOUD_REPLY_MS = 8_000;
 
@@ -311,6 +311,7 @@ export class TarfaStore {
   // in memory only: a lost or revoked phone holds none at rest.
   private agentDictationKeys = $state<Record<string, AgentDictationKeys>>({});
   private readonly keySaveTimers = new Map<string, () => void>();
+  private keySaveSeq = 0;
   // The open read-aloud player, mirrored from `readAloudPlayer` (null when closed).
   readAloud = $state<{ state: ReadAloudState; position: number; duration: number } | null>(null);
   readAloudNotice = $state<string | null>(null);
@@ -669,10 +670,15 @@ export class TarfaStore {
         return;
       }
       case 'dictationKeySet': {
-        const save = this.dictationKeySaves[machineId]?.[message.provider];
-        if (save?.state !== 'pending') return;
-        this.settleKeySave(machineId, message.provider, message.ok ? { state: save.removing ? 'removed' : 'saved' } : { state: 'failed', error: message.error ?? '' });
+        // Even a late answer to an earlier save changed the file, so what the page shows is asked again.
         if (message.ok) this.send(machineId, { type: 'getDictationKeys' });
+        const save = this.dictationKeySaves[machineId]?.[message.provider];
+        if (save?.state !== 'pending' || save.id !== message.id) return;
+        this.settleKeySave(
+          machineId,
+          message.provider,
+          message.ok ? { state: save.removing ? 'removed' : 'saved' } : { state: 'failed', error: message.error || msg().settings.keySaveRefused },
+        );
         return;
       }
       case 'keyterms':
@@ -1301,8 +1307,9 @@ export class TarfaStore {
       }
     }, KEY_SAVE_REPLY_MS);
     this.keySaveTimers.set(`${machineId}\n${provider}`, cancel);
-    this.setKeySave(machineId, provider, { state: 'pending', removing: key === null });
-    this.send(machineId, { type: 'setDictationKey', provider, key });
+    const id = String((this.keySaveSeq += 1));
+    this.setKeySave(machineId, provider, { state: 'pending', id, removing: key === null });
+    this.send(machineId, { type: 'setDictationKey', id, provider, key });
   }
 
   private settleKeySave(machineId: string, provider: DictationProvider, next: DictationKeySave | null): void {

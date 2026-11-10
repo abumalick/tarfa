@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { tick } from 'svelte';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import MachineDictationKeys from './MachineDictationKeys.svelte';
 
@@ -25,17 +26,28 @@ describe('MachineDictationKeys', () => {
     expect(field.value).toBe('');
     expect(field.placeholder).toBe('••••••');
     expect(field.type).toBe('password');
-    expect(field.autocomplete).toBe('off');
+    expect(field.getAttribute('autocomplete')).toBe('new-password');
     expect(card('openrouter').getByText('Not set')).toBeInTheDocument();
     expect(card('openrouter').queryByRole('button', { name: 'Remove' })).toBeNull();
   });
 
-  it('sends a typed key to this machine and clears the field', async () => {
-    const store = setup();
+  it('sends a typed key to this machine, keeping it in the field until the machine stored it', async () => {
+    const saves = $state<Record<string, unknown>>({});
+    const store = setup({
+      get dictationKeySaves() {
+        return saves;
+      },
+    });
     const field = card('openrouter').getByLabelText('OpenRouter API key') as HTMLInputElement;
     await fireEvent.input(field, { target: { value: ' sk-or-new ' } });
     await fireEvent.click(card('openrouter').getByRole('button', { name: 'Save key' }));
     expect(store.setMachineDictationKey).toHaveBeenCalledWith('mac', 'openrouter', 'sk-or-new');
+    saves.mac = { openrouter: { state: 'failed', error: 'x' } };
+    await tick();
+    expect(field.value).toBe(' sk-or-new ');
+    await fireEvent.click(card('openrouter').getByRole('button', { name: 'Save key' }));
+    saves.mac = { openrouter: { state: 'saved' } };
+    await tick();
     expect(field.value).toBe('');
   });
 
@@ -54,7 +66,7 @@ describe('MachineDictationKeys', () => {
   });
 
   it('holds the buttons while a save is pending', () => {
-    setup({ dictationKeySaves: { mac: { elevenlabs: { state: 'pending', removing: false } } } });
+    setup({ dictationKeySaves: { mac: { elevenlabs: { state: 'pending', id: '1', removing: false } } } });
     expect(card('elevenlabs').getByRole('button', { name: 'Remove' })).toBeDisabled();
     expect(card('elevenlabs').getByRole('status')).toHaveTextContent('Saving…');
   });

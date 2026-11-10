@@ -455,13 +455,13 @@ export async function startFakeAgent(
             const provider = msg.provider as 'elevenlabs' | 'openrouter';
             if (msg.key === null) {
               delete dictationKeys[provider];
-              send({ type: 'dictationKeySet', provider, ok: true });
+              send({ type: 'dictationKeySet', id: String(msg.id), provider, ok: true });
               break;
             }
             const key = String(msg.key).trim();
             const error = key === '' ? 'no key given' : /\s/.test(key) ? 'a key holds no whitespace' : key.length > 512 ? 'a key is at most 512 characters' : null;
             if (error === null) dictationKeys[provider] = key;
-            send({ type: 'dictationKeySet', provider, ok: error === null, ...(error === null ? {} : { error }) });
+            send({ type: 'dictationKeySet', id: String(msg.id), provider, ok: error === null, ...(error === null ? {} : { error }) });
             break;
           }
           case 'lastReply':

@@ -24,7 +24,7 @@ export const dictation = {
   transcriptionFailedReason: (reason: string) => `Transcription failed (${reason})`,
   noReply: 'no reply',
   timedOut: 'Dictation timed out — try again',
-  setKey: (provider: string) => `Set an ${provider} key on this machine's page in Settings`,
+  setKey: (provider: string) => `No ${provider} key on this machine`,
   invalidKey: (provider: string) => `Invalid ${provider} key`,
   elevenLabsQuota: 'ElevenLabs quota exceeded',
   openRouterCredit: 'OpenRouter credit exhausted',

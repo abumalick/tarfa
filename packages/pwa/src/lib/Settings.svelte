@@ -51,7 +51,8 @@
   // Opened from the mic's setup explanation: straight to that machine's page, at the key.
   const focus = untrack(() => store.dictationKeyFocus);
   let openId = $state<string | null>(focus?.machineId ?? null);
-  const focusKey = focus?.provider ?? null;
+  // Only for that first open: a page opened by hand later starts at its top.
+  let focusKey = $state(focus?.provider ?? null);
   onMount(() => {
     store.dictationKeyFocus = null;
   });
@@ -76,7 +77,15 @@
 </script>
 
 {#if openMachine}
-  <MachineDetail {store} machine={openMachine} {focusKey} onClose={() => (openId = null)} />
+  <MachineDetail
+    {store}
+    machine={openMachine}
+    {focusKey}
+    onClose={() => {
+      openId = null;
+      focusKey = null;
+    }}
+  />
 {:else}
   <section>
     <header>

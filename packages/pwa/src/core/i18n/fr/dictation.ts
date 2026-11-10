@@ -26,7 +26,7 @@ export const dictation: Messages['dictation'] = {
   transcriptionFailedReason: (reason) => `La transcription a échoué (${reason})`,
   noReply: 'aucune réponse',
   timedOut: 'Délai de dictée dépassé — réessayez',
-  setKey: (provider) => `Saisissez une clé ${provider} sur la page de cette machine dans les Réglages`,
+  setKey: (provider) => `Aucune clé ${provider} sur cette machine`,
   invalidKey: (provider) => `Clé ${provider} invalide`,
   elevenLabsQuota: 'Quota ElevenLabs dépassé',
   openRouterCredit: 'Crédit OpenRouter épuisé',
