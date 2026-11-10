@@ -447,6 +447,10 @@ cmd_up() { # <worktree>
     die "${#live[@]} sandboxes are already up (the limit is ${MAX_SANDBOXES}, TARFA_SANDBOX_MAX): $(printf '%s, ' "${live[@]}" | sed 's/, $//'). They may be other agents': wait for one to finish, run pnpm sandbox gc to clear dead ones, or ask the maintainer"
   fi
 
+  # Asked once: a codex on PATH that cannot run (a shim with nothing installed) counts as absent.
+  local codex_version
+  codex_version="$(codex --version 2>/dev/null | awk 'NR == 1 {print $NF}')" || codex_version=""
+
   umask 077
   UP_ROOT="${root}"
   # Whatever fails from here on, nothing is left running: the next up would refuse it as "already up".
@@ -461,7 +465,7 @@ cmd_up() { # <worktree>
   jq -n --arg slug "${slug}" --arg wt "${wt}" --arg root "${root}" \
     --argjson hooks "${hooks}" --argjson phone "${phone}" --argjson pwa "${pwa}" \
     --arg agent "tarfa-sb-${slug}-agent" --arg pwaunit "tarfa-sb-${slug}-pwa" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg codex "$([ -f "${CODEX_LOGIN}/auth.json" ] && command -v codex > /dev/null && echo "tarfa-sb-${slug}-codex")" \
+    --arg codex "$([ -f "${CODEX_LOGIN}/auth.json" ] && [ -n "${codex_version}" ] && echo "tarfa-sb-${slug}-codex")" \
     '{slug: $slug, worktree: $wt, root: $root, ports: {hooks: $hooks, phone: $phone, pwa: $pwa},
       units: {agent: $agent, pwa: $pwaunit, codex: (if $codex == "" then null else $codex end)},
       browser: null, pairLink: null, createdAt: $at}' > "${root}/manifest.json"
@@ -500,13 +504,11 @@ EOF
   fi
   echo "  env       ${root}/env.sh   (pnpm sandbox exec -- <cmd> runs a command in it)"
   echo "  tmux      tmux -S $(sb_socket "${root}") ls"
-  local codex_version
-  if ! command -v codex > /dev/null; then
-    echo "  codex     not installed: no Codex app server"
+  if [ -z "${codex_version}" ]; then
+    echo "  codex     not installed or not runnable (codex --version failed): no Codex app server"
   elif [ ! -L "${root}/home/.codex/auth.json" ]; then
     echo "  codex     not logged in: once for every sandbox, mkdir -p -m 700 ${CODEX_LOGIN} && CODEX_HOME=${CODEX_LOGIN} codex login --device-auth, then pnpm sandbox down and up"
   else
-    codex_version="$(codex --version 2>/dev/null | awk '{print $NF}')"
     if [ "${codex_version}" = "${CODEX_TRUST_VERSION}" ]; then
       echo "  codex     ${codex_version} (hook trust made for Codex ${CODEX_TRUST_VERSION})"
     else

@@ -111,7 +111,7 @@ CODEX_HOME=~/.config/tarfa-sandbox/codex codex login --device-auth
 ```
 
 Run the last line again when Codex in a sandbox says to sign in again. Without the login, or
-without `codex` installed, `up` still works, says so, and starts no Codex app server; a login
+without a `codex` that runs, `up` still works, says so, and starts no Codex app server; a login
 made later reaches a sandbox at its next `up`. A `CODEX_HOME` in your environment is dropped
 inside a sandbox, since Codex would prefer it to the sandbox's `HOME`.
 
