@@ -1159,7 +1159,7 @@ So the PWA is on a public origin, tarfa.app, and what follows from that:
     `keypress` is stopped **without** `preventDefault`, which could cancel the `beforeinput`
     that carries the Enter. Found by capturing the WebSocket bytes on-device over Chrome
     DevTools. The in-app input log never records xterm's own sends, so it could not show this.
-- **Select mode (⌶) is a frozen plain-text snapshot, the same on every platform.** xterm's
+- **Select mode (⌶) is a frozen snapshot that looks like the terminal, the same on every platform.** xterm's
   rows cannot carry a native selection: xterm sets `user-select: none`, rebuilds a row's
   elements whenever its content changes (Claude Code's spinner collapsed an iOS selection
   within seconds), and has only the visible screen in the DOM. Each platform once had its own
@@ -1167,8 +1167,15 @@ So the PWA is on a public origin, tarfa.app, and what follows from that:
   touch with a Copy button). Now ⌶ covers the terminal with `core/terminal-snapshot.ts`'s
   copy of the buffer, scrollback included and soft-wrapped rows joined, in an ordinary
   scrollable element, so the OS's own selection, handles and Copy callout work as on a web
-  page. It is frozen on purpose: live output would disturb the selection. Plain text only.
-  Desktop copy-on-select in the live terminal is unchanged.
+  page. It is frozen on purpose: live output would disturb the selection. It must not move
+  anything the user was looking at: each cell keeps its colour (`cellStyle` mirrors xterm's
+  default palette, bold brightening, inverse and dim), each paragraph is drawn row by row as the
+  terminal drew it (a later row starts with a generated `\A` plus the indent it dropped, which
+  no selection or copy includes), and the font, `letter-spacing` and row width are read from
+  xterm's own `.xterm-rows`/`.xterm-screen` (xterm stretches each glyph to its cell, which
+  Android's monospace fonts need). `e2e/terminal-select.spec.ts` checks colour, position and
+  that a selection across a wrapped row still reads one line. Desktop copy-on-select in the
+  live terminal is unchanged.
   **Claude Code wraps its own text**, so the terminal holds its paragraphs as separate lines
   (`tmux capture-pane -J` joins nothing): the snapshot rebuilds them by inference (`reflow`).
   A break counts as the app's when the row plus a space plus the next word exceeds the width

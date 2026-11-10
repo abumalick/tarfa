@@ -12,6 +12,17 @@ let lastTerminalOptions: Record<string, unknown> | null = null;
 let resetCount = 0;
 let selectionText = '';
 let bufferRows: string[] = [];
+const plainLine = (text: string) => {
+  const chars = [...text];
+  const cell = (c: string) => ({
+    getChars: () => c, getWidth: () => 1,
+    isFgRGB: () => false, isFgPalette: () => false, getFgColor: () => 0,
+    isBgRGB: () => false, isBgPalette: () => false, getBgColor: () => 0,
+    isBold: () => 0, isItalic: () => 0, isDim: () => 0, isUnderline: () => 0,
+    isStrikethrough: () => 0, isInverse: () => 0, isInvisible: () => 0,
+  });
+  return { isWrapped: false, length: chars.length, getCell: (x: number) => (x < chars.length ? cell(chars[x]!) : undefined) };
+};
 let oscHandlers: Record<number, (data: string) => boolean> = {};
 
 vi.mock('@xterm/xterm', () => ({
@@ -46,7 +57,7 @@ vi.mock('@xterm/xterm', () => ({
           getLine: (y: number) =>
             bufferRows[y] === undefined
               ? undefined
-              : { isWrapped: false, translateToString: () => bufferRows[y] },
+              : plainLine(bufferRows[y]),
         },
       };
     }
@@ -486,7 +497,7 @@ describe('TerminalView', () => {
     await fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
     const lines = [...container.querySelectorAll('.snapshot .line')].map((l) => l.textContent);
-    expect(lines).toEqual(['$ echo hi', 'hi']);
+    expect(lines).toEqual(['$ echo hi', 'hi', '']);
 
     await fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'false');

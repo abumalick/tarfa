@@ -37,3 +37,61 @@ test('select mode shows a natively selectable snapshot of the terminal', async (
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('.snapshot')).toHaveCount(0);
 });
+
+// The snapshot covers the terminal, so it must look like it: each cell's colour, and every
+// row where xterm drew it. Claude Code wraps its own paragraphs at the terminal width; the
+// snapshot draws them row by row while a selection across the break still reads one line.
+test('select mode keeps the terminal colours and puts each row where the terminal drew it', async ({ page }) => {
+  await seedMachine(page, agent);
+  await page.goto('/');
+  await page.getByText('demo', { exact: true }).click();
+  await expect(page.locator('.xterm-rows').filter({ hasText: 'TARFA_READY' })).toBeVisible();
+
+  agent.sendOutput('perch-demo', '\x1b[31mRED_WORD\x1b[0m plain\r\n');
+  const red = page.locator('.xterm-rows span').filter({ hasText: 'RED_WORD' });
+  await expect(red).toBeVisible();
+  const cols = await page.evaluate(() => {
+    const span = [...document.querySelectorAll<HTMLElement>('.xterm-rows span')].find((s) => s.textContent === 'RED_WORD')!;
+    const cell = span.getBoundingClientRect().width / 'RED_WORD'.length;
+    return Math.round(document.querySelector('.xterm-screen')!.getBoundingClientRect().width / cell);
+  });
+  const words = Array.from({ length: 40 }, (_, i) => `word${i}`);
+  const rows: string[] = [];
+  let row = ' ';
+  for (const w of words) {
+    if ((row + ' ' + w).length > cols) {
+      rows.push(row);
+      row = ' ';
+    }
+    row += ' ' + w;
+  }
+  rows.push(row);
+  agent.sendOutput('perch-demo', rows.join('\r\n') + '\r\n');
+  await expect(page.locator('.xterm-rows').filter({ hasText: 'word39' })).toBeVisible();
+
+  const before = await red.boundingBox();
+  const lastWord = page.locator('.xterm-rows > div').filter({ hasText: 'word39' });
+  const lastBefore = await lastWord.boundingBox();
+
+  await page.getByRole('button', { name: /select text/i }).click();
+  const snapRed = page.locator('.snapshot span').filter({ hasText: /^RED_WORD$/ });
+  await expect(snapRed).toBeVisible();
+  expect(await snapRed.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(204, 0, 0)');
+
+  const after = (await snapRed.boundingBox())!;
+  expect(Math.abs(after.x - before!.x)).toBeLessThan(1.5);
+  expect(Math.abs(after.y - before!.y)).toBeLessThan(1.5);
+  const lastRow = page.locator('.snapshot .row > span').filter({ hasText: 'word39' });
+  const lastAfter = (await lastRow.boundingBox())!;
+  expect(Math.abs(lastAfter.y - lastBefore!.y)).toBeLessThan(1.5);
+
+  const selected = await page.evaluate(() => {
+    const line = [...document.querySelectorAll('.snapshot .line')].find((l) => l.textContent?.includes('word39'))!;
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+    return getSelection()!.toString();
+  });
+  expect(selected.trimEnd()).toBe(`  ${words.join(' ')}`);
+});

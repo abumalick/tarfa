@@ -32,7 +32,7 @@
   import { parseOsc52 } from '../core/osc52';
   import { fileToUpload } from '../core/shared-file';
   import { attachAndroidInput, isAndroid, type AndroidInput } from './android-input';
-  import { dedentCopied, snapshotBuffer, type TerminalSnapshot } from '../core/terminal-snapshot';
+  import { dedentCopied, snapshotBuffer, type RunStyle, type TerminalSnapshot } from '../core/terminal-snapshot';
   import { inputLog } from '../core/terminal-input-log';
   import { msg } from '../i18n.svelte';
 
@@ -51,7 +51,7 @@
   let scroll = $state<TerminalScroll | null>(null);
   // Select mode covers the terminal with a frozen plain-text snapshot of its buffer, where
   // every platform's native selection (handles, Copy callout, ⌘C) works as on a web page.
-  let snapshot = $state<(TerminalSnapshot & { fontFamily?: string; lineHeight: number }) | null>(null);
+  let snapshot = $state<(TerminalSnapshot & { metrics: SnapshotMetrics }) | null>(null);
   let snapshotEl = $state<HTMLDivElement>();
   const selectMode = $derived(snapshot !== null);
   let copySelect: CopyOnSelect | null = null;
@@ -115,11 +115,37 @@
     }
     term.clearSelection();
     term.blur();
-    snapshot = { ...snapshotBuffer(term.buffer.active, term.cols), fontFamily: term.options.fontFamily, lineHeight: rowHeight() };
+    snapshot = { ...snapshotBuffer(term.buffer.active, term.cols), metrics: snapshotMetrics() };
     await tick();
     const line = snapshotEl?.children[snapshot.viewportLine] as HTMLElement | undefined;
-    if (snapshotEl && line) snapshotEl.scrollTop = line.offsetTop;
+    if (snapshotEl && line) snapshotEl.scrollTop = line.offsetTop + snapshot.viewportRow * snapshot.metrics.lineHeight;
   };
+
+  // The snapshot is drawn with xterm's own metrics (its rows' font and the letter spacing that
+  // fits each glyph to a cell), so every row lands where the terminal drew it.
+  interface SnapshotMetrics { font: string; letterSpacing: string; lineHeight: number; width?: number }
+  const snapshotMetrics = (): SnapshotMetrics => {
+    const rows = container?.querySelector<HTMLElement>('.xterm-rows');
+    const screen = container?.querySelector<HTMLElement>('.xterm-screen');
+    const cs = rows ? getComputedStyle(rows) : null;
+    return {
+      font: cs ? `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}` : `${store.terminalFontSize}px ${term?.options.fontFamily ?? 'monospace'}`,
+      letterSpacing: cs?.letterSpacing ?? 'normal',
+      lineHeight: rowHeight(),
+      width: screen?.getBoundingClientRect().width || undefined,
+    };
+  };
+
+  const runStyle = (s: RunStyle) =>
+    [
+      s.fg && `color:${s.fg}`,
+      s.bg && `background-color:${s.bg}`,
+      s.bold && 'font-weight:bold',
+      s.italic && 'font-style:italic',
+      (s.underline || s.strike) && `text-decoration:${[s.underline && 'underline', s.strike && 'line-through'].filter(Boolean).join(' ')}`,
+    ]
+      .filter(Boolean)
+      .join(';');
 
   const copySnapshot = (e: ClipboardEvent) => {
     const text = window.getSelection()?.toString();
@@ -404,11 +430,12 @@
         class="snapshot"
         bind:this={snapshotEl}
         oncopy={copySnapshot}
-        style:font-family={snapshot.fontFamily}
-        style:font-size="{store.terminalFontSize}px"
-        style:line-height="{snapshot.lineHeight}px"
+        style:font={snapshot.metrics.font}
+        style:letter-spacing={snapshot.metrics.letterSpacing}
+        style:line-height="{snapshot.metrics.lineHeight}px"
+        style:--row-width={snapshot.metrics.width ? `${snapshot.metrics.width}px` : undefined}
       >
-        {#each snapshot.lines as line}<div class="line" style:--hang="{line.hang}ch">{line.text}</div>{/each}
+        {#each snapshot.lines as line}<div class="line">{#each line.rows as row, i}<span class="row" class:cont={i > 0} data-pad={' '.repeat(row.pad)}>{#each row.runs as run}<span style={runStyle(run.style)}>{run.text}</span>{/each}</span>{/each}</div>{/each}
       </div>
     {/if}
     {#if copied}<div class="copied-toast" role="status">{msg().terminal.copied}</div>{/if}
@@ -569,7 +596,8 @@
   }
   .term.selecting { touch-action: auto; -webkit-touch-callout: default; }
   /* Above xterm's own layers (its helpers and decorations stack up to z-index 7). The colours
-     are xterm's default theme, so opening select mode does not visibly change the screen. */
+     are xterm's default theme and the runs carry each cell's own, so opening select mode does
+     not visibly change the screen. */
   .snapshot {
     position: absolute;
     inset: 0;
@@ -579,14 +607,16 @@
     overscroll-behavior: contain;
     background: #000;
     color: #fff;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+    white-space: pre;
     user-select: text;
     -webkit-user-select: text;
   }
-  /* A rebuilt paragraph keeps the hanging indent its continuation rows had in the terminal. */
-  .snapshot .line { padding-left: var(--hang); text-indent: calc(-1 * var(--hang)); }
-  .snapshot .line:empty::before { content: ' '; }
+  .snapshot .line { width: var(--row-width, auto); overflow: hidden; }
+  /* A paragraph is drawn row by row as the terminal drew it: each later row starts on a new
+     line with the indent its text dropped. Generated content is neither selected nor copied,
+     so a copy still reads the paragraph as one line. */
+  .snapshot .row.cont::before { content: '\A' attr(data-pad); }
+  .snapshot .row:empty::after { content: ' '; }
   /* DO NOT remove or "simplify" this rule — it fixes inverted (LTR) Arabic/RTL rendering on
      Android. It looks like a no-op because the bug only reproduces when an Arabic word splits
      across per-character spans, which needs a device font (jsdom and desktop Blink render a

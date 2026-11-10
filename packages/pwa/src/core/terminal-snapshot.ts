@@ -1,7 +1,8 @@
-// A plain-text copy of the terminal buffer (scrollback included) for select mode, which the
-// PWA shows in an ordinary scrollable element so every platform's native text selection works
-// on it. xterm keeps its own rows unselectable, rebuilds them on every redraw (which collapses
-// a native selection) and has only the visible screen in the DOM.
+// A copy of the terminal buffer (scrollback included) for select mode, which the PWA shows in
+// an ordinary scrollable element so every platform's native text selection works on it. xterm
+// keeps its own rows unselectable, rebuilds them on every redraw (which collapses a native
+// selection) and has only the visible screen in the DOM. Each row keeps its colours and its
+// place, so the snapshot looks like the terminal it covers.
 //
 // Lines come back whole in two steps. A line the terminal wrapped is stored as several rows,
 // each continuation marked `isWrapped`; those are joined exactly. A row followed by a
@@ -10,10 +11,33 @@
 // Claude Code (and Codex) wrap their own text instead: each row arrives as a separate line,
 // with the indent repeated and the space at the break dropped, so the terminal holds nothing
 // to tell such a break from a real newline. `reflow` rebuilds those paragraphs by inference.
+// A paragraph keeps the rows it was built from, so it is still drawn row for row; only what
+// is copied is joined.
+
+import { ansiColor, DEFAULT_BACKGROUND, DEFAULT_FOREGROUND, rgbCss } from './xterm-palette';
+
+export interface SnapshotCell {
+  getChars(): string;
+  getWidth(): number;
+  isFgRGB(): boolean;
+  isFgPalette(): boolean;
+  getFgColor(): number;
+  isBgRGB(): boolean;
+  isBgPalette(): boolean;
+  getBgColor(): number;
+  isBold(): number;
+  isItalic(): number;
+  isDim(): number;
+  isUnderline(): number;
+  isStrikethrough(): number;
+  isInverse(): number;
+  isInvisible(): number;
+}
 
 export interface SnapshotLine {
   readonly isWrapped: boolean;
-  translateToString(trimRight?: boolean): string;
+  readonly length: number;
+  getCell(x: number): SnapshotCell | undefined;
 }
 
 export interface SnapshotBuffer {
@@ -22,46 +46,146 @@ export interface SnapshotBuffer {
   getLine(y: number): SnapshotLine | undefined;
 }
 
+export interface RunStyle {
+  fg?: string;
+  bg?: string;
+  bold?: true;
+  italic?: true;
+  underline?: true;
+  strike?: true;
+}
+
+export interface Run {
+  text: string;
+  style: RunStyle;
+}
+
+// One terminal row. `pad` is the indent (in columns) a rebuilt paragraph dropped from this
+// row's text: drawn, but not part of what is copied.
+export interface SnapshotRow {
+  pad: number;
+  runs: Run[];
+}
+
 export interface SnapshotText {
   text: string;
-  // Columns the continuation rows of a rebuilt paragraph were indented by, so it can be
-  // displayed with the same hanging indent; 0 for a line that was not rebuilt.
-  hang: number;
+  rows: SnapshotRow[];
 }
 
 export interface TerminalSnapshot {
   lines: SnapshotText[];
-  // The line holding the viewport's top row, so the snapshot opens where the user was.
+  // The viewport's top row, so the snapshot opens where the user was.
   viewportLine: number;
+  viewportRow: number;
 }
 
 interface Logical {
   text: string;
-  firstRow: number;
-  rows: number;
+  rows: SnapshotRow[];
 }
 
 export function snapshotBuffer(buffer: SnapshotBuffer, cols: number): TerminalSnapshot {
   const logical: Logical[] = [];
+  let rowIndex = 0;
+  let viewportIndex = 0;
   for (let y = 0; y < buffer.length; y++) {
     const line = buffer.getLine(y);
     if (!line) continue;
+    if (y <= buffer.viewportY) viewportIndex = rowIndex;
+    rowIndex++;
     const continued = buffer.getLine(y + 1)?.isWrapped ?? false;
-    const text = line.translateToString(!continued);
+    const row = readRow(line, !continued);
+    const text = rowText(row);
     const last = logical[logical.length - 1];
     if (line.isWrapped && last) {
       last.text += text;
-      last.rows++;
-    } else logical.push({ text, firstRow: y, rows: 1 });
+      last.rows.push(row);
+    } else logical.push({ text, rows: [row] });
   }
-  while (logical.at(-1)?.text === '') logical.pop();
 
   const paragraphs = reflow(logical, cols);
   let viewportLine = 0;
-  paragraphs.forEach((p, i) => {
-    if (p.firstRow <= buffer.viewportY) viewportLine = i;
-  });
-  return { lines: paragraphs.map(({ text, hang }) => ({ text, hang })), viewportLine };
+  let viewportRow = 0;
+  let seen = 0;
+  for (const [i, p] of paragraphs.entries()) {
+    if (seen + p.rows.length > viewportIndex) {
+      viewportLine = i;
+      viewportRow = viewportIndex - seen;
+      break;
+    }
+    seen += p.rows.length;
+  }
+  return { lines: paragraphs.map(({ text, rows }) => ({ text, rows })), viewportLine, viewportRow };
+}
+
+const rowText = (row: SnapshotRow) => row.runs.map((r) => r.text).join('');
+
+// The row's text exactly as xterm's translateToString gives it (a wide character's second
+// cell adds nothing, an empty cell is a space, a trimmed row ends at its last written cell),
+// cut into runs of one style.
+function readRow(line: SnapshotLine, trimRight: boolean): SnapshotRow {
+  let end = line.length;
+  if (trimRight) {
+    end = 0;
+    for (let x = line.length - 1; x >= 0; x--) {
+      const cell = line.getCell(x);
+      if (cell && cell.getChars() !== '') {
+        end = x + Math.max(cell.getWidth(), 1);
+        break;
+      }
+    }
+  }
+  const runs: Run[] = [];
+  for (let x = 0; x < end; ) {
+    const cell = line.getCell(x);
+    if (!cell) break;
+    const style = cellStyle(cell);
+    const chars = cell.getChars() || ' ';
+    const last = runs[runs.length - 1];
+    if (last && sameStyle(last.style, style)) last.text += chars;
+    else runs.push({ text: chars, style });
+    x += cell.getWidth() || 1;
+  }
+  return { pad: 0, runs };
+}
+
+// Mirrors xterm's DOM renderer under its default options: bold brightens the first eight
+// colours, inverse swaps the two (a default one taking the theme's), dim halves the
+// foreground's opacity.
+export function cellStyle(cell: SnapshotCell): RunStyle {
+  const color = (rgb: boolean, palette: boolean, value: number) =>
+    rgb ? rgbCss(value) : palette ? ansiColor(value) : undefined;
+  const brighten = cell.isBold() && cell.isFgPalette() && cell.getFgColor() < 8;
+  let fg = brighten ? ansiColor(cell.getFgColor() + 8) : color(cell.isFgRGB(), cell.isFgPalette(), cell.getFgColor());
+  let bg = color(cell.isBgRGB(), cell.isBgPalette(), cell.getBgColor());
+  if (cell.isInverse()) [fg, bg] = [bg ?? DEFAULT_BACKGROUND, fg ?? DEFAULT_FOREGROUND];
+  if (cell.isDim()) fg = `${fg ?? DEFAULT_FOREGROUND}80`;
+  if (cell.isInvisible()) fg = 'transparent';
+  const style: RunStyle = {};
+  if (fg) style.fg = fg;
+  if (bg) style.bg = bg;
+  if (cell.isBold()) style.bold = true;
+  if (cell.isItalic()) style.italic = true;
+  if (cell.isUnderline()) style.underline = true;
+  if (cell.isStrikethrough()) style.strike = true;
+  return style;
+}
+
+const sameStyle = (a: RunStyle, b: RunStyle) =>
+  a.fg === b.fg && a.bg === b.bg && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && a.strike === b.strike;
+
+function dropIndent(row: SnapshotRow, indent: number): SnapshotRow {
+  let left = indent;
+  const runs: Run[] = [];
+  for (const run of row.runs) {
+    if (left >= run.text.length) {
+      left -= run.text.length;
+      continue;
+    }
+    runs.push(left > 0 ? { text: run.text.slice(left), style: run.style } : run);
+    left = 0;
+  }
+  return { pad: indent, runs };
 }
 
 // A line that opens an item: its continuation rows line up under the item's text ("- foo")
@@ -77,7 +201,6 @@ const firstToken = (s: string) => s.trimStart().split(' ')[0] ?? '';
 const lastToken = (s: string) => s.slice(s.lastIndexOf(' ') + 1);
 
 interface Paragraph extends Logical {
-  hang: number;
   lastRowLength: number;
   hangs: number[];
 }
@@ -92,16 +215,16 @@ function reflow(lines: Logical[], cols: number): Paragraph[] {
   const out: Paragraph[] = [];
   for (const line of lines) {
     const prev = out[out.length - 1];
-    const lastRowLength = line.text.length - (line.rows - 1) * cols;
+    const lastRowLength = line.text.length - (line.rows.length - 1) * cols;
     if (prev && joins(prev, line.text, cols)) {
       const indent = indentOf(line.text);
       const rest = line.text.slice(indent);
       const cut = prev.lastRowLength === cols && lastToken(prev.text).length + firstToken(rest).length > cols - indent;
+      if (!cut) prev.rows[prev.rows.length - 1]!.runs.push({ text: ' ', style: {} });
       prev.text += (cut ? '' : ' ') + rest;
-      prev.hang = indent;
       prev.hangs = [indent];
       prev.lastRowLength = lastRowLength;
-      prev.rows += line.rows;
+      prev.rows.push(dropIndent(line.rows[0]!, indent), ...line.rows.slice(1));
       continue;
     }
     const trimmed = line.text.trimStart();
@@ -109,7 +232,7 @@ function reflow(lines: Logical[], cols: number): Paragraph[] {
     const item = ITEM.exec(trimmed);
     out.push({
       ...line,
-      hang: 0,
+      rows: [...line.rows],
       lastRowLength,
       hangs: item ? [indent, indent + item[0].length] : [indent],
     });

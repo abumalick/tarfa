@@ -1,16 +1,39 @@
 import { describe, it, expect } from 'vitest';
-import { dedentCopied, snapshotBuffer, type SnapshotBuffer } from './terminal-snapshot';
+import { cellStyle, dedentCopied, snapshotBuffer, type SnapshotBuffer, type SnapshotCell, type SnapshotLine } from './terminal-snapshot';
 
-// Rows as xterm stores them: fixed width (padded with spaces), plus whether the row is the
+// Rows as xterm stores them: fixed width (padded with empty cells), plus whether the row is the
 // soft-wrapped continuation of the one above.
+type Attrs = Partial<{ fg: number; fgRgb: number; bg: number; bold: boolean; dim: boolean; inverse: boolean }>;
+
+function cell(chars: string, attrs: Attrs = {}): SnapshotCell {
+  return {
+    getChars: () => chars,
+    getWidth: () => 1,
+    isFgRGB: () => attrs.fgRgb !== undefined,
+    isFgPalette: () => attrs.fg !== undefined,
+    getFgColor: () => attrs.fgRgb ?? attrs.fg ?? 0,
+    isBgRGB: () => false,
+    isBgPalette: () => attrs.bg !== undefined,
+    getBgColor: () => attrs.bg ?? 0,
+    isBold: () => (attrs.bold ? 1 : 0),
+    isItalic: () => 0,
+    isDim: () => (attrs.dim ? 1 : 0),
+    isUnderline: () => 0,
+    isStrikethrough: () => 0,
+    isInverse: () => (attrs.inverse ? 1 : 0),
+    isInvisible: () => 0,
+  };
+}
+
+function line(cells: SnapshotCell[], cols: number, isWrapped = false): SnapshotLine {
+  const all = [...cells, ...Array.from({ length: Math.max(0, cols - cells.length) }, () => cell(''))];
+  return { isWrapped, length: all.length, getCell: (x) => all[x] };
+}
+
 function buffer(rows: Array<string | [string, 'wrapped']>, viewportY = 0, cols = 10): SnapshotBuffer & { cols: number } {
   const lines = rows.map((r) => {
     const [text, isWrapped] = typeof r === 'string' ? [r, false] : [r[0], true];
-    const padded = text.padEnd(cols, ' ');
-    return {
-      isWrapped,
-      translateToString: (trimRight?: boolean) => (trimRight ? padded.replace(/\s+$/, '') : padded),
-    };
+    return line([...text].map((c) => cell(c)), cols, isWrapped);
   });
   return { length: lines.length, viewportY, cols, getLine: (i) => lines[i] };
 }
@@ -27,8 +50,8 @@ describe('snapshotBuffer', () => {
     expect(texts0(buffer(['https://ex', ['ample.com ', 'wrapped'], ['next', 'wrapped'], 'after']))).toEqual(['https://example.com next', 'after']);
   });
 
-  it('drops blank rows at the end of the buffer', () => {
-    expect(texts0(buffer(['one', '', 'two', '', '']))).toEqual(['one', '', 'two']);
+  it('keeps blank rows at the end of the buffer, which the screen shows too', () => {
+    expect(texts0(buffer(['one', '', 'two', '', '']))).toEqual(['one', '', 'two', '', '']);
   });
 
   it('maps the viewport top row to its logical line', () => {
@@ -38,12 +61,26 @@ describe('snapshotBuffer', () => {
     expect(run(buffer(rows, 3)).viewportLine).toBe(2);
   });
 
-  it('keeps the viewport line in range when it points into trimmed blank rows', () => {
-    expect(run(buffer(['one', '', ''], 2)).viewportLine).toBe(0);
+  it('points at the viewport row inside a soft-wrapped line', () => {
+    const rows: Array<string | [string, 'wrapped']> = ['a', 'bbbbbbbbbb', ['b', 'wrapped'], 'c'];
+    expect(run(buffer(rows, 2))).toMatchObject({ viewportLine: 1, viewportRow: 1 });
+  });
+
+  it('keeps one row per terminal row, split into runs of one style', () => {
+    const b = { length: 2, viewportY: 0, getLine: (i: number) => [
+      line([cell('o', { fg: 1 }), cell('k', { fg: 1 }), cell(' '), cell('x', { bg: 4 })], 10),
+      line([cell('a'), cell('b')], 10, true),
+    ][i] };
+    const [only] = snapshotBuffer(b, 10).lines;
+    expect(only!.text).toBe('ok x      ab');
+    expect(only!.rows).toEqual([
+      { pad: 0, runs: [{ text: 'ok', style: { fg: '#cc0000' } }, { text: ' ', style: {} }, { text: 'x', style: { bg: '#3465a4' } }, { text: '      ', style: {} }] },
+      { pad: 0, runs: [{ text: 'ab', style: {} }] },
+    ]);
   });
 
   it('handles an empty buffer', () => {
-    expect(run(buffer([]))).toEqual({ lines: [], viewportLine: 0 });
+    expect(run(buffer([]))).toEqual({ lines: [], viewportLine: 0, viewportRow: 0 });
   });
 });
 
@@ -136,19 +173,47 @@ describe('snapshotBuffer: rebuilding paragraphs an app wrapped itself', () => {
     expect(texts(rows)).toEqual(rows);
   });
 
-  it('gives a joined paragraph the hanging indent of its continuation rows', () => {
-    const lines = run(buffer([
+  it('keeps the rows of a joined paragraph, the dropped indent as padding', () => {
+    const [first] = run(buffer([
       '  - Submitted the ticket for the account',
       '    asking them to retry.',
       '  plain',
     ], 0, W)).lines;
-    expect(lines.map((l) => l.hang)).toEqual([4, 0]);
+    expect(first!.rows.map((r) => [r.pad, r.runs.map((x) => x.text).join('')])).toEqual([
+      [0, '  - Submitted the ticket for the account '],
+      [4, 'asking them to retry.'],
+    ]);
   });
 
   it('maps the viewport row into a rebuilt paragraph', () => {
     const rows = ['  The bank is declining the charge, and', '  the error says so.', '  next'];
     expect(run(buffer(rows, 1, W)).viewportLine).toBe(0);
     expect(run(buffer(rows, 2, W)).viewportLine).toBe(1);
+    expect(run(buffer(rows, 1, W))).toMatchObject({ viewportLine: 0, viewportRow: 1 });
+  });
+});
+
+describe('cellStyle', () => {
+  it('leaves default colours to the page', () => {
+    expect(cellStyle(cell('a'))).toEqual({});
+  });
+
+  it('brightens the first eight colours when bold, as xterm does', () => {
+    expect(cellStyle(cell('a', { fg: 2, bold: true }))).toEqual({ fg: '#8ae234', bold: true });
+    expect(cellStyle(cell('a', { fg: 196, bold: true }))).toEqual({ fg: '#ff0000', bold: true });
+  });
+
+  it('reads true colour', () => {
+    expect(cellStyle(cell('a', { fgRgb: 0x123456 }))).toEqual({ fg: '#123456' });
+  });
+
+  it('swaps the colours of an inverse cell, defaults included', () => {
+    expect(cellStyle(cell('a', { inverse: true }))).toEqual({ fg: '#000000', bg: '#ffffff' });
+    expect(cellStyle(cell('a', { inverse: true, fg: 1 }))).toEqual({ fg: '#000000', bg: '#cc0000' });
+  });
+
+  it('halves a dim foreground', () => {
+    expect(cellStyle(cell('a', { dim: true, fg: 244 }))).toEqual({ fg: '#80808080' });
   });
 });
 
