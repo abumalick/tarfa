@@ -2511,6 +2511,16 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       expect(store.dictationKey('elevenlabs')).toBeNull();
     });
 
+    it("says whether the attached workspace's machine takes keys", () => {
+      const { store } = buildKeyed();
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      expect(store.activeMachineTakesKeys).toBe(false);
+      store.open(ws);
+      expect(store.activeMachineTakesKeys).toBe(true);
+      store.setAgent('mac', { features: [] });
+      expect(store.activeMachineTakesKeys).toBe(false);
+    });
+
     it('ignores keys from an agent that never named the feature', () => {
       const { store, deliver } = buildKeyed();
       store.open(ws);

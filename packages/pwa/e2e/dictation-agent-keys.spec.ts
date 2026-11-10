@@ -42,3 +42,20 @@ test('Settings names the machine that provides a key, and a typed key overrides 
   await page.getByRole('button', { name: 'Save key' }).first().click();
   await expect(source).toHaveText(/^Used everywhere, instead of the key from .+\.$/);
 });
+
+test('with no key anywhere, the setup offers storing one on the machine first', async ({ page }) => {
+  const bare = await startFakeAgent();
+  try {
+    await seedMachine(page, bare);
+    await page.goto('/');
+    await page.getByText('demo', { exact: true }).click();
+    await expect(page.locator('.xterm-rows').filter({ hasText: 'TARFA_READY' })).toBeVisible();
+    await page.getByRole('toolbar', { name: 'Terminal keys' }).getByRole('button', { name: 'Set up dictation' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Set up dictation' });
+    await expect(dialog.getByRole('heading', { level: 3 }).first()).toHaveText('A key on this machine');
+    await expect(dialog.getByText('tarfa dictation-key set elevenlabs')).toBeVisible();
+    await expect(dialog.getByText('tarfa dictation-key set openrouter')).toBeVisible();
+  } finally {
+    await bare.close();
+  }
+});

@@ -359,7 +359,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   on one phone may have different operators, and each pays for its own workspaces' dictation;
   with no workspace open, no agent key counts, and Settings names the machines that provide each
   key instead); and **Save in Settings never writes the agent's key** (the typed state is
-  separate). A revoked phone may still hold a key it fetched: the remedy is rotating it at the
+  separate). When nothing can run, the mic's setup lists `tarfa dictation-key set <provider>` first for the providers still keyless, if the attached machine names the feature (`setupOptions`' `machine` kind). A revoked phone may still hold a key it fetched: the remedy is rotating it at the
   provider. **Only a preset whose provider has a key can be used**: the current
   preset is the chosen one if it has its key, else the first that does (`currentPreset`), a
   keyless one is disabled in the menu. **With no usable preset at all the mic stays** (no badge,

@@ -1258,6 +1258,11 @@ export class TarfaStore {
     return dictationKey(provider, typed, this.active?.machineId ?? null, this.agentDictationKeys);
   }
 
+  // Whether the attached workspace's machine hands out keys its operator stores there.
+  get activeMachineTakesKeys(): boolean {
+    return !!this.active && (this.agentFeatures[this.active.machineId] ?? []).includes(AGENT_FEATURES.dictationKeys);
+  }
+
   // The machines whose operator provides this key, for Settings to name.
   dictationKeySources(provider: DictationProvider): string[] {
     return dictationKeySources(provider, this.machines, this.agentDictationKeys);

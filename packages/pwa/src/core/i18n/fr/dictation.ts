@@ -34,6 +34,8 @@ export const dictation: Messages['dictation'] = {
   setup: {
     title: 'Configurer la dictée',
     intro: 'Le 🎤 a d’abord besoin de l’une de ces options.',
+    machineTitle: 'Une clé sur cette machine',
+    machine: 'Enregistrez une clé une seule fois sur cette machine : chaque téléphone associé à elle s’en sert pour dicter ici, sans rien saisir sur chaque appareil. Sur la machine, lancez :',
     claudeSetup:
       'Le /voice de Claude Code : si cette machine tourne sous Linux, son agent peut transmettre votre dictée à Claude Code, sans clé d’API. Elle se configure une seule fois sur la machine.',
     claudeDocs: 'Guide de configuration de la machine',

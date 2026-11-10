@@ -27,9 +27,15 @@
   <HelpPanel title={t.title} testid="dictation-setup" {onClose}>
     <p>{t.intro}</p>
     <ul>
-      {#each options as option (option.kind === 'key' ? option.provider : 'claude')}
+      {#each options as option (option.kind === 'key' ? option.provider : option.kind)}
         <li>
-          {#if option.kind === 'claude'}
+          {#if option.kind === 'machine'}
+            <h3>{t.machineTitle}</h3>
+            <p>{t.machine}</p>
+            {#each option.providers as provider (provider)}
+              <code>tarfa dictation-key set {provider}</code>
+            {/each}
+          {:else if option.kind === 'claude'}
             <h3>Claude voice</h3>
             {#if option.state === 'setup'}
               <p>{t.claudeSetup}</p>
@@ -66,6 +72,12 @@
   h3 {
     margin: 0 0 0.3rem;
     font-size: 0.92rem;
+  }
+  code {
+    display: block;
+    margin: 0 0 0.3rem;
+    user-select: all;
+    overflow-wrap: anywhere;
   }
   .pair {
     display: flex;
