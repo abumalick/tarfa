@@ -79,6 +79,14 @@ describe('snapshotBuffer', () => {
     ]);
   });
 
+  it('gives each glyph outside ASCII its own run, to be fitted to its cells', () => {
+    const b = { length: 1, viewportY: 0, getLine: () => line([cell('⎿'), cell(' '), cell('o'), cell('k')], 10) };
+    expect(snapshotBuffer(b, 10).lines[0]!.rows[0]!.runs).toEqual([
+      { text: '⎿', style: {}, cells: 1 },
+      { text: ' ok', style: {} },
+    ]);
+  });
+
   it('handles an empty buffer', () => {
     expect(run(buffer([]))).toEqual({ lines: [], viewportLine: 0, viewportRow: 0 });
   });
@@ -212,8 +220,14 @@ describe('cellStyle', () => {
     expect(cellStyle(cell('a', { inverse: true, fg: 1 }))).toEqual({ fg: '#000000', bg: '#cc0000' });
   });
 
-  it('halves a dim foreground', () => {
+  it('halves a dim foreground, but not a true-colour one', () => {
     expect(cellStyle(cell('a', { dim: true, fg: 244 }))).toEqual({ fg: '#80808080' });
+    expect(cellStyle(cell('a', { dim: true, fgRgb: 0x123456 }))).toEqual({ fg: '#123456' });
+  });
+
+  it('brightens after an inverse swap, as xterm does', () => {
+    expect(cellStyle(cell('a', { inverse: true, bold: true, fg: 1 }))).toEqual({ fg: '#000000', bg: '#cc0000', bold: true });
+    expect(cellStyle(cell('a', { inverse: true, bold: true, fg: 1, bg: 4 }))).toEqual({ fg: '#729fcf', bg: '#cc0000', bold: true });
   });
 });
 

@@ -32,7 +32,7 @@
   import { parseOsc52 } from '../core/osc52';
   import { fileToUpload } from '../core/shared-file';
   import { attachAndroidInput, isAndroid, type AndroidInput } from './android-input';
-  import { dedentCopied, snapshotBuffer, type RunStyle, type TerminalSnapshot } from '../core/terminal-snapshot';
+  import { dedentCopied, snapshotBuffer, type Run, type TerminalSnapshot } from '../core/terminal-snapshot';
   import { inputLog } from '../core/terminal-input-log';
   import { msg } from '../i18n.svelte';
 
@@ -115,37 +115,79 @@
     }
     term.clearSelection();
     term.blur();
-    snapshot = { ...snapshotBuffer(term.buffer.active, term.cols), metrics: snapshotMetrics() };
+    const taken = snapshotBuffer(term.buffer.active, term.cols);
+    snapshot = { ...taken, metrics: snapshotMetrics(taken) };
     await tick();
     const line = snapshotEl?.children[snapshot.viewportLine] as HTMLElement | undefined;
     if (snapshotEl && line) snapshotEl.scrollTop = line.offsetTop + snapshot.viewportRow * snapshot.metrics.lineHeight;
   };
 
   // The snapshot is drawn with xterm's own metrics (its rows' font and the letter spacing that
-  // fits each glyph to a cell), so every row lands where the terminal drew it.
-  interface SnapshotMetrics { font: string; letterSpacing: string; lineHeight: number; width?: number }
-  const snapshotMetrics = (): SnapshotMetrics => {
+  // fits ASCII to a cell), so every row lands where the terminal drew it. Like xterm, any other
+  // glyph gets its own letter spacing, measured here, so that it fills exactly its cells.
+  interface SnapshotMetrics {
+    font: string;
+    letterSpacing: string;
+    lineHeight: number;
+    width?: number;
+    rowsHeight: number;
+    fit: Map<string, number>;
+  }
+  const glyphKey = (run: Run) => `${run.style.bold ? 'b' : ''}${run.style.italic ? 'i' : ''}:${run.text}`;
+  const snapshotMetrics = (taken: TerminalSnapshot): SnapshotMetrics => {
     const rows = container?.querySelector<HTMLElement>('.xterm-rows');
     const screen = container?.querySelector<HTMLElement>('.xterm-screen');
     const cs = rows ? getComputedStyle(rows) : null;
+    const font = cs ? `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}` : `${store.terminalFontSize}px ${term?.options.fontFamily ?? 'monospace'}`;
+    const width = screen?.getBoundingClientRect().width || undefined;
+    const lineHeight = rowHeight();
     return {
-      font: cs ? `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}` : `${store.terminalFontSize}px ${term?.options.fontFamily ?? 'monospace'}`,
+      font,
       letterSpacing: cs?.letterSpacing ?? 'normal',
-      lineHeight: rowHeight(),
-      width: screen?.getBoundingClientRect().width || undefined,
+      lineHeight,
+      width,
+      rowsHeight: (term?.rows ?? 0) * lineHeight,
+      fit: width && term ? fitGlyphs(taken, font, width / term.cols) : new Map(),
     };
   };
+  const fitGlyphs = (taken: TerminalSnapshot, font: string, cellWidth: number) => {
+    const glyphs = new Map<string, Run>();
+    for (const line of taken.lines) for (const row of line.rows) for (const run of row.runs) if (run.cells) glyphs.set(glyphKey(run), run);
+    const fit = new Map<string, number>();
+    if (glyphs.size === 0 || !container) return fit;
+    const probe = document.createElement('div');
+    probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;letter-spacing:0;font:${font}`;
+    const spans = [...glyphs].map(([key, run]) => {
+      const span = document.createElement('span');
+      span.textContent = run.text;
+      if (run.style.bold) span.style.fontWeight = 'bold';
+      if (run.style.italic) span.style.fontStyle = 'italic';
+      probe.append(span, document.createElement('br'));
+      return { key, run, span };
+    });
+    container.append(probe);
+    for (const { key, run, span } of spans) {
+      const natural = span.getBoundingClientRect().width;
+      if (natural > 0) fit.set(key, run.cells! * cellWidth - natural);
+    }
+    probe.remove();
+    return fit;
+  };
 
-  const runStyle = (s: RunStyle) =>
-    [
+  const runStyle = (run: Run, fit: Map<string, number>) => {
+    const s = run.style;
+    const spacing = run.cells ? fit.get(glyphKey(run)) : undefined;
+    return [
       s.fg && `color:${s.fg}`,
       s.bg && `background-color:${s.bg}`,
       s.bold && 'font-weight:bold',
       s.italic && 'font-style:italic',
       (s.underline || s.strike) && `text-decoration:${[s.underline && 'underline', s.strike && 'line-through'].filter(Boolean).join(' ')}`,
+      spacing !== undefined && `letter-spacing:${spacing}px`,
     ]
       .filter(Boolean)
       .join(';');
+  };
 
   const copySnapshot = (e: ClipboardEvent) => {
     const text = window.getSelection()?.toString();
@@ -434,8 +476,9 @@
         style:letter-spacing={snapshot.metrics.letterSpacing}
         style:line-height="{snapshot.metrics.lineHeight}px"
         style:--row-width={snapshot.metrics.width ? `${snapshot.metrics.width}px` : undefined}
+        style:--rows-height="{snapshot.metrics.rowsHeight}px"
       >
-        {#each snapshot.lines as line}<div class="line">{#each line.rows as row, i}<span class="row" class:cont={i > 0} data-pad={' '.repeat(row.pad)}>{#each row.runs as run}<span style={runStyle(run.style)}>{run.text}</span>{/each}</span>{/each}</div>{/each}
+        {#each snapshot.lines as line}<div class="line">{#each line.rows as row, i}<span class="row" class:cont={i > 0} data-pad={' '.repeat(row.pad)}>{#each row.runs as run}<span style={runStyle(run, snapshot.metrics.fit)}>{run.text}</span>{/each}</span>{/each}</div>{/each}
       </div>
     {/if}
     {#if copied}<div class="copied-toast" role="status">{msg().terminal.copied}</div>{/if}
@@ -612,6 +655,10 @@
     -webkit-user-select: text;
   }
   .snapshot .line { width: var(--row-width, auto); overflow: hidden; }
+  /* xterm's rows start at the top of the screen and leave the remainder of a row at the
+     bottom; this room lets the snapshot scroll its viewport row to the top in every case,
+     where a clamped scroll would draw every row lower than the terminal did. */
+  .snapshot::after { content: ''; display: block; height: max(0px, calc(100% - var(--rows-height, 0px))); }
   /* A paragraph is drawn row by row as the terminal drew it: each later row starts on a new
      line with the indent its text dropped. Generated content is neither selected nor copied,
      so a copy still reads the paragraph as one line. */

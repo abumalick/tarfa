@@ -58,6 +58,9 @@ export interface RunStyle {
 export interface Run {
   text: string;
   style: RunStyle;
+  // Set on a glyph the view must fit to this many cells, as xterm does: anything outside
+  // ASCII may come from a fallback font, whose advance is not the cell width.
+  cells?: number;
 }
 
 // One terminal row. `pad` is the indent (in columns) a rebuilt paragraph dropped from this
@@ -141,25 +144,43 @@ function readRow(line: SnapshotLine, trimRight: boolean): SnapshotRow {
     if (!cell) break;
     const style = cellStyle(cell);
     const chars = cell.getChars() || ' ';
+    const width = cell.getWidth() || 1;
     const last = runs[runs.length - 1];
-    if (last && sameStyle(last.style, style)) last.text += chars;
+    if (width !== 1 || /[^\x20-\x7e]/.test(chars)) runs.push({ text: chars, style, cells: width });
+    else if (last && last.cells === undefined && sameStyle(last.style, style)) last.text += chars;
     else runs.push({ text: chars, style });
     x += cell.getWidth() || 1;
   }
   return { pad: 0, runs };
 }
 
-// Mirrors xterm's DOM renderer under its default options: bold brightens the first eight
-// colours, inverse swaps the two (a default one taking the theme's), dim halves the
-// foreground's opacity.
+type Colour = { kind: 'default' } | { kind: 'palette'; index: number } | { kind: 'rgb'; value: number };
+
+const colourOf = (rgb: boolean, palette: boolean, value: number): Colour =>
+  rgb ? { kind: 'rgb', value } : palette ? { kind: 'palette', index: value } : { kind: 'default' };
+
+const cssOf = (c: Colour, fallback?: string) =>
+  c.kind === 'rgb' ? rgbCss(c.value) : c.kind === 'palette' ? ansiColor(c.index) : fallback;
+
+// Mirrors xterm's DOM renderer under its default options: inverse swaps the two colours (a
+// default one taking the theme's), then bold brightens a foreground among the first eight
+// palette colours, and dim halves the foreground's opacity, except a true-colour one (xterm
+// writes that inline, over its dim class).
 export function cellStyle(cell: SnapshotCell): RunStyle {
-  const color = (rgb: boolean, palette: boolean, value: number) =>
-    rgb ? rgbCss(value) : palette ? ansiColor(value) : undefined;
-  const brighten = cell.isBold() && cell.isFgPalette() && cell.getFgColor() < 8;
-  let fg = brighten ? ansiColor(cell.getFgColor() + 8) : color(cell.isFgRGB(), cell.isFgPalette(), cell.getFgColor());
-  let bg = color(cell.isBgRGB(), cell.isBgPalette(), cell.getBgColor());
-  if (cell.isInverse()) [fg, bg] = [bg ?? DEFAULT_BACKGROUND, fg ?? DEFAULT_FOREGROUND];
-  if (cell.isDim()) fg = `${fg ?? DEFAULT_FOREGROUND}80`;
+  let fgc = colourOf(cell.isFgRGB(), cell.isFgPalette(), cell.getFgColor());
+  let bgc = colourOf(cell.isBgRGB(), cell.isBgPalette(), cell.getBgColor());
+  let fg: string | undefined;
+  let bg: string | undefined;
+  if (cell.isInverse()) {
+    [fgc, bgc] = [bgc, fgc];
+    fg = cssOf(fgc, DEFAULT_BACKGROUND);
+    bg = cssOf(bgc, DEFAULT_FOREGROUND);
+  } else {
+    fg = cssOf(fgc);
+    bg = cssOf(bgc);
+  }
+  if (cell.isBold() && fgc.kind === 'palette' && fgc.index < 8) fg = ansiColor(fgc.index + 8);
+  if (cell.isDim() && fgc.kind !== 'rgb') fg = `${fg ?? DEFAULT_FOREGROUND}80`;
   if (cell.isInvisible()) fg = 'transparent';
   const style: RunStyle = {};
   if (fg) style.fg = fg;
@@ -182,7 +203,7 @@ function dropIndent(row: SnapshotRow, indent: number): SnapshotRow {
       left -= run.text.length;
       continue;
     }
-    runs.push(left > 0 ? { text: run.text.slice(left), style: run.style } : run);
+    runs.push(left > 0 ? { ...run, text: run.text.slice(left) } : run);
     left = 0;
   }
   return { pad: indent, runs };

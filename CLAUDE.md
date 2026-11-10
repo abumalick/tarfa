@@ -1172,9 +1172,13 @@ So the PWA is on a public origin, tarfa.app, and what follows from that:
   default palette, bold brightening, inverse and dim), each paragraph is drawn row by row as the
   terminal drew it (a later row starts with a generated `\A` plus the indent it dropped, which
   no selection or copy includes), and the font, `letter-spacing` and row width are read from
-  xterm's own `.xterm-rows`/`.xterm-screen` (xterm stretches each glyph to its cell, which
-  Android's monospace fonts need). `e2e/terminal-select.spec.ts` checks colour, position and
-  that a selection across a wrapped row still reads one line. Desktop copy-on-select in the
+  xterm's own `.xterm-rows`/`.xterm-screen`. Like xterm, every glyph outside ASCII is its own run
+  whose letter spacing is measured to fill exactly its cells (`⏺`, `⎿`, CJK and emoji come from
+  fallback fonts and would push the rest of the row off), and a spacer after the rows lets the
+  snapshot scroll its viewport row to the top (FitAddon leaves part of a row unused at the
+  bottom, so a clamped scroll drew every row lower). `e2e/terminal-select.spec.ts` checks colour,
+  position with scrollback and such a glyph, and that a selection across a wrapped row still
+  reads one line; it fails without either fix. Desktop copy-on-select in the
   live terminal is unchanged.
   **Claude Code wraps its own text**, so the terminal holds its paragraphs as separate lines
   (`tmux capture-pane -J` joins nothing): the snapshot rebuilds them by inference (`reflow`).
