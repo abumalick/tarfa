@@ -524,8 +524,9 @@ agent key. `tarfa setup --pair` prints the first pairing code; `tarfa pair` make
   Worker (step 7).
 - **The deploy script refuses:** it wants the main checkout, on `main`, clean, equal to
   `origin/main`, and an env file only you can read. Fix the checkout rather than working around it.
-- **Pairing on an iPhone "did nothing":** the link opened in Safari, not the installed app. Scan or
-  paste it from inside the app.
+- **Pairing "did nothing":** the code was scanned with the Camera app or pasted in a browser, not in
+  the installed app (on an iPhone, Safari's storage is not the app's either). Scan or paste it from
+  inside the app: Settings → Add machine.
 - **Codex shows no status:** its hooks are not trusted yet (`/hooks`), `install-hooks` ran before
   Codex's home existed, `CODEX_HOME` is set where a login shell does not see it (`docs/DEPLOY.md`, step 4), or Codex was started without `--no-daemon` (the app's create form adds it).
 - **Password SSH is still on:** cloud-init's `50-cloud-init.conf` wins unless your file sorts

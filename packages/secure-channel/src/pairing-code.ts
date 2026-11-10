@@ -14,6 +14,7 @@ import { isMachineUrl, isPairingPath, MAX_ADDRESSES, type PairingLink } from './
 
 const PREFIX = 'TARFA';
 const VERSION = 1;
+const MAX_PLAUSIBLE_VERSION = 15;
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const KEY_BYTES = 32;
 const CHECKSUM_BYTES = 4;
@@ -33,7 +34,7 @@ export function pairingCode(pairing: PairingLink): string {
   text(pairing.defaultPath ?? '');
   out.push(pairing.urls.length);
   for (const url of pairing.urls) {
-    const scheme = SCHEMES.findIndex((s) => url.startsWith(s));
+    const scheme = SCHEMES.findIndex((s) => url.toLowerCase().startsWith(s));
     if (scheme < 0) throw new Error(`not a machine address: ${url}`);
     out.push(scheme);
     text(url.slice(SCHEMES[scheme]!.length));
@@ -60,8 +61,9 @@ export function parsePairingCode(text: string): PairingCodeRead {
   if (!compact.startsWith(PREFIX)) return invalid;
   const bytes = decode32(compact.slice(PREFIX.length));
   if (!bytes || bytes.length < 1 + CHECKSUM_BYTES) return invalid;
-  // A newer app's code may be laid out, and checksummed, differently.
-  if (bytes[0]! > VERSION) return { ok: false, reason: 'newer' };
+  // A newer app's code may be laid out, and checksummed, differently. A version byte no app would
+  // reach soon is more likely a typo than a newer code.
+  if (bytes[0]! > VERSION && bytes[0]! <= MAX_PLAUSIBLE_VERSION) return { ok: false, reason: 'newer' };
   const body = bytes.slice(0, -CHECKSUM_BYTES);
   const sum = sha256(body);
   if (!bytes.slice(-CHECKSUM_BYTES).every((b, i) => b === sum[i])) return invalid;

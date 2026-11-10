@@ -20,7 +20,10 @@
   // True once the text is dealt with: paired, or declined by the owner.
   function pair(text: string): boolean {
     const result = store.pairFromLink(text);
-    if (!('error' in result)) return true;
+    if (!('error' in result)) {
+      error = '';
+      return true;
+    }
     error = result.error;
     return false;
   }

@@ -66,6 +66,12 @@ describe('pairing code', () => {
     expect(parsePairingCode(code.toLowerCase())).toEqual({ ok: true, pairing });
   });
 
+  // isMachineUrl takes a scheme in any case, so tarfa pair may be handed one.
+  it('takes an upper-case scheme', () => {
+    const read = parsePairingCode(pairingCode({ ...pairing, urls: ['WSS://box.example/abu'] }));
+    expect(read.ok && read.pairing.urls).toEqual(['wss://box.example/abu']);
+  });
+
   it('keeps a non-ASCII name and path', () => {
     const named = { ...pairing, name: 'مكتب é', defaultPath: '/home/ü/项目' };
     expect(parsePairingCode(pairingCode(named))).toEqual({ ok: true, pairing: named });
@@ -92,6 +98,8 @@ describe('pairing code', () => {
     body[0] = 2;
     expect(parsePairingCode(withChecksum(body))).toEqual({ ok: false, reason: 'newer' });
     body[0] = 0;
+    expect(parsePairingCode(withChecksum(body))).toEqual({ ok: false, reason: 'invalid' });
+    body[0] = 200;
     expect(parsePairingCode(withChecksum(body))).toEqual({ ok: false, reason: 'invalid' });
   });
 

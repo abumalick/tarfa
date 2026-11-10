@@ -54,16 +54,19 @@ describe('PairMachine', () => {
   });
 
   // The owner said no to the pairing question: scanning on would ask again at the next frame.
-  it('stops the camera when the owner declines a scanned code, and says nothing', async () => {
+  it('stops the camera when the owner declines a scanned code, and clears an earlier refusal', async () => {
     const stop = vi.fn();
     let emit: (text: string) => void = () => undefined;
     const scan = vi.fn(async (_video: HTMLVideoElement, onText: (text: string) => void) => {
       emit = onText;
       return stop;
     });
-    render(PairMachine, { props: { store: fakeStore(() => 'declined'), scan } });
+    render(PairMachine, { props: { store: fakeStore((text) => (text === 'receipt' ? false : 'declined')), scan } });
     await fireEvent.click(screen.getByRole('button', { name: /scan qr code/i }));
     await tick();
+    emit('receipt');
+    await tick();
+    expect(screen.getByRole('alert')).toBeTruthy();
     emit('TARFA0123');
     await tick();
     expect(stop).toHaveBeenCalledTimes(1);

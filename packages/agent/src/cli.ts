@@ -560,6 +560,8 @@ async function readStdin(ttyError: string): Promise<string> {
 }
 
 const RELAYS_GONE = 'relays are gone: tarfa setup sets a machine up for phones, and tarfa pair pairs one';
+// The longest machine name a phone takes from a pairing code or link.
+const MAX_PAIRING_NAME = 64;
 const PAIR_USAGE = `usage: tarfa pair [--pwa <PWA origin>] [--ttl <minutes, 1-${PAIRING_TTL_MS / 60_000}, default ${PAIRING_TTL_MS / 60_000}>] [--link]`;
 
 function takeOption(args: string[], name: string, usage: string, Failure: new (message: string) => Error = Error): string | undefined {
@@ -630,10 +632,13 @@ async function pair(argv: string[], env: NodeJS.ProcessEnv, home: string): Promi
   const bad = config.phoneAddresses.find((url) => !isMachineUrl(url));
   if (bad) throw new Error(`TARFA_PHONE_ADDRESSES holds ${bad}, which a phone refuses: wss://<host>[:port][/<slug>] (run tarfa setup)`);
   if (config.phoneAddresses.length > MAX_ADDRESSES) throw new Error(`TARFA_PHONE_ADDRESSES holds more than ${MAX_ADDRESSES} addresses`);
+  // Refused before a secret is stored, like every other field a phone would refuse.
+  const machineId = pairingName(config.machineId, hostname());
+  if (machineId.trim().length > MAX_PAIRING_NAME) throw new Error(`TARFA_MACHINE_ID must be at most ${MAX_PAIRING_NAME} characters, the name phones show (got ${machineId.length})`);
   const pairing = await mintPairing(
     {
       keys: await loadOrCreateAgentKeys(config.agentKeyPath),
-      machineId: pairingName(config.machineId, hostname()),
+      machineId,
       ...(config.defaultPath ? { defaultPath: config.defaultPath } : {}),
       pairings: new FilePairingStore(config.pairingPath),
       newSecret: generatePairingSecret,

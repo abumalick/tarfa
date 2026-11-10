@@ -347,6 +347,12 @@ describe('tarfa pair (arguments and agent.env)', () => {
     );
   });
 
+  it('refuses a machine id longer than a phone takes, before storing a secret', async () => {
+    const { home, env } = await machine(`TARFA_MACHINE_ID=${'m'.repeat(65)}\nTARFA_PHONE_ADDRESSES=wss://box.example.ts.net\n`);
+    await expect(run(['pair'], env, home)).rejects.toThrow(/TARFA_MACHINE_ID must be at most 64/);
+    await expect(readFile(join(home, '.tarfa', 'pairing.json'), 'utf8')).rejects.toThrow();
+  });
+
   it('refuses a TARFA_PHONE_ADDRESSES address a phone would refuse', async () => {
     const { home, env } = await machine('TARFA_MACHINE_ID=box\nTARFA_PHONE_ADDRESSES=ws://dev.example.ts.net/abu\n');
     await expect(run(['pair'], env, home)).rejects.toThrow(/TARFA_PHONE_ADDRESSES/);
