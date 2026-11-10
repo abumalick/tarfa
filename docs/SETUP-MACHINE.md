@@ -249,7 +249,7 @@ install from the browser menu). Then pair:
 - **Android:** Chrome asks once whether the app may reach your local network (a tailnet address):
   allow it.
 
-A code works once, for the minutes `tarfa pair` states; `tarfa pair` makes another. An app from
+A code works once, for 20 minutes (or `--ttl`); `tarfa pair` makes another. An app from
 before pairing codes takes a link instead: `tarfa pair --link`. Only a `tarfa pair` code adds a
 phone:
 

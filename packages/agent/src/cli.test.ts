@@ -298,12 +298,14 @@ describe('tarfa pair (arguments and agent.env)', () => {
     const { home, env } = await machine(base);
     const before = Date.now();
     const out = await run(['pair', '--ttl', '2'], env, home);
+    expect(await run(['pair', '--ttl', '20'], env, home)).toContain('for 20 minutes');
     expect(out).toContain('for 2 minutes');
     const [stored] = JSON.parse(await readFile(join(home, '.tarfa', 'pairing.json'), 'utf8')) as Array<{ expiresAt: string }>;
     const left = Date.parse(stored!.expiresAt) - before;
     expect(left).toBeGreaterThanOrEqual(2 * 60_000);
     expect(left).toBeLessThan(2 * 60_000 + 5_000);
     for (const bad of ['0', String(PAIRING_TTL_MS / 60_000 + 1), '1.5', 'x']) await expect(run(['pair', '--ttl', bad], env, home)).rejects.toThrow(/--ttl/);
+    await expect(run(['pair', 'stray'], env, home)).rejects.toThrow('--ttl <minutes, 1-20, default 20>');
   });
 
   it('hands the phone the TARFA_DEFAULT_PATH agent.env sets', async () => {

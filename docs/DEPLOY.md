@@ -193,8 +193,8 @@ tailscale serve --bg --https=10000 --set-path=/me http://127.0.0.1:8797   # or `
 # ~/.tarfa/agent.env: TARFA_PHONE_ADDRESSES=wss://<node>.<tailnet>.ts.net:10000/me
 tarfa pair [--pwa https://<where phones open the app>] [--ttl <minutes>] [--link]
 ```
-`tarfa pair` prints a one-time pairing code and its QR code (one phone, for the default lifetime or
-`--ttl` minutes) with every address in `TARFA_PHONE_ADDRESSES`. The code (`TARFA…`, letters and
+`tarfa pair` prints a one-time pairing code and its QR code (one phone, for 20 minutes, or `--ttl`
+1–20) with every address in `TARFA_PHONE_ADDRESSES`. The code (`TARFA…`, letters and
 digits only) is pasted or scanned inside the installed app, on any device: Settings → Add machine.
 It is not a link, so nothing opens it outside the app, where it would pair nothing. The phone asks
 before pairing, naming every host and the machine key `tarfa pair` printed beside the code. When a
