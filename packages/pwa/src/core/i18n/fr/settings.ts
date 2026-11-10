@@ -23,6 +23,7 @@ export const settings: Messages['settings'] = {
   elevenLabsHint: 'Stockée sur cet appareil uniquement. Sert à la dictée dans le terminal.',
   openRouterHint:
     'Stockée sur cet appareil uniquement. Les enregistrements envoyés avec un préréglage OpenRouter vont à OpenRouter et au fournisseur du modèle.',
+  howToGetKey: 'Obtenir une clé',
   presets: 'Préréglages',
   presetsHint: 'Maintenez le 🎤 dans le terminal pour passer de l’un à l’autre.',
   terminalLinks: 'Liens du terminal',

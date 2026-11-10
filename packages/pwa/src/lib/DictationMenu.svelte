@@ -2,7 +2,7 @@
   // The mic's long-press menu: pick the dictation preset the next recording uses. Positioned
   // fixed against the viewport, since the keyboard bar clips its overflow.
   // A preset that cannot be used here (no key; Claude voice outside Claude Code) is shown but
-  // disabled; with none usable there is no mic.
+  // disabled; with none usable a tap on the mic explains how to set one up.
   import { unavailableHint, type DictationPreset, type PresetKeys } from '../core/dictation-presets';
   import { msg } from '../i18n.svelte';
 

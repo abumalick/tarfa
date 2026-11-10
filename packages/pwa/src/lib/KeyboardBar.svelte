@@ -42,6 +42,7 @@
     presetKeys = { elevenlabs: true, openrouter: true },
     onSelectPreset = () => {},
     onAddPreset = () => {},
+    onSetupDictation,
     onPickFile,
     onReadAloud,
     ctrl = $bindable('off'),
@@ -59,6 +60,9 @@
     presetKeys?: PresetKeys;
     onSelectPreset?: (id: string) => void;
     onAddPreset?: () => void;
+    // When wired, the mic stays in the bar with no usable preset, and a tap explains how to
+    // set dictation up. Omitted (BrowserView), such a mic would do nothing, so there is none.
+    onSetupDictation?: () => void;
     // When wired (terminal view), shows an attach-file button backed by the OS file picker.
     // Omitted elsewhere (e.g. BrowserView) so the button doesn't appear where it has no target.
     onPickFile?: (file: File) => void;
@@ -146,14 +150,19 @@
   // tests do) is never suppressed.
   let suppressClick = false;
 
-  // No mic at all until some preset's provider has a key: a tap could only fail.
-  const preset = $derived(hasUsablePreset(presets, presetKeys) ? currentPreset(presets, currentPresetId, presetKeys) : null);
+  // `preset` is what a tap dictates with, null while nothing can run here: the tap then opens
+  // the setup explanation instead. The long-press menu still opens, on the plain lookup.
+  const menuPreset = $derived(presets.length ? currentPreset(presets, currentPresetId, presetKeys) : null);
+  const preset = $derived(hasUsablePreset(presets, presetKeys) ? menuPreset : null);
+  const showMic = $derived(!!preset || (!!menuPreset && !!onSetupDictation));
+  // A recording always stops on a tap, even if its preset stopped being usable meanwhile.
+  const tapMic = () => (preset || dictation === 'recording' ? onDictate() : onSetupDictation?.());
   let mic = $state<HTMLButtonElement | null>(null);
   let presetAnchor = $state<{ bottom: number; right: number } | null>(null);
 
   function openPresets() {
     const rect = mic?.getBoundingClientRect();
-    if (!preset || !rect) return;
+    if (!menuPreset || !rect) return;
     presetAnchor = { bottom: window.innerHeight - rect.top + 4, right: Math.max(4, window.innerWidth - rect.right) };
   }
 
@@ -315,34 +324,36 @@
     use:press
     onclick={() => (meta = cycleModifier(meta))}>⌘</button>
   {@render navKey(spaceKey)}
-  {#if preset}
+  {#if showMic}
   <button
     type="button"
     class="mic"
+    class:setup={!preset}
     class:recording={dictation === 'recording'}
     class:error={dictation === 'error'}
     bind:this={mic}
-    aria-label={msg().keyboard.dictate(preset.name)}
-    aria-pressed={dictation === 'recording'}
+    aria-label={preset ? msg().keyboard.dictate(preset.name) : msg().keyboard.setupDictation}
+    aria-pressed={preset ? dictation === 'recording' : undefined}
+    aria-haspopup={preset ? undefined : 'dialog'}
     disabled={dictation === 'transcribing'}
-    use:press={{ fire: onDictate, hold: dictation === 'idle' || dictation === 'error' ? openPresets : undefined }}
+    use:press={{ fire: tapMic, hold: dictation === 'idle' || dictation === 'error' ? openPresets : undefined }}
     oncontextmenu={(e) => e.preventDefault()}
     onclick={() => {
       if (suppressClick) {
         suppressClick = false;
         return;
       }
-      onDictate();
+      tapMic();
     }}
-    >{dictation === 'transcribing' ? '⏳' : dictation === 'error' ? '⚠️' : '🎤'}<span class="badge" aria-hidden="true">{preset.badge}</span></button>
+    >{dictation === 'transcribing' ? '⏳' : dictation === 'error' ? '⚠️' : '🎤'}{#if preset}<span class="badge" aria-hidden="true">{preset.badge}</span>{/if}</button>
   {/if}
   {#if onReadAloud}
     <button type="button" aria-label={msg().readAloud.listen} use:press onclick={() => onReadAloud()}>🔊</button>
   {/if}
-  {#if presetAnchor && preset}
+  {#if presetAnchor && menuPreset}
     <DictationMenu
       {presets}
-      currentId={preset.id}
+      currentId={menuPreset.id}
       keys={presetKeys}
       anchor={presetAnchor}
       onSelect={onSelectPreset}
@@ -475,6 +486,7 @@
   }
   .mic.error { border-color: var(--danger, #e5484d); }
   .mic:disabled { opacity: 0.6; }
+  .mic.setup { opacity: 0.7; }
   @keyframes mic-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.55; }

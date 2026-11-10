@@ -20,6 +20,7 @@ export const settings = {
   saved: 'Saved ✓',
   elevenLabsHint: 'Stored on this device only. Used for speech-to-text in the terminal.',
   openRouterHint: "Stored on this device only. Recordings sent with an OpenRouter preset go to OpenRouter and the model's provider.",
+  howToGetKey: 'How to get a key',
   presets: 'Presets',
   presetsHint: 'Hold the 🎤 in the terminal to switch between them.',
   terminalLinks: 'Terminal links',
