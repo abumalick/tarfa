@@ -204,10 +204,11 @@ startup; remove it.
 **Adding an address later needs no new pairing.** Every session the agent accepts names its
 `TARFA_PHONE_ADDRESSES` (when `tarfa pair` would accept them), and a paired phone adopts each one
 it does not hold once it has connected through it: right away when it can, else at the next
-network change, or at a foreground at least five minutes after its last try. A phone puts the
-agent's addresses first, in its order, and keeps any other it holds after them, so an address
-taken out of `TARFA_PHONE_ADDRESSES` is only tried last; Settings removes it. Restart the agent
-after editing `agent.env`.
+network change, or at a session or foreground at least five minutes after its last try. A phone
+puts the agent's addresses first, in its order, and keeps any other it holds after them, so an
+address taken out of `TARFA_PHONE_ADDRESSES` is only tried last; Settings removes it. An address
+still listed comes back at the next session, so change the list in `agent.env`, then restart the
+agent.
 
 **Moving a machine off relays.** An agent updated past the relays' removal no longer dials
 them, so a machine phones reached only through a relay is cut off until it is moved: run

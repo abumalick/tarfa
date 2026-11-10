@@ -2,8 +2,8 @@ import { MAX_ADDRESSES } from '@tarfa/secure-channel';
 import { normalizeAddress } from './machine-addresses';
 import { isConnectable, type MachineConfig } from './settings-store';
 
-// How long a candidate the phone could not reach waits before a foreground dials it again: a
-// phone that rarely runs Tailscale would otherwise hold a dead socket on every foreground.
+// How long a candidate the phone could not reach waits before a session or a foreground dials it
+// again: a phone that rarely runs Tailscale would otherwise hold a dead socket on every one.
 export const FAILED_RETRY_MS = 5 * 60_000;
 
 // What started a round: a new session (the agent just named its addresses), the app coming to
@@ -89,7 +89,8 @@ export class AddressSync {
         }
       }
       const current = this.deps.machines().find((m) => m.id === machineId);
-      if (!current) return;
+      // Proven for the key the round dialed, so only for an entry still pinned to it.
+      if (!current || current.agentKey !== entry.agentKey) return;
       const stillFree = addressCandidates(current, listed, this.deps.machines());
       const heldNow = held(current);
       const next = syncedAddresses(heldNow, listed, proven.filter((a) => stillFree.includes(a)));
@@ -103,6 +104,6 @@ export class AddressSync {
   private eligible(machineId: string, address: string, trigger: SyncTrigger): boolean {
     const failedAt = this.failed.get(`${machineId} ${address}`);
     if (failedAt === undefined || trigger === 'network') return true;
-    return trigger === 'visible' && this.deps.now() - failedAt >= FAILED_RETRY_MS;
+    return this.deps.now() - failedAt >= FAILED_RETRY_MS;
   }
 }

@@ -121,13 +121,16 @@ describe('AddressSync', () => {
     expect(h.writes).toEqual([]);
   });
 
-  it('keeps a candidate it cannot reach, without a write, and does not probe it again on the next session', async () => {
+  it('keeps a candidate it cannot reach, without a write, and probes it again on a session only after the gap', async () => {
     const h = harness([machine([A])], new Set());
-    h.sync.announce('m1', [B, A]);
+    h.sync.announce('m1', [A, B]);
     await h.sync.run('m1', 'session');
     expect(h.writes.map((m) => m.addresses)).toEqual([]);
     await h.sync.run('m1', 'session');
     expect(h.probes).toEqual([B]);
+    h.advance(FAILED_RETRY_MS);
+    await h.sync.run('m1', 'session');
+    expect(h.probes).toEqual([B, B]);
   });
 
   it('demotes rather than waits: the listed held address still moves first while a candidate is unreachable', async () => {
@@ -190,6 +193,23 @@ describe('AddressSync', () => {
     h.replace([{ ...machine([A, C]), name: 'renamed' }]);
     await round;
     expect(h.writes.at(-1)).toMatchObject({ name: 'renamed', addresses: [A, B, C] });
+  });
+
+  it('writes nothing proven for a key the entry no longer pins', async () => {
+    let machines = [machine([A])];
+    const writes: MachineConfig[] = [];
+    const sync = new AddressSync({
+      machines: () => machines,
+      probe: async () => {
+        machines = [machine([A], { agentKey: 'n'.repeat(43) })];
+        return true;
+      },
+      write: (config) => void writes.push(config),
+      now: () => 0,
+    });
+    sync.announce('m1', [A, B]);
+    await sync.run('m1', 'session');
+    expect(writes).toEqual([]);
   });
 
   it('never starts inside the caller: the round begins on a later tick', () => {

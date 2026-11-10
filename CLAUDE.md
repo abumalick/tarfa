@@ -278,14 +278,17 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     listed addresses first (agent's order, held or proven), then the unlisted held ones: **never
     dropped on the agent's word**, only demoted, since a wrong list (a tailnet-only one) must not
     strand a phone off the tailnet; an unlisted one leaves the tail only when a proven address
-    needs the slot (cap 4), and Settings removes one by hand. A round is single-flight per machine,
+    needs the slot (cap 4), and Settings removes one by hand. An address the agent still lists
+    comes back at the next session, and so does its order: the agent's list is changed in
+    `TARFA_PHONE_ADDRESSES`, not on the phone. A round is single-flight per machine,
     probes one candidate at a time and writes at most once, and only when the normalized list
     changes (a write reconnects). Triggers: each session (after its handler, never inside it), the
     browser's `online` and the app's foreground. **A failed candidate is kept in memory** (the agent
-    names it again every session) and is not dialed again by a session, by a foreground before
-    `FAILED_RETRY_MS` (5 min), only by `online` at once: no timer, no loop. A rebuilt connection
-    goes `online` → `connecting` with no `offline`, which the store counts as a drop, so the open
-    terminal re-attaches.
+    names it again every session) and is dialed again by a session or a foreground only
+    `FAILED_RETRY_MS` (5 min) after its last failure, by `online` at once: no timer, no loop. A
+    write rebuilds every connection, which goes `online` → `connecting` with no `offline`; the
+    store treats that as a drop (`setStatus`), so what each session held (a dictation, a media
+    request, the load reading) is dropped and the open terminal re-attaches.
   - **One attempt walks the addresses inside the single connect chain** (`MachineConnection`,
     with the `generation` token as before), starting with the one that last reached `online` in
     this app session. The connection manager keeps that memory: a machine-list change rebuilds

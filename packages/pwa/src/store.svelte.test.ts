@@ -1257,6 +1257,17 @@ describe('TarfaStore folder picker', () => {
     expect(store.machineStats['mini']).toEqual(stats);
   });
 
+  // Rewriting an entry rebuilds every connection with no `offline`: each old session is gone, and
+  // what it held (the load reading, a dictation, a media request) is dropped as on a drop.
+  it('drops what a session held when its connection is rebuilt from online', () => {
+    const { store } = connected();
+    const stats = { cpuPercent: 12, memory: { usedBytes: 100, totalBytes: 400 }, swapUsedBytes: 0 };
+    store.setStatus('mac', 'online');
+    store.handleMessage('mac', { type: 'stats', stats });
+    store.setStatus('mac', 'connecting');
+    expect(store.machineStats['mac']).toBeUndefined();
+  });
+
   // The kill counter is cumulative for the life of the cgroup, so its absolute value says
   // nothing. Only growth since this client started watching means a kill the user just had.
   it('reports no kills from the first reading it sees, however high the counter', () => {

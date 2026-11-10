@@ -444,13 +444,14 @@ export class TarfaStore {
   }
 
   setStatus(machineId: string, status: ConnectionStatus): void {
-    // A connection rebuilt while online (its entry rewritten) says no `offline` first.
-    if (status === 'connecting' && this.statuses[machineId] === 'online') this.disconnected.add(machineId);
+    // A connection rebuilt while online (an entry rewritten) says no `offline` first, but its
+    // session is gone all the same.
+    const sessionEnded = status === 'offline' || (status === 'connecting' && this.statuses[machineId] === 'online');
     this.statuses[machineId] = status;
     if (status === 'connecting') {
       this.deps.connectionLog?.push(machineId, 'connect');
     }
-    if (status === 'offline') {
+    if (sessionEnded) {
       this.sessionChannels.get(machineId)?.offline();
       // The agent ends a dictation whose session dropped, but can no longer say so.
       if (this.voice?.machineId === machineId) this.failVoice(this.voice, msg().dictation.connectionDropped);
