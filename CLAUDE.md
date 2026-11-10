@@ -180,8 +180,17 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   `<unit>.bak-<time>`), restart, wrapper; the agent key, roster and parked/live state are never
   touched, so no phone pairs again; **every run takes machine id, roots, phone port and default path
   from the agent.env it found (or the clone's, when adopting) unless a flag gives one**, so a bare rerun
-  of an adopted machine plans nothing, while `--tailscale` is never read from it (not in agent.env;
-  `none` changes nothing and keeps `TARFA_PHONE_ADDRESSES`); **on macOS the install waits for launchd to
+  of an adopted machine plans nothing; **`--tailscale` has no default and setup never picks
+  tailnet-only on its own** (`resolveReachability`): without the flag, an `--address`, the
+  `TARFA_PHONE_ADDRESSES` agent.env holds (kept as they are) or a serve handler already proxying to the
+  phone port settle it (a tailnet-only one on a relay machine is refused), and only then does a machine moving off a public relay (`TARFA_RELAY_URL(S)`
+  in its agent.env, or a `perch-agent` unit being swapped) default to Funnel, said in the output and
+  refused, never downgraded, when Funnel is not allowed; the relay rule ranks last because setup never
+  removes the relay line, so above the others a bare rerun would publish a machine kept on the tailnet;
+  with none of them setup refuses, naming `--tailscale funnel` and `--tailscale serve`. Every run,
+  dry run and no-op included, prints one `reachability:` line worded from the result (a serve port
+  already on Funnel is public; a proxy or an unreadable serve config is "cannot tell"). An agent
+  setting a machine up asks its operator whether phones must reach it without Tailscale; **on macOS the install waits for launchd to
   drop the label after `bootout` and retries `bootstrap`** (a bootstrap right after a bootout fails
   `5: Input/output error`), then says no agent is loaded and how to load the plist on disk; **hooks count as installed regardless of key order and entry order**
   (Claude Code rewrites `settings.json` with sorted keys); **an existing `TARFA_PWA_ORIGIN` is

@@ -569,8 +569,9 @@ describe('parseSetupFlags', () => {
     });
   });
 
-  it('defaults the phone port to 8797 and Tailscale to none', () => {
-    expect(parseSetupFlags(base)).toMatchObject({ phonePort: 8797, tailscale: 'none', addresses: [], pair: false, dryRun: false });
+  it('defaults the phone port to 8797 and leaves the Tailscale choice open', () => {
+    expect((parseSetupFlags(base) as SetupFlags).tailscale).toBeUndefined();
+    expect(parseSetupFlags(base)).toMatchObject({ phonePort: 8797, addresses: [], pair: false, dryRun: false });
   });
 
   const invalid: Array<[string, string[]]> = [
@@ -669,7 +670,7 @@ describe('planSetup: the CLI wrapper and adopting a clone', () => {
     const result = planSetup(flags(), converged({ cli: cli({ onPath: false }, { kind: 'file', text: '#!/bin/sh\nmine\n' }, { kind: 'link', target: `${BIN}/tarfa` }) }));
     if ('error' in result) throw new Error(result.error);
     expect(result.steps).toEqual([]);
-    expect(result.checks.filter((c) => !c.startsWith('tailscale'))).toEqual([expect.stringContaining("is not Tarfa's wrapper")]);
+    expect(result.checks.filter((c) => !c.startsWith('tailscale') && !c.startsWith('reachability'))).toEqual([expect.stringContaining("is not Tarfa's wrapper")]);
   });
 
   describe('adoption', () => {
@@ -704,7 +705,7 @@ describe('planSetup: the CLI wrapper and adopting a clone', () => {
       const result = planSetup(flags(), adopting({ adoption: adoption({ copyEnv: false }) }));
       if ('error' in result) throw new Error(result.error);
       expect(result.steps.map((s) => s.kind)).not.toContain('copy-env');
-      expect(result.checks.filter((c) => !c.startsWith('tailscale'))).toEqual([expect.stringContaining('already exists, so it is kept')]);
+      expect(result.checks.filter((c) => !c.startsWith('tailscale') && !c.startsWith('reachability'))).toEqual([expect.stringContaining('already exists, so it is kept')]);
     });
 
     it('removes agent-live only when it is a link, and refuses when it is anything else', () => {
@@ -721,6 +722,139 @@ describe('planSetup: the CLI wrapper and adopting a clone', () => {
       expect(text.some((l) => l.includes('copy ') && l.includes('the original stays'))).toBe(true);
       expect(text.some((l) => l.includes('keeping the old definition'))).toBe(true);
       expect(text.some((l) => l.includes('wrapper'))).toBe(true);
+    });
+  });
+});
+
+describe('planSetup, how phones reach the machine', () => {
+  const bare = (over: Partial<SetupFlags> = {}) => flags({ tailscale: undefined, tailscalePort: undefined, slug: undefined, ...over });
+  const checksOf = (f: SetupFlags, s: SetupState): string[] => {
+    const result = planSetup(f, s);
+    if ('error' in result) throw new Error(result.error);
+    return result.checks;
+  };
+  const reach = (f: SetupFlags, s: SetupState) => checksOf(f, s).filter((c) => c.startsWith('reachability:'));
+  const ENV = 'TARFA_MACHINE_ID=dev\nTARFA_PROJECT_ROOTS=/home/u/workspace:/home/u/other\nTARFA_PHONE_PORT=8797\nTARFA_PWA_ORIGIN=https://tarfa.app\n';
+  // A machine that is set up and running: rerunning setup on it should change nothing.
+  const converged = (envText: string, over: Partial<SetupState> = {}): SetupState =>
+    fresh({
+      envText,
+      hasKey: true,
+      roster: 'open',
+      hooksCurrent: true,
+      phonePortOwner: 'ours',
+      hooksPortOwner: 'ours',
+      service: { kind: 'systemd', template: TEMPLATE, installed: CLONE_UNIT, enabled: true },
+      ...over,
+    });
+
+  it('refuses when nothing says whether phones must reach the machine without Tailscale, naming both flags', () => {
+    const error = errorOf(bare(), fresh());
+    expect(error).toMatch(/without Tailscale/);
+    expect(error).toMatch(/--tailscale funnel/);
+    expect(error).toMatch(/--tailscale serve/);
+    expect(error.split('\n')).toHaveLength(1);
+  });
+
+  it('keeps an existing tailnet-only address list and says, on every run, that phones need Tailscale', () => {
+    const tailnet = `${ENV}TARFA_PHONE_ADDRESSES=wss://${HOST}/abu\n`;
+    const serve: ServeConfig = { TCP: { '443': { HTTPS: true } }, Web: { [`${HOST}:443`]: { Handlers: { '/abu': { Proxy: TARGET } } } } };
+    const state = converged(tailnet, { serve });
+    expect(plan(bare(), state)).toEqual([]);
+    expect(reach(bare(), state)).toEqual([`reachability: phones reach this machine only with Tailscale on (wss://${HOST}/abu)`]);
+    expect(reach(bare({ dryRun: true }), state)).toEqual([`reachability: phones reach this machine only with Tailscale on (wss://${HOST}/abu)`]);
+  });
+
+  it('keeps an existing list of several addresses untouched', () => {
+    const several = `${ENV}TARFA_PHONE_ADDRESSES=wss://${HOST}:10000/abu,wss://proxy.example/abu\n`;
+    const state = converged(several, { serve: SERVED });
+    expect(plan(bare(), state)).toEqual([]);
+    expect(reach(bare(), state)).toEqual([`reachability: phones reach this machine with or without Tailscale (wss://${HOST}:10000/abu, wss://proxy.example/abu)`]);
+  });
+
+  it('cannot tell whether an address outside Tailscale needs it, and says so', () => {
+    const state = converged(`${ENV}TARFA_PHONE_ADDRESSES=wss://proxy.example/abu\n`);
+    expect(reach(bare(), state)).toEqual(['reachability: phones reach this machine at wss://proxy.example/abu; setup cannot tell whether that needs Tailscale']);
+    expect(reach(bare(), { ...state, serve: null, envText: `${ENV}TARFA_PHONE_ADDRESSES=wss://${HOST}/abu\n` })).toEqual([
+      `reachability: phones reach this machine at wss://${HOST}/abu; setup cannot tell whether that needs Tailscale`,
+    ]);
+  });
+
+  it('says phones cannot reach a machine given --tailscale none and no address', () => {
+    expect(reach(flags({ tailscale: 'none', slug: undefined }), fresh())).toEqual([expect.stringMatching(/^reachability: phones cannot reach this machine yet/)]);
+  });
+
+  it('takes --address alone as settled, publishing nothing itself', () => {
+    const steps = plan(bare({ addresses: ['wss://proxy.example/abu'] }), fresh());
+    expect(steps.map((s) => s.kind)).not.toContain('tailscale-serve');
+  });
+
+  it('words the result of --tailscale serve and --tailscale funnel', () => {
+    expect(reach(flags({ tailscale: 'serve' }), fresh())).toEqual([`reachability: phones reach this machine only with Tailscale on (wss://${HOST}:10000/abu)`]);
+    expect(reach(flags(), fresh())).toEqual([`reachability: phones reach this machine with or without Tailscale (wss://${HOST}:10000/abu)`]);
+    // serve on a port already on Funnel is public.
+    expect(reach(flags({ tailscale: 'serve' }), fresh({ serve: SERVED }))).toEqual([`reachability: phones reach this machine with or without Tailscale (wss://${HOST}:10000/abu)`]);
+  });
+
+  it('takes the mode, port and slug of an existing handler for the phone port, and writes its address once', () => {
+    const steps = plan(bare(), converged(ENV, { serve: SERVED }));
+    expect(steps.map((s) => s.kind)).not.toContain('tailscale-serve');
+    const env = steps.find((s) => s.kind === 'write-env');
+    expect(parseEnvFile(env?.kind === 'write-env' ? env.text : '').TARFA_PHONE_ADDRESSES).toBe(`wss://${HOST}:10000/abu`);
+    const tailnet: ServeConfig = { TCP: { '443': { HTTPS: true } }, Web: { [`${HOST}:443`]: { Handlers: { '/': { Proxy: `${TARGET}/` } } } } };
+    expect(reach(bare(), converged(ENV, { serve: tailnet }))).toEqual([`reachability: phones reach this machine only with Tailscale on (wss://${HOST}:443)`]);
+  });
+
+  it('infers from a handler only under the --slug and --tailscale-port given, preferring one on Funnel', () => {
+    const two: ServeConfig = {
+      Web: { [`${HOST}:443`]: { Handlers: { '/abu': { Proxy: TARGET } } }, [`${HOST}:10000`]: { Handlers: { '/abu': { Proxy: TARGET } } } },
+      AllowFunnel: { [`${HOST}:10000`]: true },
+    };
+    const address = (f: SetupFlags) => {
+      const env = plan(f, converged(ENV, { serve: two })).find((s) => s.kind === 'write-env');
+      return parseEnvFile(env?.kind === 'write-env' ? env.text : '').TARFA_PHONE_ADDRESSES;
+    };
+    expect(address(bare())).toBe(`wss://${HOST}:10000/abu`);
+    expect(address(bare({ tailscalePort: 443 }))).toBe(`wss://${HOST}:443/abu`);
+    expect(errorOf(bare({ slug: 'bob' }), converged(ENV, { serve: two }))).toMatch(/--tailscale funnel/);
+  });
+
+  describe('a machine moving off a public relay', () => {
+    const RELAY_ENV = `${ENV}TARFA_RELAY_URLS=wss://relay.example\n`;
+
+    it('defaults to Funnel and says why', () => {
+      const result = planSetup(bare(), converged(RELAY_ENV));
+      if ('error' in result) throw new Error(result.error);
+      expect(result.steps.find((s) => s.kind === 'tailscale-serve')).toEqual({ kind: 'tailscale-serve', port: 10000, path: '/', target: TARGET, funnel: true });
+      expect(result.checks).toContainEqual(expect.stringMatching(/relay.*--tailscale funnel.*--tailscale serve/));
+      expect(reach(bare(), converged(RELAY_ENV))).toEqual([`reachability: phones reach this machine with or without Tailscale (wss://${HOST}:10000)`]);
+    });
+
+    it('reads the relay from a PERCH_ name and from an old service being swapped', () => {
+      const viaLegacyName = planSetup(bare(), converged(`${ENV}PERCH_RELAY_URL=wss://relay.example\n`));
+      expect(viaLegacyName).toMatchObject({ steps: expect.arrayContaining([expect.objectContaining({ kind: 'tailscale-serve', funnel: true })]) });
+      const viaOldUnit = planSetup(bare(), converged(ENV, { legacyService: true }));
+      expect(viaOldUnit).toMatchObject({ steps: expect.arrayContaining([expect.objectContaining({ kind: 'tailscale-serve', funnel: true })]) });
+    });
+
+    it('refuses rather than fall back to the tailnet when Funnel is not allowed', () => {
+      const tailscale = { ...TAILSCALE, Self: { ...TAILSCALE.Self, CapMap: { https: null } } };
+      const error = errorOf(bare(), converged(RELAY_ENV, { tailscale, legacyService: true }));
+      expect(error).toMatch(/policy file/);
+      expect(error).toMatch(/relay.*--tailscale serve/);
+      expect(errorOf(bare(), converged(RELAY_ENV, { tailscale: null }))).toMatch(/relay/);
+    });
+
+    it('keeps existing addresses and handlers over the relay default, so a bare rerun never publishes a tailnet-only machine', () => {
+      const tailnet: ServeConfig = { TCP: { '443': { HTTPS: true } }, Web: { [`${HOST}:443`]: { Handlers: { '/abu': { Proxy: TARGET } } } } };
+      expect(plan(bare(), converged(`${RELAY_ENV}TARFA_PHONE_ADDRESSES=wss://${HOST}/abu\n`, { serve: tailnet }))).toEqual([]);
+      // No address yet, and only a tailnet-only handler: inferring serve would take its public reach away.
+      expect(errorOf(bare(), converged(RELAY_ENV, { serve: tailnet }))).toMatch(/relay.*tailnet only.*--tailscale funnel.*--tailscale serve/);
+      expect(plan(bare(), converged(RELAY_ENV, { serve: SERVED })).find((s) => s.kind === 'tailscale-serve')).toBeUndefined();
+    });
+
+    it('says an explicit --tailscale serve takes away the reach it had', () => {
+      expect(checksOf(flags({ tailscale: 'serve' }), converged(RELAY_ENV))).toContainEqual(expect.stringMatching(/relay.*only with Tailscale on/));
     });
   });
 });

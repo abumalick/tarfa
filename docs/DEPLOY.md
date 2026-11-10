@@ -62,8 +62,26 @@ removed, if one is ever brought back, reads a missing roster as "the token enrol
 `tailscale serve` (or `funnel`) handler for the phone port, restarts the agent only if anything
 changed and checks the phone port answers. Rerun with the same flags, or with none, it changes
 nothing: a flag not given takes the machine id, roots, phone port and default path from the `agent.env`
-it finds, and a flag given still wins. How the port is published is not in `agent.env`, so `--tailscale`
-defaults to `none`, which changes nothing, and the `TARFA_PHONE_ADDRESSES` already there are kept. It
+it finds, and a flag given still wins.
+
+**How phones reach the machine is the operator's choice, and setup never guesses it.** Before the first
+run, ask the operator: must phones reach this machine without Tailscale on? Yes is `--tailscale funnel`
+(public through Funnel; the phone needs no VPN); no is `--tailscale serve` (tailnet only);
+`--tailscale none --address <wss-url>` is for a port published some other way (a proxy, another
+user's Tailscale operator). Without `--tailscale`, setup settles it from what the machine holds, in
+this order: an `--address` given; the `TARFA_PHONE_ADDRESSES` already in `agent.env` (kept as they
+are, so a bare rerun changes nothing); a `tailscale serve` handler already proxying to the phone port
+(Funnel when its port is on Funnel, its port and slug taken from it; on a relay machine a
+tailnet-only handler is refused instead). Only then does a machine phones
+reached through a public relay (`TARFA_RELAY_URLS`/`TARFA_RELAY_URL` in its `agent.env`, or a
+`perch-agent` service being swapped) default to `--tailscale funnel`, which setup says, and refuses
+rather than fall back to the tailnet when the node may not use Funnel. With none of these it refuses,
+naming the two flags. Every run, dry runs and no-ops included, ends its checks with one
+`reachability:` line: phones reach the machine "only with Tailscale on", "with or without
+Tailscale", at an address setup "cannot tell" about (a proxy, an unreadable serve config), or not
+yet (no address).
+
+It
 never replaces an agent key, an installed unit that already runs the launcher (or a clone's
 `deploy/run-agent.sh`) with `KillMode=process`, or a `tailscale serve` entry pointing elsewhere.
 An existing `TARFA_PWA_ORIGIN` is kept unless `--pwa` names another (the default is
@@ -186,7 +204,8 @@ systemctl --user restart tarfa-agent
 Confirm: `curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8787/hooks` prints `401` (server up, auth enforced). A plain `GET /hooks` returns `404` — only `POST /hooks` reaches the auth check, so the liveness probe must use `-X POST`.
 
 ## 3. Publish the phone port and pair a phone
-`tarfa setup --tailscale serve|funnel` does this; by hand, publish the phone port and tell the
+`tarfa setup --tailscale funnel` (phones reach it with or without Tailscale) or `--tailscale serve`
+(only with Tailscale on) does this; ask the operator which. By hand, publish the phone port and tell the
 agent where phones reach it:
 ```sh
 tailscale serve --bg --https=10000 --set-path=/me http://127.0.0.1:8797   # or `tailscale funnel`
@@ -209,7 +228,9 @@ startup; remove it.
 
 **Moving a machine off relays.** An agent updated past the relays' removal no longer dials
 them, so a machine phones reached only through a relay is cut off until it is moved: run
-`tarfa setup` with `--tailscale serve|funnel` (or `--address` for a proxy), remove
+`tarfa setup` (without `--tailscale` it keeps the machine public with Funnel, as the relay was, and refuses
+when its phone port is already served on the tailnet only;
+`--tailscale serve` makes it tailnet-only, `--address` names a proxy), then remove
 `TARFA_RELAY_URLS` from `agent.env`, then send each phone a fresh `tarfa pair` code. The
 entry, known by its agent key, takes the new addresses; its device key stays enrolled. Update the
 agent before phones use a current app: an older agent refuses a new phone's hello ("too old to

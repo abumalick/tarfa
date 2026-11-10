@@ -152,7 +152,7 @@ Details: `docs/DEPLOY.md`, "Install the package" and "In one command".
 ```bash
 mise use -g node@24 npm:@tarfa/cli@<version>          # a release: see docs/DEPLOY.md, "Releasing"
 tarfa setup --machine-id <name> --project-roots /home/<user>/workspace \
-  --default-path /home/<user>/workspace --dry-run      # the plan; drop --dry-run to apply it
+  --default-path /home/<user>/workspace --tailscale none --dry-run   # publish in step 8
 ```
 
 There is no repository, no pnpm and no compiler: `node-pty` ships prebuilds and the install runs
@@ -172,9 +172,8 @@ systemctl --user daemon-reload
 ```
 
 It also writes `~/.tarfa/devices.json`, the roster of phones; only a `tarfa pair` code adds one.
-With Tailscale on the machine, `--tailscale serve` (tailnet only) or `--tailscale funnel`
-(public, the phone needs no VPN) also publishes the phone port and records its address for
-`tarfa pair` (step 8). `tarfa setup --help` explains the flags and the Tailscale admin settings.
+`--tailscale none` publishes nothing yet: step 8 asks how phones reach the machine and publishes the
+phone port (setup refuses to guess without one of `--tailscale funnel|serve|none` or an address). `tarfa setup --help` explains the flags and the Tailscale admin settings.
 The `tarfa-spawn` and `tarfa-orchestrate` skills live in the repository, not the package: link them
 from a clone (`ln -sfn <clone>/.claude/skills/tarfa-spawn ~/.claude/skills/tarfa-spawn`, same for
 `tarfa-orchestrate`) if you want sessions to launch further workspaces.
@@ -224,14 +223,24 @@ Docs: [Workers static assets](https://developers.cloudflare.com/workers/static-a
 
 Install Tailscale on the machine and log in (`sudo tailscale up`), turn on MagicDNS and HTTPS
 certificates in the admin console, and let your user run `tailscale serve` without sudo
-(`sudo tailscale set --operator=$USER`). Then:
+(`sudo tailscale set --operator=$USER`).
+
+First decide, or ask whoever the machine is for: **must phones reach it without Tailscale on?**
+Setup does not guess. Yes:
 
 ```bash
-tarfa setup --machine-id <name> --project-roots /home/<user>/workspace \
-  --default-path /home/<user>/workspace --tailscale serve --pair
+tarfa setup --tailscale funnel --pair   # phones reach it with or without Tailscale
 ```
 
-`--tailscale serve` publishes the phone port on your tailnet only: the phone needs Tailscale
+No:
+
+```bash
+tarfa setup --tailscale serve --pair    # phones reach it only with Tailscale on
+```
+
+(The machine id, roots and default path come from step 6's `agent.env`.) Setup ends its checks with a
+`reachability:` line saying which it is; every later bare `tarfa setup` keeps the addresses and
+repeats that line. `--tailscale serve` publishes the phone port on your tailnet only: the phone needs Tailscale
 connected. `--tailscale funnel` publishes it on the internet too (the phone needs no VPN; the
 policy file must give the node the `funnel` attribute), at about 0.2 MB/s, which is fine for
 terminals and slow for large previews. `tarfa setup --help` has the details. `--pair` prints
@@ -495,7 +504,9 @@ With `tarfa setup` (step 6), the second user passes its own `--machine-id` and
 sets `TARFA_PORT` in its `agent.env` first (`setup` refuses a hooks port that is taken, naming
 it). To share your Tailscale port under its own path, it runs `--tailscale none --slug <user>
 --address wss://<node>.<tailnet>.ts.net/<user>`, and `setup` prints the `tailscale serve` line
-for you, the node's operator, to run.
+for you, the node's operator, to run. Ask step 8's question for that user too: an address on a port
+already on Funnel (say `:10000/<user>`) is reachable without Tailscale, one on a tailnet-only port is
+not, and its `reachability:` line says which.
 
 **What not to copy from your account.**
 - **`~/.tarfa`:** never copy it. It holds your agent key and your phones' roster; the new user's
@@ -531,8 +542,9 @@ agent key. `tarfa setup --pair` prints the first pairing code; `tarfa pair` make
   Codex's home existed, `CODEX_HOME` is set where a login shell does not see it (`docs/DEPLOY.md`, step 4), or Codex was started without `--no-daemon` (the app's create form adds it).
 - **Password SSH is still on:** cloud-init's `50-cloud-init.conf` wins unless your file sorts
   before it.
-- **The phone cannot reach the machine:** with `--tailscale serve`, the phone's Tailscale must be
-  connected; on Android, Chrome's local-network permission for the app must be allowed (Site
+- **The phone cannot reach the machine:** read the `reachability:` line a bare `tarfa setup --dry-run`
+  prints. "Only with Tailscale on" means the phone's Tailscale must be connected (rerun with
+  `--tailscale funnel` if it must not be); on Android, Chrome's local-network permission for the app must be allowed (Site
   settings → Local network access). `tailscale serve status` shows what is published.
 - **Accents or Arabic show as `_`:** no UTF-8 locale (step 1).
 - **After a reboot the workspaces show as parked:** open one to resume its conversation; one
