@@ -146,7 +146,7 @@ function readRow(line: SnapshotLine, trimRight: boolean): SnapshotRow {
     const chars = cell.getChars() || ' ';
     const width = cell.getWidth() || 1;
     const last = runs[runs.length - 1];
-    if (width !== 1 || /[^\x20-\x7e]/.test(chars)) runs.push({ text: chars, style, cells: width });
+    if (width !== 1 || (/[^\x20-\x7e]/.test(chars) && !SHAPED.test(chars))) runs.push({ text: chars, style, cells: width });
     else if (last && last.cells === undefined && sameStyle(last.style, style)) last.text += chars;
     else runs.push({ text: chars, style });
     x += cell.getWidth() || 1;
@@ -191,6 +191,10 @@ export function cellStyle(cell: SnapshotCell): RunStyle {
   if (cell.isStrikethrough()) style.strike = true;
   return style;
 }
+
+// Right-to-left and joining scripts stay in one run: a span per letter would draw each in its
+// isolated form and scramble right-to-left order (see TerminalView's Android RTL rule).
+const SHAPED = /[\p{Script=Arabic}\p{Script=Syriac}\p{Script=Nko}\p{Script=Mongolian}\p{Script=Hebrew}\p{Script=Thaana}]/u;
 
 const sameStyle = (a: RunStyle, b: RunStyle) =>
   a.fg === b.fg && a.bg === b.bg && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && a.strike === b.strike;

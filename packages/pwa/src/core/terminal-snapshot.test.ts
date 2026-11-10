@@ -87,6 +87,11 @@ describe('snapshotBuffer', () => {
     ]);
   });
 
+  it('keeps a joining script in one run, so its letters stay joined', () => {
+    const b = { length: 1, viewportY: 0, getLine: () => line([...'مرحبا ok'].map((c) => cell(c)), 10) };
+    expect(snapshotBuffer(b, 10).lines[0]!.rows[0]!.runs).toEqual([{ text: 'مرحبا ok', style: {} }]);
+  });
+
   it('handles an empty buffer', () => {
     expect(run(buffer([]))).toEqual({ lines: [], viewportLine: 0, viewportRow: 0 });
   });

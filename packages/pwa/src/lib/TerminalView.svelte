@@ -150,16 +150,18 @@
       fit: width && term ? fitGlyphs(taken, font, width / term.cols) : new Map(),
     };
   };
+  const SAMPLE = 32;
   const fitGlyphs = (taken: TerminalSnapshot, font: string, cellWidth: number) => {
     const glyphs = new Map<string, Run>();
     for (const line of taken.lines) for (const row of line.rows) for (const run of row.runs) if (run.cells) glyphs.set(glyphKey(run), run);
     const fit = new Map<string, number>();
     if (glyphs.size === 0 || !container) return fit;
     const probe = document.createElement('div');
-    probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;letter-spacing:0;font:${font}`;
+    probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;letter-spacing:0;font:${font};font-kerning:none`;
     const spans = [...glyphs].map(([key, run]) => {
       const span = document.createElement('span');
-      span.textContent = run.text;
+      // As xterm's WidthCache: a repeated sample, divided back, averages out sub-pixel rounding.
+      span.textContent = run.text.repeat(SAMPLE);
       if (run.style.bold) span.style.fontWeight = 'bold';
       if (run.style.italic) span.style.fontStyle = 'italic';
       probe.append(span, document.createElement('br'));
@@ -167,7 +169,7 @@
     });
     container.append(probe);
     for (const { key, run, span } of spans) {
-      const natural = span.getBoundingClientRect().width;
+      const natural = span.getBoundingClientRect().width / SAMPLE;
       if (natural > 0) fit.set(key, run.cells! * cellWidth - natural);
     }
     probe.remove();
