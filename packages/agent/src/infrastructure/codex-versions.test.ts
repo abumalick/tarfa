@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codexVersions } from './codex-versions';
+import { codexVersions, loginShell } from './codex-versions';
 
 const DAEMON = JSON.stringify({ status: 'running', cliVersion: '0.163.0', appServerVersion: '0.166.0' });
 
@@ -29,5 +29,11 @@ describe('codexVersions', () => {
   it('says codex is missing when the CLI cannot be run', async () => {
     const { run } = shell({ 'codex --version': new Error('exit 127'), 'codex app-server daemon version': DAEMON });
     await expect(codexVersions(run)()).rejects.toThrow(/cannot run codex --version/);
+  });
+});
+
+describe('loginShell', () => {
+  it('hands the script the extra environment it is given', async () => {
+    expect(await loginShell('/bin/sh', { CODEX_HOME: '/srv/codex' })('printf %s "$CODEX_HOME"')).toBe('/srv/codex');
   });
 });

@@ -3,10 +3,10 @@ import type { CodexSpawnPort } from '../ports/codex-spawn-port';
 import { childEnv } from './child-env';
 
 // Runs a script through the login shell: a service's PATH lacks the user's codex shim.
-export function loginShell(shell = process.env.SHELL || '/bin/sh'): (script: string) => Promise<string> {
+export function loginShell(shell = process.env.SHELL || '/bin/sh', extraEnv: Record<string, string> = {}): (script: string) => Promise<string> {
   return (script) =>
     new Promise((resolve, reject) => {
-      execFile(shell, ['-lc', script], { env: childEnv(), timeout: 15_000 }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+      execFile(shell, ['-lc', script], { env: { ...childEnv(), ...extraEnv }, timeout: 15_000 }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
     });
 }
 

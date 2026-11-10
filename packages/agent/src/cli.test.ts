@@ -123,12 +123,14 @@ describe('removed relay commands', () => {
 });
 
 describe('tarfa install-hooks', () => {
+  const NO_PROFILE = { loginShell: async () => '' };
+
   it('bakes in the port from the agent.env the service reads', async () => {
     const home = await mkdtemp(join(tmpdir(), 'tarfa-cli-home-'));
     tmpDirs.push(home);
     const envPath = join(home, 'agent.env');
     await writeFile(envPath, 'TARFA_MACHINE_ID=box\nTARFA_PORT=9911\n');
-    await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home);
+    await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home, NO_PROFILE);
     const settings = await readFile(join(home, '.claude', 'settings.json'), 'utf8');
     expect(settings).toContain('tarfa-hook.sh Stop 9911');
   });
@@ -139,7 +141,7 @@ describe('tarfa install-hooks', () => {
     const envPath = join(home, 'agent.env');
     await writeFile(envPath, 'TARFA_MACHINE_ID=box\nTARFA_PORT=9911\n');
     await mkdir(join(home, '.codex'));
-    await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home);
+    await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home, NO_PROFILE);
     expect(await readFile(join(home, '.tarfa', 'tarfa-guard.sh'), 'utf8')).toContain('pkill');
     for (const file of [join(home, '.claude', 'settings.json'), join(home, '.codex', 'hooks.json')]) {
       const { hooks } = JSON.parse(await readFile(file, 'utf8')) as {
@@ -157,13 +159,30 @@ describe('tarfa install-hooks', () => {
     tmpDirs.push(home);
     const envPath = join(home, 'agent.env');
     await writeFile(envPath, 'TARFA_MACHINE_ID=box\nTARFA_PORT=9911\n');
-    await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home);
+    await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home, NO_PROFILE);
     await expect(readFile(join(home, '.codex', 'hooks.json'), 'utf8')).rejects.toThrow();
 
     await mkdir(join(home, '.codex'));
-    const out = await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home);
+    const out = await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home, NO_PROFILE);
     expect(await readFile(join(home, '.codex', 'hooks.json'), 'utf8')).toContain('tarfa-hook.sh Stop 9911 codex');
     expect(out).toContain('/hooks');
+  });
+
+  it('writes Codex hooks where the CODEX_HOME in the shell or agent.env points, not ~/.codex', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-cli-home-'));
+    tmpDirs.push(home);
+    const envPath = join(home, 'agent.env');
+    await mkdir(join(home, '.codex'));
+    await mkdir(join(home, 'from-shell'));
+    await mkdir(join(home, 'from-env'));
+    await writeFile(envPath, 'TARFA_MACHINE_ID=box\nTARFA_PORT=9911\n');
+    await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home, { loginShell: async () => `codex-home=${join(home, 'from-shell')}\n` });
+    expect(await readFile(join(home, 'from-shell', 'hooks.json'), 'utf8')).toContain('tarfa-hook.sh Stop 9911 codex');
+
+    await writeFile(envPath, `TARFA_MACHINE_ID=box\nTARFA_PORT=9911\nCODEX_HOME=${join(home, 'from-env')}\n`);
+    await run(['install-hooks'], { TARFA_AGENT_ENV: envPath }, home, NO_PROFILE);
+    expect(await readFile(join(home, 'from-env', 'hooks.json'), 'utf8')).toContain('tarfa-hook.sh Stop 9911 codex');
+    await expect(readFile(join(home, '.codex', 'hooks.json'), 'utf8')).rejects.toThrow();
   });
 });
 

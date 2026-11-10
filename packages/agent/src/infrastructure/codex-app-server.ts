@@ -1,4 +1,4 @@
-import { homedir } from 'node:os';
+import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 
@@ -91,8 +91,8 @@ export class CodexAppServer {
   readonly socketPath: string;
   readonly timeoutMs: number;
 
-  constructor(options: { socketPath?: string; timeoutMs?: number } = {}) {
-    this.socketPath = options.socketPath ?? join(homedir(), '.codex', 'app-server-control', 'app-server-control.sock');
+  constructor(options: ({ codexHome: string } | { socketPath: string }) & { timeoutMs?: number }) {
+    this.socketPath = 'socketPath' in options ? options.socketPath : join(options.codexHome, 'app-server-control', 'app-server-control.sock');
     this.timeoutMs = options.timeoutMs ?? 5_000;
   }
 
@@ -152,9 +152,15 @@ export class CodexAppServer {
     });
   }
 
-  private call<T>(run: (c: Connection) => Promise<T>): Promise<T> {
+  // Codex 0.167 binds the socket under /tmp/codex-daemon-<uid>/ and publishes this path as a link
+  // to it. Connecting to the link's target keeps the path within the 107 bytes a unix socket
+  // address holds, however deep CODEX_HOME is; a link to nothing means no daemon.
+  private async call<T>(run: (c: Connection) => Promise<T>): Promise<T> {
+    const target = await realpath(this.socketPath).catch((err: NodeJS.ErrnoException) => {
+      throw err.code === 'ENOENT' ? new CodexAppServerDown() : err;
+    });
     return new Promise<T>((resolve, reject) => {
-      const ws = new WebSocket(`ws+unix://${this.socketPath}:/`, { perMessageDeflate: false });
+      const ws = new WebSocket(`ws+unix://${target}:/`, { perMessageDeflate: false });
       const c = new Connection(ws);
       let settled = false;
       const settle = (fn: () => void) => {

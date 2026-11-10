@@ -72,9 +72,11 @@ Never call `tmux` without `-S` there: it would reach the real server.
 ## What is inside
 
 `~/.cache/tsb/<slug>/` (`TARFA_SANDBOX_ROOT` overrides the parent), private to the user. Kept
-short on purpose: Tarfa connects to the Codex app server's socket,
-`<slug>/home/.codex/app-server-control/app-server-control.sock`, and node refuses a socket path
-over 107 bytes, so `up` refuses a folder too deep for it.
+short on purpose: the sandbox's tmux and agent-browser sockets live under it, and a unix socket
+path holds at most 107 bytes. `up` refuses a folder in which
+`<slug>/home/.codex/app-server-control/app-server-control.sock` would pass that, a bound that keeps
+every socket under it short (that one is only a link to Codex's real socket in `/tmp`, which the
+agent connects to).
 
 - `home/` is the sandbox's `HOME`: `.tarfa` (agent state, `agent.env`), `.claude` (hooks,
   `"model": "sonnet"`), `.codex` (hooks, a `config.toml` of its own, the login linked),

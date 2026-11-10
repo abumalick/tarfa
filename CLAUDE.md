@@ -1381,7 +1381,10 @@ So the PWA is on a public origin, tarfa.app, and what follows from that:
   `tarfa-hook.sh`. Table-tested in `tarfa-guard.test.sh`; re-run `install-hooks` per machine,
   and re-trust the Codex hooks in `/hooks`.
 - **Codex reports status through the same hook script, with `codex` as a third argument.**
-  `install-hooks` also writes `~/.codex/hooks.json` where `~/.codex` exists; Codex runs nothing
+  `install-hooks` also writes Codex's `hooks.json` where its home exists (`infrastructure/codex-home.ts`:
+  `CODEX_HOME` from agent.env or the environment, else the login shell's, else `~/.codex`; the agent
+  reads it once at startup, and the app-server socket is found there too, connected through its
+  link's short `/tmp/codex-daemon-<uid>/` target since node refuses a socket path over 107 bytes); Codex runs nothing
   until the user trusts the hooks in `/hooks` (hash-keyed, so re-trust after a change). Three
   differences from Claude Code, all observed on Codex 0.162:
   - **Hooks run outside the pane unless Codex is started with `--no-daemon`**, which the create

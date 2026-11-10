@@ -247,8 +247,13 @@ every session run as one user, so one pattern kill ends them all. It also refuse
 (`nc -U`, `socat`, `curl --unix-socket`) aimed at another session's message socket, and setting
 `@tarfa_parent` or `@tarfa_codex_thread` by hand (docs/MESSAGING.md).
 
-Where Codex is installed (`~/.codex` exists), the same command also merges
-UserPromptSubmit/PreToolUse/PostToolUse/PermissionRequest/Stop hooks into `~/.codex/hooks.json`.
+Where Codex is installed (its home exists: `$CODEX_HOME`, else `~/.codex`), the same command also
+merges UserPromptSubmit/PreToolUse/PostToolUse/PermissionRequest/Stop hooks into its `hooks.json`.
+The agent and the CLI find that home the way Codex does: `CODEX_HOME` from agent.env or the
+environment, else the one the login shell sets (`$SHELL -lc`, as the panes' `codex` sees it), else
+`~/.codex`. A `CODEX_HOME` exported only in `.zshrc` is invisible to a login shell: export it in
+`.zshenv`/`.profile`, or set it in agent.env too. The agent reads it once at startup (its log says
+`Codex home …`), so a change needs a restart.
 Codex runs none of them until they are trusted: open Codex, run `/hooks` and trust them. Trust
 is keyed on a hash of each hook, so re-trust after re-running `install-hooks` changes them.
 

@@ -415,8 +415,8 @@ cmd_up() { # <worktree>
   slug="$(sb_slug "${wt}")"; root="$(sb_root "${slug}")"
   [[ "${MAX_SANDBOXES}" =~ ^[0-9]+$ ]] || die "TARFA_SANDBOX_MAX must be a number, not ${MAX_SANDBOXES}"
   [ -d "${wt}/node_modules" ] || die "no node_modules in ${wt}: run pnpm install in ${wt}"
-  # Tarfa reaches the sandbox's Codex app server from node, which refuses a unix socket path over
-  # 107 bytes.
+  # A unix socket path holds at most 107 bytes, and the sandbox's tmux and agent-browser sockets
+  # live under its root; the Codex link, the longest path there, bounds them all.
   local codex_sock="${root}/home/.codex/app-server-control/app-server-control.sock"
   [ "${#codex_sock}" -le 107 ] || die "the sandbox folder is too deep for the Codex socket (${codex_sock}: ${#codex_sock} bytes, at most 107): set TARFA_SANDBOX_ROOT to a shorter folder"
   [ -n "$(tr -d '[:space:]' < "${TOKEN_FILE}" 2>/dev/null)" ] || die "no Claude token at ${TOKEN_FILE}: make one with \`claude setup-token\` and save it there (mode 0600)"

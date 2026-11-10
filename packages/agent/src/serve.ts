@@ -50,6 +50,7 @@ import { writeHookToken } from './infrastructure/token-file';
 import { assertPrivateFiles, securePrivateDir } from './infrastructure/private-dir';
 import { ensureUtf8Locale } from './infrastructure/ensure-utf8-locale';
 import { locateAgentEnv } from './infrastructure/agent-env-file';
+import { resolveCodexHome } from './infrastructure/codex-home';
 import { isEntrypoint, packageVersion } from './infrastructure/package-root';
 
 const ROSTER_POLL_MS = 3000;
@@ -65,6 +66,9 @@ export async function main(): Promise<void> {
   const env = withLegacyEnv(process.env);
   const config = loadConfig(env, homedir());
   for (const warning of configWarnings(process.env)) process.stderr.write(`${warning}\n`);
+  // Read once: a CODEX_HOME changed later reaches the agent at its next restart.
+  const codexHome = await resolveCodexHome(env, homedir());
+  process.stdout.write(`tarfa agent: Codex home ${codexHome}\n`);
   // Refused before anything is served: a secret another user can read is a leaked secret.
   await securePrivateDir(config.stateDir);
   await assertPrivateFiles([
@@ -120,7 +124,7 @@ export async function main(): Promise<void> {
       delivery: new CompositeDelivery({
         claude: new ClaudeInboxDelivery(claudeSessions, async (id) => (await tmux.firstPaneId?.(id)) ?? null),
         pi: new PiInboxDelivery(config.inboxDir),
-        codex: new CodexDelivery(new CodexAppServer()),
+        codex: new CodexDelivery(new CodexAppServer({ codexHome })),
       }),
       log: new FileMessageLog(config.messageLogPath),
     },

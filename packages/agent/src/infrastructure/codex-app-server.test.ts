@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -139,6 +139,29 @@ describe('CodexAppServer', () => {
   it('rejects a missing socket as a daemon that is not running', async () => {
     const err = await server().loadedThreads().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CodexAppServerDown);
+  });
+
+  // Codex 0.167 binds its socket under /tmp/codex-daemon-<uid>/ and publishes the path in
+  // CODEX_HOME as a link to it; node refuses to connect to a path over 107 bytes.
+  it('connects through a published link whose own path is too long for a unix socket', async () => {
+    await daemon({ 'thread/loaded/list': (m, ws) => reply(ws, m.id, { data: ['t1'], nextCursor: null }) });
+    const deep = join(dir, 'h'.repeat(60), 'c'.repeat(40), 'app-server-control');
+    await mkdir(deep, { recursive: true });
+    const alias = join(deep, 'app-server-control.sock');
+    await symlink(socketPath, alias);
+    expect(Buffer.byteLength(alias)).toBeGreaterThan(107);
+    expect(await new CodexAppServer({ socketPath: alias }).loadedThreads()).toEqual(['t1']);
+  });
+
+  it('rejects a link to a socket that is gone as a daemon that is not running', async () => {
+    const alias = join(dir, 'link.sock');
+    await symlink(join(dir, 'gone.sock'), alias);
+    const err = await new CodexAppServer({ socketPath: alias }).loadedThreads().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CodexAppServerDown);
+  });
+
+  it('finds the socket under the Codex home it is given', () => {
+    expect(new CodexAppServer({ codexHome: '/srv/codex' }).socketPath).toBe('/srv/codex/app-server-control/app-server-control.sock');
   });
 
   it('rejects when the daemon does not answer in time', async () => {

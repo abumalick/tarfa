@@ -60,7 +60,8 @@ import { sessionOfCodexThread, type AgentCli } from './application/agent-message
 import { loginShellResolver } from './infrastructure/installed-detector';
 import type { CodexSpawnPort } from './ports/codex-spawn-port';
 import { CodexAppServer } from './infrastructure/codex-app-server';
-import { codexVersions } from './infrastructure/codex-versions';
+import { codexVersions, loginShell } from './infrastructure/codex-versions';
+import { resolveCodexHome } from './infrastructure/codex-home';
 import { formatWorkspaceTable } from './application/format-workspace-table';
 import { isUnderPath, WORKSPACE_ROLES, workspaceRole, type WorkspaceRole } from './application/workspace-role';
 import type { TmuxPort } from './ports/tmux-port';
@@ -87,6 +88,8 @@ export interface CliIo {
   codex?: CodexSpawnPort;
   // Whether a command resolves through the login shell, as tmux will run it.
   resolveCommand?: (name: string) => Promise<boolean>;
+  // Runs a script through the login shell; asked for CODEX_HOME when neither env has it.
+  loginShell?: (script: string) => Promise<string>;
   update?: Partial<UpdateEffects>;
   // What `setup` reads and changes outside agent.env and ~/.tarfa.
   setup?: {
@@ -191,7 +194,7 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
       return JSON.stringify(await browseDir({ lister, hidden }, path, config.projectRoots), null, 2);
     }
     case 'install-hooks': {
-      const hooks = hooksFiles(home, HOOKS_DIR, config.port);
+      const hooks = hooksFiles(home, HOOKS_DIR, config.port, await resolveCodexHome({ ...env, ...(await agentEnvValues(env, home)) }, home, io.loginShell));
       const { codex } = await hooks.install();
       // Codex runs no hook until the user trusts it (keyed on a hash it does not document), so
       // that step stays with the user.
@@ -336,7 +339,7 @@ async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rena
           nonce: () => randomBytes(6).toString('hex'),
           sleep: io.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
           spawnDir: joinPath(config.stateDir, 'spawn'),
-          codex: io.codex ?? { versions: codexVersions(), createThread: (input) => new CodexAppServer().createThread(input) },
+          codex: io.codex ?? (codexSpawn({ ...env, ...values }, home, io)),
         },
         {
           projectPath,
@@ -583,6 +586,17 @@ function pwaOrigin(value: string | undefined): string | undefined {
 // What the service reads, over the shell's environment: a shell inside a workspace has none of
 // the agent's variables, or a stale copy of them. No agent.env (a machine not set up as a
 // service) leaves the environment alone.
+// Resolved only when a Codex workspace is spawned. The version probe gets the CODEX_HOME the
+// thread is created under, so both name one daemon.
+function codexSpawn(env: Record<string, string | undefined>, home: string, io: CliIo): CodexSpawnPort {
+  let codexHome: Promise<string> | undefined;
+  const resolve = () => (codexHome ??= resolveCodexHome(env, home, io.loginShell));
+  return {
+    versions: async () => codexVersions(loginShell(undefined, { CODEX_HOME: await resolve() }))(),
+    createThread: async (input) => new CodexAppServer({ codexHome: await resolve() }).createThread(input),
+  };
+}
+
 async function agentEnvValues(env: NodeJS.ProcessEnv, home: string): Promise<Record<string, string>> {
   try {
     return withLegacyEnv(parseEnvFile(await readFile(await locateAgentEnv(env, home), 'utf8'))) as Record<string, string>;
@@ -753,7 +767,7 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   const config = loadConfig({ ...withLegacyEnv(parseEnvFile(envText ?? '')), TARFA_MACHINE_ID: flags.machineId }, home);
   const tailscale = fx.tailscale ?? tailscaleCli();
   const owner = fx.portOwner ?? portOwner;
-  const hooks = hooksFiles(home, HOOKS_DIR, config.port);
+  const hooks = hooksFiles(home, HOOKS_DIR, config.port, await resolveCodexHome({ ...env, ...withLegacyEnv(parseEnvFile(envText ?? '')) }, home, io.loginShell));
   const devices = new FileDeviceStore(config.devicesPath);
   const hasRoster = await readFile(config.devicesPath).then(() => true, () => false);
 
@@ -883,7 +897,7 @@ async function apply(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   if (envText === null) throw new Error(`failed: check: no agent config at ${envPath}: run tarfa setup`);
   const config = loadConfig(withLegacyEnv(parseEnvFile(envText)), home);
   const service = fx.service ?? serviceInstall({ home, user: userInfo().username, uid: process.getuid?.() ?? 0 });
-  const hooks = hooksFiles(home, HOOKS_DIR, config.port);
+  const hooks = hooksFiles(home, HOOKS_DIR, config.port, await resolveCodexHome({ ...env, ...withLegacyEnv(parseEnvFile(envText)) }, home, io.loginShell));
   const launcherPath = joinPath(home, '.tarfa', 'bin', 'tarfa-agent');
   const log = fx.agentLog ?? agentLog({ home });
   const result = await runApply(

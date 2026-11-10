@@ -40,11 +40,10 @@ async function readOrNull(path: string): Promise<string | null> {
 // The hook scripts are copied to a stable, $HOME-relative place so the registered command is
 // byte-identical across machines (the checkout lives at different paths), and copied rather than
 // linked so it never goes stale if the checkout moves. Codex gets the same hooks only where it
-// is installed, so a machine without it does not grow a ~/.codex.
-export function hooksFiles(home: string, hooksDir: string, port: number) {
+// is installed (its CODEX_HOME exists), so a machine without it does not grow a ~/.codex.
+export function hooksFiles(home: string, hooksDir: string, port: number, codexHome: string) {
   const settingsPath = join(home, '.claude', 'settings.json');
-  const codexDir = join(home, '.codex');
-  const codexHooksPath = join(codexDir, 'hooks.json');
+  const codexHooksPath = join(codexHome, 'hooks.json');
 
   async function wanted(): Promise<Array<{ path: string; current: string | null; text: string; mode?: number }>> {
     const files: Array<{ path: string; current: string | null; text: string; mode?: number }> = [];
@@ -55,7 +54,7 @@ export function hooksFiles(home: string, hooksDir: string, port: number) {
     const settings = await readOrNull(settingsPath);
     const merged = installHooks({ settings: settings === null ? {} : (JSON.parse(settings) as Record<string, unknown>) }, { hookCommand: HOOK_COMMAND, guardCommand: GUARD_COMMAND, port });
     files.push({ path: settingsPath, current: settings, text: JSON.stringify(merged, null, 2) });
-    if (await fsIsDirectory(codexDir)) {
+    if (await fsIsDirectory(codexHome)) {
       const codex = await readOrNull(codexHooksPath);
       const codexMerged = installHooks(
         { settings: codex === null ? {} : (JSON.parse(codex) as Record<string, unknown>) },

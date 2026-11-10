@@ -189,8 +189,9 @@ then `pnpm tarfa setup …` with the same flags (it keeps `deploy/agent.env` and
 from a clone moves to the package with `tarfa setup --adopt` (`docs/DEPLOY.md`).
 
 **Status hooks** tell your phone whether a session is working or waiting for you. They go into
-`~/.claude/settings.json`, and into `~/.codex/hooks.json` when `~/.codex` exists, which Codex
-creates on its first run: run `install-hooks` again after you first start Codex, then open Codex,
+`~/.claude/settings.json`, and into Codex's `hooks.json` when its home exists (`$CODEX_HOME`, else
+`~/.codex`, which Codex creates on its first run; see `docs/DEPLOY.md`, step 4, for where Tarfa reads
+`CODEX_HOME`): run `install-hooks` again after you first start Codex, then open Codex,
 run `/hooks` and trust them (again after any change). See `docs/DEPLOY.md`, step 4.
 
 ## 7. The app
@@ -522,7 +523,7 @@ agent key. `tarfa setup --pair` prints the first pairing code; `tarfa pair` make
 - **Pairing on an iPhone "did nothing":** the link opened in Safari, not the installed app. Scan or
   paste it from inside the app.
 - **Codex shows no status:** its hooks are not trusted yet (`/hooks`), `install-hooks` ran before
-  `~/.codex` existed, or Codex was started without `--no-daemon` (the app's create form adds it).
+  Codex's home existed, `CODEX_HOME` is set where a login shell does not see it (`docs/DEPLOY.md`, step 4), or Codex was started without `--no-daemon` (the app's create form adds it).
 - **Password SSH is still on:** cloud-init's `50-cloud-init.conf` wins unless your file sorts
   before it.
 - **The phone cannot reach the machine:** with `--tailscale serve`, the phone's Tailscale must be

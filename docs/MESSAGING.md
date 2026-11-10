@@ -236,8 +236,10 @@ sandbox blocks the local socket.
 ## Codex delivery
 
 `tarfa send` reaches a Codex session through the Codex app-server daemon
-(`~/.codex/app-server-control/app-server-control.sock`, JSON-RPC over a WebSocket), never
-through the pane. The agent's side is `CodexDelivery` over `CodexAppServer`
+(`$CODEX_HOME/app-server-control/app-server-control.sock`, `~/.codex` by default; JSON-RPC over a
+WebSocket), never through the pane. Codex binds the socket under `/tmp/codex-daemon-<uid>/` and
+publishes that path as a link to it; the agent connects to the link's target, since node refuses a
+unix socket path over 107 bytes and a deep `CODEX_HOME` would exceed it. The agent's side is `CodexDelivery` over `CodexAppServer`
 (`packages/agent/src/infrastructure/codex-*.ts`).
 
 - **Only a daemon-bound thread takes messages.** The workspace must record its thread as the
