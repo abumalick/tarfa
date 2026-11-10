@@ -195,8 +195,8 @@ run `/hooks` and trust them (again after any change). See `docs/DEPLOY.md`, step
 
 ## 7. The app
 
-Phones load the app from `https://tarfa.app`, the maintainer's copy, which every pairing link
-names unless `TARFA_PWA_ORIGIN` says otherwise. The origin holds every phone's device key, and
+Phones load the app from `https://tarfa.app`, the maintainer's copy, which `tarfa pair` tells phones to
+install unless `TARFA_PWA_ORIGIN` says otherwise. The origin holds every phone's device key, and
 whoever serves it can read what it shows, so if you would rather trust yourself, serve your own
 copy. Any static host serves `packages/pwa/dist` after `pnpm --filter @tarfa/pwa build`. On a free
 Cloudflare account it is a static-assets Worker, deployed from a clean, pushed `main` of your
@@ -244,18 +244,22 @@ repeats that line. `--tailscale serve` publishes the phone port on your tailnet 
 connected. `--tailscale funnel` publishes it on the internet too (the phone needs no VPN; the
 policy file must give the node the `funnel` attribute), at about 0.2 MB/s, which is fine for
 terminals and slow for large previews. `tarfa setup --help` has the details. `--pair` prints
-a QR code and a link; check the agent with `journalctl --user -u tarfa-agent | grep 'phones on'`.
+a pairing code and its QR code; check the agent with `journalctl --user -u tarfa-agent | grep 'phones on'`.
 
 On your phone, open the app's origin and install it (iPhone: Share → Add to Home Screen; Android:
 install from the browser menu). Then pair:
 
-- **iPhone:** scan the QR code from **inside the installed app** (Settings → Scan QR code), or
-  copy the link and use **Paste pairing link**. The Camera app opens Safari, whose storage is not
-  the installed app's.
-- **Android:** open the link anywhere; it goes straight into the installed app. Chrome asks once
-  whether the app may reach your local network (a tailnet address): allow it.
+- In the installed app, **Settings → Add machine**, then **Scan QR code**, or copy the code to the
+  phone and tap **Paste pairing code**. The same on an iPhone, Android or a desktop browser. The
+  code is not a link: scanning it with the Camera app or pasting it in a browser's address bar does
+  nothing (on an iPhone, Safari's storage is not the installed app's anyway).
+- The app asks before it pairs: check that the machine key it shows is the one `tarfa pair`
+  printed.
+- **Android:** Chrome asks once whether the app may reach your local network (a tailnet address):
+  allow it.
 
-A code works once, for 20 minutes; `tarfa pair` makes another. Only a `tarfa pair` code adds a
+A code works once, for 20 minutes (or `--ttl`); `tarfa pair` makes another. An app from
+before pairing codes takes a link instead: `tarfa pair --link`. Only a `tarfa pair` code adds a
 phone:
 
 ```bash
@@ -531,8 +535,9 @@ agent key. `tarfa setup --pair` prints the first pairing code; `tarfa pair` make
   Worker (step 7).
 - **The deploy script refuses:** it wants the main checkout, on `main`, clean, equal to
   `origin/main`, and an env file only you can read. Fix the checkout rather than working around it.
-- **Pairing on an iPhone "did nothing":** the link opened in Safari, not the installed app. Scan or
-  paste it from inside the app.
+- **Pairing "did nothing":** the code was scanned with the Camera app or pasted in a browser, not in
+  the installed app (on an iPhone, Safari's storage is not the app's either). Scan or paste it from
+  inside the app: Settings → Add machine.
 - **Codex shows no status:** its hooks are not trusted yet (`/hooks`), `install-hooks` ran before
   Codex's home existed, `CODEX_HOME` is set where a login shell does not see it (`docs/DEPLOY.md`, step 4), or Codex was started without `--no-daemon` (the app's create form adds it).
 - **Password SSH is still on:** cloud-init's `50-cloud-init.conf` wins unless your file sorts
