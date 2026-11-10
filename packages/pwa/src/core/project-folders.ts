@@ -1,6 +1,7 @@
 import type { Workspace } from '@tarfa/contracts';
 import { isConnectable, type MachineConfig } from './settings-store';
 import { displayProjectPath } from './resolve-path';
+import { nestingParents } from './nest-workspaces';
 
 // One entry of the workspace-list folder filter, in display order. `key` is the folder's full
 // label path (what gets selected and persisted); `label` is that path relative to the nearest
@@ -18,6 +19,16 @@ export interface ProjectFolder {
 export function projectFolderLabel(machines: readonly MachineConfig[], workspace: Workspace): string {
   const defaultPath = machines.find((m) => m.id === workspace.machineId)?.defaultPath;
   return displayProjectPath(defaultPath, workspace.projectPath);
+}
+
+// The folder each workspace is filed under for the filter: its orchestrator's when it nests
+// under one, so a child working in another project stays with the parent it reports to.
+function filingLabels(
+  workspaces: readonly Workspace[],
+  machines: readonly MachineConfig[],
+): (ws: Workspace) => string {
+  const nestingParent = nestingParents(workspaces);
+  return (ws) => projectFolderLabel(machines, nestingParent(ws) ?? ws);
 }
 
 // How the selected folders read: `only` narrows the list to them, `hide` drops them. The two
@@ -56,8 +67,9 @@ export function deriveProjectFolders(
   const subtreeCount = new Map<string, number>();
   const children = new Map<string, Set<string>>();
   const roots = new Set<string>();
+  const labelOf = filingLabels(workspaces, machines);
   for (const ws of workspaces) {
-    const label = projectFolderLabel(machines, ws);
+    const label = labelOf(ws);
     own.add(label);
     let parent: string | null = null;
     for (const prefix of pathPrefixes(label)) {
@@ -95,7 +107,7 @@ export function pruneStaleFilter(
 ): string[] {
   const connectable = machines.filter(isConnectable);
   if (connectable.length === 0 || !connectable.every((m) => listedMachines.includes(m.id))) return [...selected];
-  const labels = workspaces.map((ws) => projectFolderLabel(machines, ws));
+  const labels = workspaces.map(filingLabels(workspaces, machines));
   return [...selected].filter((key) => labels.some((label) => inFolder(label, key)));
 }
 
@@ -109,8 +121,9 @@ export function filterWorkspaces(
   mode: FilterMode,
 ): Workspace[] {
   if (selected.size === 0) return workspaces;
+  const labelOf = filingLabels(workspaces, machines);
   return workspaces.filter((ws) => {
-    const label = projectFolderLabel(machines, ws);
+    const label = labelOf(ws);
     const inSelection = [...selected].some((key) => inFolder(label, key));
     return inSelection === (mode === 'only');
   });

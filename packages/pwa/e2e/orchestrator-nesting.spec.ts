@@ -68,3 +68,35 @@ test('children fold under their orchestrator and expand indented', async ({ page
   await expect(page.getByRole('button', { name: 'Hide 2 child workspaces' })).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('ul.children .row .name')).toHaveText(['asks', 'waits']);
 });
+
+test.describe('a child working in another project', () => {
+  let split: FakeAgent;
+  test.beforeAll(async () => {
+    split = await startFakeAgent([
+      at('perch-orchestrator', 'working'),
+      at('perch-asks', 'needs-feedback', { parentId: 'perch-orchestrator', projectPath: '/home/u/workspace/other' }),
+      at('perch-elsewhere', 'idle', { projectPath: '/home/u/workspace/other' }),
+    ]);
+  });
+  test.afterAll(async () => {
+    await split.close();
+  });
+
+  test("stays under its orchestrator when the filter shows only the orchestrator's project", async ({ page }) => {
+    await seedMachine(page, split, { defaultPath: '/home/u/workspace' });
+    await page.addInitScript(() => localStorage.setItem('tarfa.folderFilter', JSON.stringify(['demo'])));
+    await page.goto('/');
+
+    const rowNames = page.locator('.row .name');
+    await expect(rowNames).toHaveText(['orchestrator']);
+    await page.getByRole('button', { name: 'Show 1 child workspace' }).click();
+    await expect(page.locator('ul.children .row .name')).toHaveText(['asks']);
+    await expect(rowNames).toHaveText(['orchestrator', 'asks']);
+
+    // The child counts in its orchestrator's project, not in the one it works in.
+    await page.locator('summary[aria-label="Filter by project"]').click();
+    await expect(page.getByRole('checkbox', { name: /demo/ })).toBeChecked();
+    await expect(page.locator('label').filter({ hasText: 'demo' })).toContainText('2');
+    await expect(page.locator('label').filter({ hasText: 'other' })).toContainText('1');
+  });
+});
