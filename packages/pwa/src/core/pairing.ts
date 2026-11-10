@@ -1,4 +1,4 @@
-import { deviceFingerprint, parsePairingLink, type PairingLink } from '@tarfa/secure-channel';
+import { deviceFingerprint, parsePairingCode, parsePairingLink, type PairingLink } from '@tarfa/secure-channel';
 import type { MachineConfig } from './settings-store';
 import { addressHost, normalizeAddress } from './machine-addresses';
 import { msg } from '../i18n.svelte';
@@ -62,9 +62,12 @@ export function acceptPairingLink(machines: MachineConfig[], link: PairingLink, 
   return prompts.confirm(pairingQuestion(link)) ? paired.machine : null;
 }
 
-// A pairing link pasted, scanned or tapped. A full link must name this app's own origin: one
-// made for another Tarfa is not this app's to take. A bare fragment names none.
+// A pairing code or link pasted, scanned or tapped. A full link must name this app's own origin:
+// one made for another Tarfa is not this app's to take. A code or a bare fragment names none.
 export function readPairingLink(text: string, ownOrigin: string): { ok: true; link: PairingLink } | { ok: false; reason: string } {
+  const code = parsePairingCode(text);
+  if (code.ok) return { ok: true, link: code.pairing };
+  if (code.reason === 'newer') return { ok: false, reason: msg().pairing.newerCode };
   const link = parsePairingLink(text);
   if (!link) return { ok: false, reason: msg().pairing.notALink };
   const trimmed = text.trim();

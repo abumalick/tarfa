@@ -1,5 +1,5 @@
 // `tarfa pair`: hand a phone what it needs to pair with this machine.
-import { isMachineUrl, isPairingPath, MAX_ADDRESSES, pairingLink, type AgentKeys } from '@tarfa/secure-channel';
+import { isMachineUrl, isPairingPath, MAX_ADDRESSES, type AgentKeys, type PairingLink } from '@tarfa/secure-channel';
 import type { PairingStorePort } from '../ports/pairing-store-port';
 import { addPairing } from './pairing';
 
@@ -24,26 +24,27 @@ export function pairingName(machineId: string, hostname: string): string {
 }
 
 // The phone addresses an accepted session names to the phone, which adopts each one it can
-// connect through: none unless the whole list is one a pairing link could carry, since saying
+// connect through: none unless the whole list is one a pairing could carry, since saying
 // nothing changes nothing while a wrong list would be tried.
 export function announcedAddresses(phoneAddresses: string[]): string[] | undefined {
   const valid = phoneAddresses.length > 0 && phoneAddresses.length <= MAX_ADDRESSES && phoneAddresses.every(isMachineUrl);
   return valid ? phoneAddresses : undefined;
 }
 
-// `phoneUrls` are the addresses the phone tries, in order, each as the phone dials it.
-export async function mintPairingLink(deps: PairingDeps, input: { phoneUrls: string[]; pwaOrigin: string }): Promise<string> {
+// Stores a one-time secret and returns what the phone needs, which `tarfa pair` prints as a code
+// (or a link). `phoneUrls` are the addresses the phone tries, in order, each as the phone dials it.
+export async function mintPairing(deps: PairingDeps, input: { phoneUrls: string[] }): Promise<PairingLink> {
   // The phone drops a path it cannot use, so one is refused here, where its owner can fix it.
   if (deps.defaultPath !== undefined && !isPairingPath(deps.defaultPath)) {
     throw new Error(`TARFA_DEFAULT_PATH must be an absolute path of at most 128 characters (got ${deps.defaultPath})`);
   }
   const secret = deps.newSecret();
   await deps.pairings.update((list) => addPairing(list, secret, deps.now(), deps.ttlMs));
-  return pairingLink(input.pwaOrigin, {
+  return {
     urls: input.phoneUrls,
     agentKey: deps.keys.x25519.publicKey,
     secret,
     name: deps.machineId,
     ...(deps.defaultPath !== undefined ? { defaultPath: deps.defaultPath } : {}),
-  });
+  };
 }

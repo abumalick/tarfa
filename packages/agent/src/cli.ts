@@ -44,9 +44,9 @@ import { loadOrCreateAgentKeys } from './infrastructure/agent-key-file';
 import { FileDeviceStore } from './infrastructure/file-device-store';
 import { enrolmentMode, forgetDevice, revokeDevice, withEnrolmentMode, type Device, type DeviceRoster, type EnrolmentMode } from './application/device-roster';
 import encodeQR from 'qr';
-import { deviceFingerprint, generatePairingSecret, isMachineUrl, MAX_ADDRESSES, parsePairingLink, sanitizeDeviceName } from '@tarfa/secure-channel';
+import { deviceFingerprint, generatePairingSecret, isMachineUrl, MAX_ADDRESSES, pairingCode, pairingLink, sanitizeDeviceName, type PairingLink } from '@tarfa/secure-channel';
 import { parseEnvFile } from './application/agent-env';
-import { mintPairingLink, pairingName } from './application/pairing-link';
+import { mintPairing, pairingName } from './application/pairing-link';
 import { PAIRING_TTL_MS } from './application/pairing';
 import { FilePairingStore } from './infrastructure/file-pairing-store';
 import { agentEnvFile, locateAgentEnv, mainCheckout } from './infrastructure/agent-env-file';
@@ -217,7 +217,7 @@ const HELP = `usage: tarfa <command> [options]   (\`tarfa setup --help\`, \`tarf
 
 Set up this machine:
   setup          write agent.env, the agent key, the service and the hooks, then check the phone port
-  pair           print a one-time pairing link and QR code for a phone
+  pair           print a one-time pairing code and QR code for a phone (--link: a link, for an older app)
   devices        list, revoke or forget paired phones; open or close enrolment
   update         install the newest @tarfa/cli and apply it (package installs)
   apply          rewrite the launcher and service if they changed, reinstall the hooks, restart
@@ -560,7 +560,9 @@ async function readStdin(ttyError: string): Promise<string> {
 }
 
 const RELAYS_GONE = 'relays are gone: tarfa setup sets a machine up for phones, and tarfa pair pairs one';
-const PAIR_USAGE = `usage: tarfa pair [--pwa <PWA origin>] [--ttl <minutes, 1-${PAIRING_TTL_MS / 60_000}, default ${PAIRING_TTL_MS / 60_000}>]`;
+// The longest machine name a phone takes from a pairing code or link.
+const MAX_PAIRING_NAME = 64;
+const PAIR_USAGE = `usage: tarfa pair [--pwa <PWA origin>] [--ttl <minutes, 1-${PAIRING_TTL_MS / 60_000}, default ${PAIRING_TTL_MS / 60_000}>] [--link]`;
 
 function takeOption(args: string[], name: string, usage: string, Failure: new (message: string) => Error = Error): string | undefined {
   const at = args.indexOf(name);
@@ -614,6 +616,8 @@ async function pair(argv: string[], env: NodeJS.ProcessEnv, home: string): Promi
   const config = loadConfig({ ...env, ...(await agentEnvValues(env, home)) }, home);
   let origin = pwaOrigin(takeOption(args, '--pwa', PAIR_USAGE));
   const ttl = takeOption(args, '--ttl', PAIR_USAGE) ?? String(PAIRING_TTL_MS / 60_000);
+  const linkAt = args.indexOf('--link');
+  if (linkAt !== -1) args.splice(linkAt, 1);
   const minutes = Number(ttl);
   if (!/^\d+$/.test(ttl) || minutes < 1 || minutes * 60_000 > PAIRING_TTL_MS) throw new Error(`--ttl takes whole minutes from 1 to ${PAIRING_TTL_MS / 60_000} (got ${ttl})`);
   if (args.length > 0) throw new Error(PAIR_USAGE);
@@ -628,19 +632,22 @@ async function pair(argv: string[], env: NodeJS.ProcessEnv, home: string): Promi
   const bad = config.phoneAddresses.find((url) => !isMachineUrl(url));
   if (bad) throw new Error(`TARFA_PHONE_ADDRESSES holds ${bad}, which a phone refuses: wss://<host>[:port][/<slug>] (run tarfa setup)`);
   if (config.phoneAddresses.length > MAX_ADDRESSES) throw new Error(`TARFA_PHONE_ADDRESSES holds more than ${MAX_ADDRESSES} addresses`);
-  const link = await mintPairingLink(
+  // Refused before a secret is stored, like every other field a phone would refuse.
+  const machineId = pairingName(config.machineId, hostname());
+  if (machineId.trim().length > MAX_PAIRING_NAME) throw new Error(`TARFA_MACHINE_ID must be at most ${MAX_PAIRING_NAME} characters, the name phones show (got ${machineId.length})`);
+  const pairing = await mintPairing(
     {
       keys: await loadOrCreateAgentKeys(config.agentKeyPath),
-      machineId: pairingName(config.machineId, hostname()),
+      machineId,
       ...(config.defaultPath ? { defaultPath: config.defaultPath } : {}),
       pairings: new FilePairingStore(config.pairingPath),
       newSecret: generatePairingSecret,
       now: () => new Date(),
       ttlMs: minutes * 60_000,
     },
-    { phoneUrls: config.phoneAddresses, pwaOrigin: origin },
+    { phoneUrls: config.phoneAddresses },
   );
-  return pairingInstructions(link, minutes);
+  return pairingInstructions(pairing, { origin, minutes, link: linkAt !== -1 });
 }
 
 // The exit code `timeout(1)` uses, so a script can tell it from a stop (0) or a failure (1, 2).
@@ -664,7 +671,7 @@ replace anything it did not make (an agent key, another tailscale serve entry).
 
   --machine-id <id>             the name phones show for this machine
   --project-roots <dir,dir>     absolute folders new workspaces may be made in
-  --default-path <dir>          where a phone resolves relative paths (in pairing links)
+  --default-path <dir>          where a phone resolves relative paths (sent when pairing)
   --phone-port <n>              loopback port phones reach (default 8797); every Linux user on one
                                 machine needs their own, e.g. 8797 and 8798
   --tailscale serve|funnel|none publish the phone port on the tailnet (serve), also on the public
@@ -676,7 +683,7 @@ replace anything it did not make (an agent key, another tailscale serve entry).
                                 4 in all), e.g. a reverse proxy
   --pwa <origin>                where phones open the app (default https://tarfa.app; an existing
                                 TARFA_PWA_ORIGIN is kept unless this is given)
-  --pair                        print a pairing link and QR code at the end
+  --pair                        print a pairing code and QR code at the end
   --adopt                       a machine whose service runs a clone's deploy/run-agent.sh: move it to
                                 the installed package (copies deploy/agent.env to ~/.tarfa/agent.env,
                                 keeps the original, repoints the service, replaces the ~/.local/bin links
@@ -947,17 +954,29 @@ async function apply(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
   return result.lines.join('\n');
 }
 
-function pairingInstructions(link: string, minutes = PAIRING_TTL_MS / 60_000): string {
+// A code by default: a link looks like something to open, and opened outside the installed app it
+// pairs nothing. `--link` is for an app from before codes (an older cached or self-hosted one).
+function pairingInstructions(pairing: PairingLink, options: { origin: string; minutes: number; link: boolean }): string {
+  const { origin, minutes } = options;
+  const text = options.link ? pairingLink(origin, pairing) : pairingCode(pairing);
+  const how = options.link
+    ? [
+        'On the phone, in Tarfa: Settings → Scan QR code, then scan this. Or open the link below on the',
+        'phone (Android opens the installed app; on an iPhone copy it and use Settings → Paste pairing link).',
+      ]
+    : [
+        `On the phone, open the Tarfa app (install it from ${origin} first), then Settings → Add machine:`,
+        'Scan QR code and scan this, or copy the code below to the phone and tap Paste pairing code.',
+      ];
   return [
-    'On the phone, in Tarfa: Settings → Scan QR code, then scan this. Or open the link below on the',
-    'phone (Android opens the installed app; on an iPhone copy it and use Settings → Paste pairing link).',
+    ...how,
     '',
     // Half-height blocks: about 60 columns, where `term` needs twice that.
-    encodeQR(link, 'ascii', { ecc: 'low' }),
-    link,
+    encodeQR(text, 'ascii', { ecc: 'low' }),
+    text,
     '',
     // The phone asks before pairing and shows this fingerprint: they must match.
-    `The phone will show machine key ${deviceFingerprint(parsePairingLink(link)!.agentKey)}; check it matches.`,
+    `The phone will show machine key ${deviceFingerprint(pairing.agentKey)}; check it matches.`,
     `It works once, for ${minutes} minute${minutes === 1 ? '' : 's'}. \`tarfa pair\` makes another.`,
   ].join('\n');
 }

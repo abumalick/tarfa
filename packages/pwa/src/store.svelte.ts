@@ -1370,20 +1370,21 @@ export class TarfaStore {
     return this.deps.origin ?? location.origin;
   }
 
-  // A pairing link, scanned or pasted: adds (or updates) the machine's entry and connects it.
-  // Returns the machine's name, or why the link was refused.
-  pairFromLink(text: string): { name: string } | { error: string } {
+  // A pairing code or link, scanned or pasted: adds (or updates) the machine's entry and connects
+  // it. Returns the machine's name, why it was refused, or that the owner declined.
+  pairFromLink(text: string): { name: string } | { error: string } | { declined: true } {
     const read = readPairingLink(text, this.origin());
     if (!read.ok) return { error: read.reason };
-    // Pasting or scanning a code is the owner's own act: nothing to confirm, and a refusal is
-    // shown beside the input rather than in a dialog.
+    // A code pasted from a chat is as foreign as a link opened from one, so the owner is asked
+    // the same question, naming every host and the key `tarfa pair` printed. A refusal is shown
+    // beside the input rather than in a dialog.
     let error = '';
     const machine = acceptPairingLink(this.deps.settings.list(), read.link, {
-      confirm: () => true,
+      confirm: this.deps.confirm,
       alert: (message) => (error = message),
       newId: this.deps.newId,
     });
-    if (!machine) return { error };
+    if (!machine) return error ? { error } : { declined: true };
     this.applyPairing(machine);
     return { name: read.link.name };
   }
