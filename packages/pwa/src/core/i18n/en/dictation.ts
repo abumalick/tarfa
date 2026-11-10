@@ -29,4 +29,46 @@ export const dictation = {
   elevenLabsQuota: 'ElevenLabs quota exceeded',
   openRouterCredit: 'OpenRouter credit exhausted',
   unreadableRecording: 'Could not read the recording',
+  setup: {
+    title: 'Set up dictation',
+    intro: 'The 🎤 needs one of these first.',
+    claudeSetup:
+      'Claude Code’s own /voice: if this machine runs Linux, its agent can play your dictation into Claude Code, with no API key. It takes a one-time setup on the machine.',
+    claudeDocs: 'Machine setup guide',
+    claudeNotClaude: 'Claude voice works on this machine, in a Claude Code workspace. Open one to dictate there with no key.',
+    claudeAsking: 'Claude voice works here once the question on screen is answered.',
+    elevenlabs: 'ElevenLabs Scribe turns your speech into text, with an API key stored on this device.',
+    openrouter: 'OpenRouter sends the recording to an AI model that writes it up cleanly (or follows your own prompt), with an API key stored on this device.',
+    howToGetKey: 'How to get a key',
+    howToGetKeyFor: (provider: string) => `How to get an ${provider} key`,
+    openSettingsFor: (provider: string) => `Open Settings at the ${provider} key`,
+    openSettings: 'Open Settings',
+    back: 'Back',
+    close: 'Close',
+  },
+  keyHelp: {
+    title: (provider: string) => `Get an ${provider} key`,
+    steps: {
+      elevenlabs: [
+        'Create an ElevenLabs account, or sign in.',
+        'Open the API keys page and create a key. You can limit it to Speech to Text, the only thing Tarfa uses.',
+        'Copy the key and paste it in Settings → Dictation → ElevenLabs API key, then tap Save key.',
+      ],
+      openrouter: [
+        'Create an OpenRouter account, or sign in.',
+        'Add a few dollars of credits: models are paid per use.',
+        'Open the API keys page and create a key. You can give it a credit limit.',
+        'Copy the key and paste it in Settings → Dictation → OpenRouter API key, then tap Save key.',
+      ],
+    },
+    cost: {
+      elevenlabs:
+        'Cost: ElevenLabs has a free plan with a monthly allowance; past it, speech-to-text costs about $0.22 per hour of audio. Prices change: check the provider’s pricing.',
+      openrouter:
+        'Cost: with the default Gemini Flash presets, about $0.10 to $0.30 per hour of speech, taken from your credits. It depends on the model a preset uses: check the provider’s pricing.',
+    },
+    stored: 'The key stays on this device; recordings go from it straight to the provider.',
+    openKeys: 'Open the API keys page',
+    pricing: 'Pricing',
+  },
 };

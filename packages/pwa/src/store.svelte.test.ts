@@ -2740,6 +2740,15 @@ describe('TarfaStore dictation presets', () => {
     expect(store.addingPreset).toBe(true);
   });
 
+  it('leaves the terminal for Settings at the key a setup explanation pointed to', () => {
+    const { store } = build();
+    store.start();
+    store.openDictationKeySettings('openrouter');
+    expect(store.view).toBe('settings');
+    expect(store.active).toBeNull();
+    expect(store.dictationKeyFocus).toBe('openrouter');
+  });
+
   it('resets to the built-in defaults', () => {
     const { store, storage } = build();
     store.start();
