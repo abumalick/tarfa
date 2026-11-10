@@ -2385,6 +2385,23 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       expect(store.readAloudVoiceHelp).toBe('failed');
     });
 
+    // Only `synthesis-failed` was seen from a lost engine; a missing voice wants the install.
+    it('offers the install steps for any other voice error', () => {
+      let fail: ((code: string) => void) | undefined;
+      const port = {
+        speak: (_t: string, _v: unknown, on: { error: (code: string) => void }) => void (fail ??= on.error),
+        cancel: () => undefined,
+        unlock: () => undefined,
+      };
+      const { store, deliver } = buildKeyed({ speech: port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Broken.' });
+      fail!('language-unavailable');
+      expect(store.readAloudVoiceHelp).toBe('silent');
+    });
+
     it('offers no voice help for a reply that is missing', () => {
       const speech = fakeSpeech();
       const { store, deliver } = buildKeyed({ speech: speech.port });

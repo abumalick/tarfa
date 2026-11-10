@@ -21,7 +21,7 @@ export const readAloud = {
       'Chrome on Android speaks only with Google’s speech engine, even when the phone has another one set (Samsung’s, for one).',
       'Install “Speech Services by Google” from the Play Store. If it says the app is disabled, tap Enable.',
       'In Android’s Settings, search for “Text-to-speech”, open Speech Services by Google and install the voice for your language.',
-      'Restart Chrome: in Android’s Settings → Apps → Chrome, tap Force stop, then open Tarfa again. Chrome finds the engine only when it starts, and swiping Tarfa away does not stop it.',
+      'Restart Chrome (Settings → Apps → Chrome → Force stop), then open Tarfa again: Chrome finds the engine only when it starts.',
       'Turn the media volume up: the voice plays on it.',
     ],
     'android-firefox': [
@@ -40,11 +40,11 @@ export const readAloud = {
       'Restart the browser, and check the sound output.',
     ],
   },
-  // Android Chrome, when the voice answered with an error: the engine is there, but Chrome lost
+  // Android Chrome, when the voice answered `synthesis-failed`: the engine is there, but Chrome lost
   // it (it does when the engine updates while Chrome runs) and finds it again only on a restart.
   restartSteps: [
-    'Chrome lost its connection to the speech engine. It happens when the engine updates while Chrome is running.',
-    'In Android’s Settings → Apps → Chrome, tap Force stop. Swiping Tarfa away is not enough: Chrome keeps running.',
+    'Chrome has most likely lost its connection to the speech engine. It happens when the engine updates while Chrome is running.',
+    'In Android’s Settings → Apps → Chrome (or the browser Tarfa was installed from), tap Force stop. Swiping Tarfa away is not enough: the browser keeps running.',
     'Open Tarfa again and tap 🔊.',
   ],
   stillFailing: 'Still failing?',

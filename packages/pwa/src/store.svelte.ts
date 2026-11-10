@@ -295,7 +295,8 @@ export class TarfaStore {
   readAloud = $state<{ state: ReadAloudState; position: number; duration: number } | null>(null);
   readAloudNotice = $state<string | null>(null);
   // The notice is about a voice that would not speak, so it offers the help for this device:
-  // `silent` never started (no engine for it), `failed` answered with an error.
+  // `failed` is the voice answering `synthesis-failed` (an engine the browser lost), `silent`
+  // any other failure, which the install steps cover.
   readAloudVoiceHelp = $state<'silent' | 'failed' | null>(null);
   readAloudRate = $state(1);
   private readonly readAloudPlayer: ReadAloud | null = null;
@@ -367,7 +368,7 @@ export class TarfaStore {
         onError: (code) => {
           this.readAloudPlayer?.stop();
           this.readAloudNotice = code === 'no-start' ? msg().readAloud.voiceSilent : msg().readAloud.voiceFailed(code);
-          this.readAloudVoiceHelp = code === 'no-start' ? 'silent' : 'failed';
+          this.readAloudVoiceHelp = code === 'synthesis-failed' ? 'failed' : 'silent';
         },
       });
     }
