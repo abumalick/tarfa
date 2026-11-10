@@ -145,6 +145,7 @@ install_hooks() { # <root>
 # normalised identity, as compact JSON with sorted keys. Computed here the way Codex 0.167 does
 # (a command handler gets timeout 600 and async false when unset), so the sandbox trusts exactly
 # the hooks install-hooks wrote. The live test catches a Codex release that hashes differently.
+CODEX_TRUST_VERSION=0.167.0
 codex_hook_trust() { # <hooks.json>
   local hj="$1" row
   [ -f "${hj}" ] || return 0
@@ -415,10 +416,11 @@ cmd_up() { # <worktree>
   slug="$(sb_slug "${wt}")"; root="$(sb_root "${slug}")"
   [[ "${MAX_SANDBOXES}" =~ ^[0-9]+$ ]] || die "TARFA_SANDBOX_MAX must be a number, not ${MAX_SANDBOXES}"
   [ -d "${wt}/node_modules" ] || die "no node_modules in ${wt}: run pnpm install in ${wt}"
-  # A unix socket path holds at most 107 bytes, and the sandbox's tmux and agent-browser sockets
-  # live under its root; the Codex link, the longest path there, bounds them all.
-  local codex_sock="${root}/home/.codex/app-server-control/app-server-control.sock"
-  [ "${#codex_sock}" -le 107 ] || die "the sandbox folder is too deep for the Codex socket (${codex_sock}: ${#codex_sock} bytes, at most 107): set TARFA_SANDBOX_ROOT to a shorter folder"
+  # A unix socket path holds at most 107 bytes (bytes, not characters), and the sandbox's tmux and
+  # agent-browser sockets live under its root; the Codex link, the longest path there, bounds them all.
+  local codex_sock="${root}/home/.codex/app-server-control/app-server-control.sock" codex_bytes
+  codex_bytes="$(printf '%s' "${codex_sock}" | wc -c)"
+  [ "${codex_bytes}" -le 107 ] || die "the sandbox folder is too deep for the Codex socket (${codex_sock}: ${codex_bytes} bytes, at most 107): set TARFA_SANDBOX_ROOT to a shorter folder"
   [ -n "$(tr -d '[:space:]' < "${TOKEN_FILE}" 2>/dev/null)" ] || die "no Claude token at ${TOKEN_FILE}: make one with \`claude setup-token\` and save it there (mode 0600)"
   if [ -z "${TARFA_SANDBOX_NO_BROWSER:-}" ] && ! command -v agent-browser > /dev/null; then
     die "agent-browser is not installed: install it, or set TARFA_SANDBOX_NO_BROWSER=1 to pair a browser yourself"
@@ -445,6 +447,10 @@ cmd_up() { # <worktree>
     die "${#live[@]} sandboxes are already up (the limit is ${MAX_SANDBOXES}, TARFA_SANDBOX_MAX): $(printf '%s, ' "${live[@]}" | sed 's/, $//'). They may be other agents': wait for one to finish, run pnpm sandbox gc to clear dead ones, or ask the maintainer"
   fi
 
+  # Asked once: a codex on PATH that cannot run (a shim with nothing installed) counts as absent.
+  local codex_version
+  codex_version="$(codex --version 2>/dev/null | awk 'NR == 1 {print $NF}')" || codex_version=""
+
   umask 077
   UP_ROOT="${root}"
   # Whatever fails from here on, nothing is left running: the next up would refuse it as "already up".
@@ -459,7 +465,7 @@ cmd_up() { # <worktree>
   jq -n --arg slug "${slug}" --arg wt "${wt}" --arg root "${root}" \
     --argjson hooks "${hooks}" --argjson phone "${phone}" --argjson pwa "${pwa}" \
     --arg agent "tarfa-sb-${slug}-agent" --arg pwaunit "tarfa-sb-${slug}-pwa" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg codex "$([ -f "${CODEX_LOGIN}/auth.json" ] && echo "tarfa-sb-${slug}-codex")" \
+    --arg codex "$([ -f "${CODEX_LOGIN}/auth.json" ] && [ -n "${codex_version}" ] && echo "tarfa-sb-${slug}-codex")" \
     '{slug: $slug, worktree: $wt, root: $root, ports: {hooks: $hooks, phone: $phone, pwa: $pwa},
       units: {agent: $agent, pwa: $pwaunit, codex: (if $codex == "" then null else $codex end)},
       browser: null, pairLink: null, createdAt: $at}' > "${root}/manifest.json"
@@ -498,8 +504,16 @@ EOF
   fi
   echo "  env       ${root}/env.sh   (pnpm sandbox exec -- <cmd> runs a command in it)"
   echo "  tmux      tmux -S $(sb_socket "${root}") ls"
-  if [ ! -L "${root}/home/.codex/auth.json" ]; then
+  if [ -z "${codex_version}" ]; then
+    echo "  codex     not installed or not runnable (codex --version failed): no Codex app server"
+  elif [ ! -L "${root}/home/.codex/auth.json" ]; then
     echo "  codex     not logged in: once for every sandbox, mkdir -p -m 700 ${CODEX_LOGIN} && CODEX_HOME=${CODEX_LOGIN} codex login --device-auth, then pnpm sandbox down and up"
+  else
+    if [ "${codex_version}" = "${CODEX_TRUST_VERSION}" ]; then
+      echo "  codex     ${codex_version} (hook trust made for Codex ${CODEX_TRUST_VERSION})"
+    else
+      echo "  codex     ${codex_version} (hook trust made for Codex ${CODEX_TRUST_VERSION}: if its hooks do not report, see docs/SANDBOX.md)"
+    fi
   fi
   UP_ROOT=""
 }

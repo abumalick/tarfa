@@ -72,6 +72,10 @@ if [ \"\$3 \${4:-}\" = 'dialog accept' ] && [ ! -e \"${T}/no-enrol\" ]; then
   done
 fi"
 stub claude 'echo "9.9.9 (Claude Code)"'
+# codex sits in a folder of its own, so a run can drop it from PATH and keep every other stub.
+mkdir -p "${T}/cbin"
+printf '#!/usr/bin/env bash\n[ -z "${STUB_CODEX_BROKEN:-}" ] || exit 1\necho "codex-cli ${STUB_CODEX_VERSION:-0.167.0}"\n' > "${T}/cbin/codex"
+chmod +x "${T}/cbin/codex"
 stub pnpm "
 echo \"  env HOME=\$HOME XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR:-} TMUX=\${TMUX-unset} FLAVOR=\${TARFA_APP_FLAVOR:-} LABEL=\${TARFA_BUILD_LABEL:-}\" >> \"${CALLS}\"
 case \"\$*\" in
@@ -94,7 +98,7 @@ mkdir -p "${WT}/node_modules" "${WT}/packages/pwa"
 git -C "${WT}" init -q
 
 sb() { # <args...>  run sandbox.sh as a caller inside a Tarfa pane would
-  env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:${PATH}" TMUX="/real/server,1,0" TMUX_PANE="%1" \
+  env HOME="${REALHOME}" PATH="${T}/bin:${T}/cbin:${NODE_DIR}:${PATH}" TMUX="/real/server,1,0" TMUX_PANE="%1" \
     TARFA_SANDBOX_ROOT="${SBROOT}" TARFA_SANDBOX_NO_BROWSER=1 \
     bash "${HERE}/sandbox.sh" "$@" 2>&1
 }
@@ -294,7 +298,7 @@ done
 
 echo "browser"
 sbb() { # like sb, with the browser step on
-  env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:${PATH}" TMUX="/real/server,1,0" TMUX_PANE="%1" \
+  env HOME="${REALHOME}" PATH="${T}/bin:${T}/cbin:${NODE_DIR}:${PATH}" TMUX="/real/server,1,0" TMUX_PANE="%1" \
     XDG_RUNTIME_DIR="/run/user/caller" TARFA_SANDBOX_ROOT="${SBROOT}" TARFA_SANDBOX_READY_SECONDS=1 \
     bash "${HERE}/sandbox.sh" "$@" 2>&1
 }
@@ -422,18 +426,48 @@ check "the codex app server runs as its own unit" "yes" "$(printf '%s' "${CX_UNI
 check "codex unit memory cap" "yes" "$(printf '%s' "${CX_UNIT}" | has 'MemoryMax=2G' /dev/stdin)"
 check "codex unit drops a CODEX_HOME the caller had" "yes" "$(printf '%s' "${CX_UNIT}" | has 'env -u TMUX -u TMUX_PANE -u CODEX_HOME codex' /dev/stdin)"
 check "codex unit has the sandbox HOME" "yes" "$(printf '%s' "${CX_UNIT}" | has "--setenv=HOME=${SBROOT}/$(slug_of "${CX_WT}")/home" /dev/stdin)"
+check "up names the Codex version the hook trust was made for" "yes" "$(printf '%s' "${out}" | has 'codex     0.167.0 (hook trust made for Codex 0.167.0)' /dev/stdin)"
 check "manifest names the codex unit" "tarfa-sb-$(slug_of "${CX_WT}")-codex" "$(jq -r .units.codex "${SBROOT}/$(slug_of "${CX_WT}")/manifest.json")"
 check "the real ~/.codex is never named" "no" "$(grep -rlF "${REALHOME}/.codex" "${SBROOT}" 2>/dev/null | head -n 1 | grep -q . && echo yes || echo no)"
 : > "${T}/active"
 
+echo "codex versions and absence"
+rm -rf "${SBROOT:?}"/*
+out="$(STUB_CODEX_VERSION=0.170.0 sb up --worktree "${CX_WT}")"
+check "another Codex version is flagged" "yes" "$(printf '%s' "${out}" | has 'codex     0.170.0 (hook trust made for Codex 0.167.0: if its hooks do not report, see docs/SANDBOX.md)' /dev/stdin)"
+rm -rf "${SBROOT:?}"/*
+NOCODEX_PATH=""
+IFS=: read -ra _dirs <<< "${NODE_DIR}:${PATH}"
+for _d in "${_dirs[@]}"; do [ -x "${_d}/codex" ] || NOCODEX_PATH="${NOCODEX_PATH:+${NOCODEX_PATH}:}${_d}"; done
+NOCODEX_PATH="${T}/bin:${NOCODEX_PATH}"
+out="$(env HOME="${REALHOME}" PATH="${NOCODEX_PATH}" TMUX="/real/server,1,0" TMUX_PANE="%1" TARFA_SANDBOX_ROOT="${SBROOT}" \
+  TARFA_SANDBOX_NO_BROWSER=1 bash "${HERE}/sandbox.sh" up --worktree "${CX_WT}" 2>&1)"
+check "no codex installed: up still works" "yes" "$(printf '%s' "${out}" | has 'is up' /dev/stdin)"
+check "no codex installed: no unit" "null" "$(jq -r .units.codex "${SBROOT}/$(slug_of "${CX_WT}")/manifest.json")"
+check "no codex installed: up says so" "yes" "$(printf '%s' "${out}" | has 'codex     not installed or not runnable' /dev/stdin)"
+rm -rf "${SBROOT:?}"/*
+set +e; out="$(STUB_CODEX_BROKEN=1 sb up --worktree "${CX_WT}")"; rc=$?; set -e
+check "a codex that cannot run: up still works" "0" "${rc}"
+check "a codex that cannot run: no unit" "null" "$(jq -r .units.codex "${SBROOT}/$(slug_of "${CX_WT}")/manifest.json" 2>/dev/null)"
+check "a codex that cannot run: up says so" "yes" "$(printf '%s' "${out}" | has 'codex     not installed or not runnable' /dev/stdin)"
+rm -rf "${SBROOT:?}"/*
+
 echo "a root too deep for the Codex socket"
 LONG="${T}/$(printf 'd%.0s' $(seq 1 80))"
 LONG_WT="${T}/long/w"; mkdir -p "${LONG_WT}/node_modules"; git -C "${LONG_WT}" init -q
-set +e; out="$(env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:${PATH}" TARFA_SANDBOX_ROOT="${LONG}" TARFA_SANDBOX_NO_BROWSER=1 \
+set +e; out="$(env HOME="${REALHOME}" PATH="${T}/bin:${T}/cbin:${NODE_DIR}:${PATH}" TARFA_SANDBOX_ROOT="${LONG}" TARFA_SANDBOX_NO_BROWSER=1 \
   bash "${HERE}/sandbox.sh" up --worktree "${LONG_WT}" 2>&1)"; rc=$?; set -e
 check "refused" "1" "${rc}"
 check "and names the knob" "yes" "$(printf '%s' "${out}" | has 'TARFA_SANDBOX_ROOT' /dev/stdin)"
 check "nothing created" "no" "$([ -e "${LONG}/$(slug_of "${LONG_WT}")" ] && echo yes || echo no)"
+# Fits in characters, not in bytes: the limit is the socket's, in bytes.
+TAIL="/$(slug_of "${LONG_WT}")/home/.codex/app-server-control/app-server-control.sock"
+n=$(( 107 - ${#SBROOT} - 1 - ${#TAIL} ))
+[ "${n}" -gt 0 ] || { echo "  FAIL: XDG_RUNTIME_DIR too long for the bytes check"; fails=$((fails + 1)); n=1; }
+WIDE="${SBROOT}/$(printf 'é%.0s' $(seq 1 "${n}"))"
+set +e; out="$(env LC_ALL=C.UTF-8 HOME="${REALHOME}" PATH="${T}/bin:${T}/cbin:${NODE_DIR}:${PATH}" TARFA_SANDBOX_ROOT="${WIDE}" TARFA_SANDBOX_NO_BROWSER=1 \
+  bash "${HERE}/sandbox.sh" up --worktree "${LONG_WT}" 2>&1)"; rc=$?; set -e
+check "a root over the limit in bytes only: refused" "1 yes" "${rc} $(printf '%s' "${out}" | has 'too deep' /dev/stdin)"
 
 if [ "${fails}" -gt 0 ]; then
   echo "${fails} check(s) failed"
