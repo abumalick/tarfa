@@ -2,6 +2,7 @@ import type { Messages } from '../en';
 
 export const readAloud: Messages['readAloud'] = {
   listen: 'Écouter la dernière réponse',
+  listenWithVoices: 'Écouter la dernière réponse, appui long pour les voix',
   player: 'Lecture de la dernière réponse',
   play: 'Lire',
   pause: 'Pause',

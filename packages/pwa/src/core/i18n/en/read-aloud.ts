@@ -1,5 +1,6 @@
 export const readAloud = {
   listen: 'Listen to the last reply',
+  listenWithVoices: 'Listen to the last reply, long press for voices',
   player: 'Reading the last reply',
   play: 'Play',
   pause: 'Pause',

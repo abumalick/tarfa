@@ -179,7 +179,7 @@ describe('KeyboardBar', () => {
       'Option',
       'Command',
       '␣',
-      'Dictate (Scribe)',
+      'Dictate (Scribe), long press for presets',
       'Cursor pad',
       '⏎',
       '⎋',
@@ -448,7 +448,7 @@ describe('KeyboardBar dictation presets', () => {
     const onDictate = vi.fn();
     const onSetupDictation = vi.fn();
     render(KeyboardBar, { props: { ...base, presetKeys: noKeys, onDictate, onSetupDictation } });
-    const setup = screen.getByRole('button', { name: 'Set up dictation' });
+    const setup = screen.getByRole('button', { name: /^Set up dictation/ });
     expect(setup).toHaveTextContent('🎤');
     pointer(setup, 'pointerdown', 100, 100);
     pointer(setup, 'pointerup', 100, 100);
@@ -460,7 +460,7 @@ describe('KeyboardBar dictation presets', () => {
   it('opens nothing when a press on the setup mic turns into a scroll', async () => {
     const onSetupDictation = vi.fn();
     render(KeyboardBar, { props: { ...base, presetKeys: noKeys, onSetupDictation } });
-    const setup = screen.getByRole('button', { name: 'Set up dictation' });
+    const setup = screen.getByRole('button', { name: /^Set up dictation/ });
     pointer(setup, 'pointerdown', 100, 100);
     pointer(setup, 'pointermove', 100 + TAP_SLOP_PX + 1, 100);
     pointer(setup, 'pointerup', 100 + TAP_SLOP_PX + 1, 100);
@@ -471,7 +471,7 @@ describe('KeyboardBar dictation presets', () => {
   it('still opens the presets on a long press of the setup mic, each saying why it cannot run', async () => {
     const onSetupDictation = vi.fn();
     render(KeyboardBar, { props: { ...base, presetKeys: noKeys, onSetupDictation } });
-    const setup = screen.getByRole('button', { name: 'Set up dictation' });
+    const setup = screen.getByRole('button', { name: /^Set up dictation/ });
     pointer(setup, 'pointerdown', 100, 100);
     await vi.advanceTimersByTimeAsync(HOLD_MS);
     pointer(setup, 'pointerup', 100, 100);
@@ -483,18 +483,18 @@ describe('KeyboardBar dictation presets', () => {
 
   it('dictates with Claude voice by default where it can run, with no key needed', () => {
     render(KeyboardBar, { props: { ...base, presetKeys: { elevenlabs: false, openrouter: false, claude: 'ok' } } });
-    expect(mic()).toHaveAccessibleName('Dictate (Claude voice)');
+    expect(mic()).toHaveAccessibleName('Dictate (Claude voice), long press for presets');
     expect(mic()).toHaveTextContent('CV');
   });
 
   it('dictates with a preset that has a key when the chosen one has none', () => {
     render(KeyboardBar, { props: { ...base, currentPresetId: 'scribe', presetKeys: { elevenlabs: false, openrouter: true, claude: 'unavailable' } } });
-    expect(mic()).toHaveAccessibleName('Dictate (Clean up)');
+    expect(mic()).toHaveAccessibleName('Dictate (Clean up), long press for presets');
   });
 
   it('shows the current preset as a badge and in the label', () => {
     render(KeyboardBar, { props: { ...base, presets, currentPresetId: 'clean' } });
-    expect(mic()).toHaveAccessibleName('Dictate (Clean up)');
+    expect(mic()).toHaveAccessibleName('Dictate (Clean up), long press for presets');
     expect(mic()).toHaveTextContent('CL');
   });
 
@@ -569,7 +569,7 @@ describe('KeyboardBar read-aloud voices', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  const speaker = () => screen.getByRole('button', { name: 'Listen to the last reply' });
+  const speaker = () => screen.getByRole('button', { name: /^Listen to the last reply/ });
   const menu = () => screen.queryByRole('listbox', { name: 'Read aloud with' });
   const model = { source: 'elevenlabs' as const, voiceName: 'George', elevenLabsMissing: null };
 
@@ -629,5 +629,51 @@ describe('KeyboardBar read-aloud voices', () => {
     await vi.advanceTimersByTimeAsync(HOLD_MS);
     expect(menu()).toBeNull();
     expect(speaker()).toHaveTextContent(/^🔊$/);
+  });
+});
+
+describe('KeyboardBar long-press hint', () => {
+  const expandOn = (container: HTMLElement) =>
+    [...container.querySelectorAll('.expand')].map((e) => e.closest('button')?.getAttribute('aria-label'));
+  const model = { source: 'elevenlabs' as const, voiceName: 'George', elevenLabsMissing: null };
+
+  it('marks the mic and the 🔊 with a corner triangle, and only them', () => {
+    const { container } = render(KeyboardBar, {
+      props: { ...base, onReadAloud: vi.fn(), readAloudMenu: model, readAloudBadge: 'EL' },
+    });
+    expect(expandOn(container)).toEqual([
+      'Dictate (Scribe), long press for presets',
+      'Listen to the last reply, long press for voices',
+    ]);
+    for (const e of container.querySelectorAll('.expand')) expect(e).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('marks the setup mic, which also opens the presets', () => {
+    const noKeys = { elevenlabs: false, openrouter: false, claude: 'unavailable' } as const;
+    const { container } = render(KeyboardBar, { props: { ...base, presetKeys: noKeys, onSetupDictation: vi.fn() } });
+    expect(expandOn(container)).toEqual(['Set up dictation, long press for presets']);
+  });
+
+  it('leaves the 🔊 plain where it has no menu', () => {
+    const { container } = render(KeyboardBar, { props: { ...base, onReadAloud: vi.fn() } });
+    expect(screen.getByRole('button', { name: 'Listen to the last reply' })).toBeInTheDocument();
+    expect(expandOn(container)).toEqual(['Dictate (Scribe), long press for presets']);
+  });
+
+  it('drops the hint while recording, when a long press stops instead', () => {
+    const { container } = render(KeyboardBar, { props: { ...base, dictation: 'recording' } });
+    expect(screen.getByRole('button', { name: 'Dictate (Scribe)' })).toBeInTheDocument();
+    expect(container.querySelector('.expand')).toBeNull();
+  });
+
+  it('says so in French', () => {
+    setLanguage('fr');
+    try {
+      render(KeyboardBar, { props: { ...base, onReadAloud: vi.fn(), readAloudMenu: model } });
+      expect(screen.getByRole('button', { name: 'Dicter (Scribe), appui long pour les préréglages' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Écouter la dernière réponse, appui long pour les voix' })).toBeInTheDocument();
+    } finally {
+      setLanguage('en');
+    }
   });
 });

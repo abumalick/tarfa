@@ -169,7 +169,9 @@
   const preset = $derived(hasUsablePreset(presets, presetKeys) ? menuPreset : null);
   const showMic = $derived(!!preset || (!!menuPreset && !!onSetupDictation));
   // A recording always stops on a tap, even if its preset stopped being usable meanwhile.
+  const micMenu = $derived(dictation === 'idle' || dictation === 'error');
   const tapMic = () => (preset || dictation === 'recording' ? onDictate() : onSetupDictation?.());
+  const withHint = (label: string) => (micMenu ? msg().keyboard.withPresets(label) : label);
   let mic = $state<HTMLButtonElement | null>(null);
   let presetAnchor = $state<{ bottom: number; right: number } | null>(null);
 
@@ -358,11 +360,11 @@
     class:recording={dictation === 'recording'}
     class:error={dictation === 'error'}
     bind:this={mic}
-    aria-label={preset ? msg().keyboard.dictate(preset.name) : msg().keyboard.setupDictation}
+    aria-label={withHint(preset ? msg().keyboard.dictate(preset.name) : msg().keyboard.setupDictation)}
     aria-pressed={preset ? dictation === 'recording' : undefined}
     aria-haspopup={preset ? undefined : 'dialog'}
     disabled={dictation === 'transcribing'}
-    use:press={{ fire: tapMic, hold: dictation === 'idle' || dictation === 'error' ? openPresets : undefined }}
+    use:press={{ fire: tapMic, hold: micMenu ? openPresets : undefined }}
     oncontextmenu={(e) => e.preventDefault()}
     onclick={() => {
       if (suppressClick) {
@@ -371,13 +373,13 @@
       }
       tapMic();
     }}
-    >{dictation === 'transcribing' ? '⏳' : dictation === 'error' ? '⚠️' : '🎤'}{#if preset}<span class="badge" aria-hidden="true">{preset.badge}</span>{/if}</button>
+    >{dictation === 'transcribing' ? '⏳' : dictation === 'error' ? '⚠️' : '🎤'}{#if micMenu}<span class="expand" aria-hidden="true"></span>{/if}{#if preset}<span class="badge" aria-hidden="true">{preset.badge}</span>{/if}</button>
   {/if}
   {#if onReadAloud}
     <button
       type="button"
       class="speaker"
-      aria-label={msg().readAloud.listen}
+      aria-label={readAloudMenu ? msg().readAloud.listenWithVoices : msg().readAloud.listen}
       bind:this={speaker}
       use:press={{ hold: readAloudMenu ? openVoices : undefined }}
       oncontextmenu={(e) => e.preventDefault()}
@@ -389,7 +391,7 @@
         }
         onReadAloud();
       }}
-      >🔊{#if readAloudBadge && readAloudMenu}<span class="badge" aria-hidden="true">{readAloudBadge}</span>{/if}</button>
+      >🔊{#if readAloudMenu}<span class="expand" aria-hidden="true"></span>{/if}{#if readAloudBadge && readAloudMenu}<span class="badge" aria-hidden="true">{readAloudBadge}</span>{/if}</button>
   {/if}
   {#if voiceAnchor && readAloudMenu}
     <ReadAloudMenu
@@ -533,6 +535,18 @@
     right: 2px;
     bottom: 1px;
     font: 700 9px/1 ui-monospace, monospace;
+    pointer-events: none;
+  }
+  /* Marks a key whose long press opens a menu; clear of the badge in the opposite corner. */
+  .mic .expand, .speaker .expand {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
+    background: currentColor;
+    opacity: 0.55;
+    clip-path: polygon(0 0, 100% 0, 100% 100%);
     pointer-events: none;
   }
   .mic.error { border-color: var(--danger, #e5484d); }
