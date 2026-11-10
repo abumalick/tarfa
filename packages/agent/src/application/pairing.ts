@@ -11,7 +11,7 @@ export interface Pairing {
   usedBy?: string;
 }
 
-export const PAIRING_TTL_MS = 10 * 60_000;
+export const PAIRING_TTL_MS = 20 * 60_000;
 export const PAIRING_RETAIN_MS = 24 * 60 * 60_000;
 
 type PairingState = 'live' | 'used' | 'expired';

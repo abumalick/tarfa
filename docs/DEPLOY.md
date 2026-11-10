@@ -193,7 +193,7 @@ tailscale serve --bg --https=10000 --set-path=/me http://127.0.0.1:8797   # or `
 # ~/.tarfa/agent.env: TARFA_PHONE_ADDRESSES=wss://<node>.<tailnet>.ts.net:10000/me
 tarfa pair [--pwa https://<where phones open the app>] [--ttl <minutes>]
 ```
-`tarfa pair` prints a one-time pairing QR code and link (ten minutes, or `--ttl` 1–10; one phone)
+`tarfa pair` prints a one-time pairing QR code and link (twenty minutes, or `--ttl` 1–20; one phone)
 with every address in `TARFA_PHONE_ADDRESSES`. When a phone enrols, every other phone connected to
 that machine shows "New device paired", and the agent logs `device enrolled: <id> "<name>"`. The link names the origin phones open the app at,
 `TARFA_PWA_ORIGIN` (default `https://tarfa.app`). Set `TARFA_DEFAULT_PATH` (an absolute path) and
@@ -232,6 +232,8 @@ curl -si --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebS
   -H "Sec-WebSocket-Key: $(openssl rand -base64 16)" http://127.0.0.1:8797/x | head -1
 curl -si http://127.0.0.1:8797/hooks | head -1
 ```
+To reach the phone port over the local network without Tailscale (a proxy with a real certificate),
+see `docs/LAN.md`.
 
 ## 4. Wire Claude Code hooks (each machine)
 The agent writes a hooks-only secret to `~/.tarfa/token` at each start (mode 600); the hook reads it.
