@@ -10,6 +10,10 @@
   import PairMachine from './PairMachine.svelte';
   import MachineDetail from './MachineDetail.svelte';
   import DictationPresets from './DictationPresets.svelte';
+  import HelpPanel from './HelpPanel.svelte';
+  import KeyHelp from './KeyHelp.svelte';
+  import { PROVIDER_NAMES } from '../core/dictation-setup';
+  import type { DictationProvider } from '../core/dictation-presets';
   import { STATUS_LABEL, describeConnectionError } from './machine-status';
   import { isAndroid } from './android-input';
   import { msg } from '../i18n.svelte';
@@ -47,6 +51,16 @@
   let apiKeySaved = $state(false);
   let openRouterKey = $state(untrack(() => store.openRouterApiKey));
   let openRouterKeySaved = $state(false);
+
+  let keyHelp = $state<DictationProvider | null>(null);
+  let keyCards = $state<Partial<Record<DictationProvider, HTMLElement>>>({});
+
+  onMount(() => {
+    const provider = store.dictationKeyFocus;
+    if (!provider) return;
+    store.dictationKeyFocus = null;
+    keyCards[provider]?.scrollIntoView({ block: 'center' });
+  });
 
   let openId = $state<string | null>(null);
   // Closes by itself if the entry goes away underneath (removed from another page context).
@@ -173,7 +187,7 @@
     </div>
 
     <p class="group">{msg().settings.dictation}</p>
-    <form class="card" onsubmit={saveApiKey}>
+    <form class="card" onsubmit={saveApiKey} bind:this={keyCards.elevenlabs}>
       <label for="elevenlabs-key">{msg().settings.elevenLabsKey}</label>
       <div class="inline">
         <input id="elevenlabs-key" bind:value={apiKey} oninput={() => (apiKeySaved = false)} type="password" placeholder="sk_…" />
@@ -184,8 +198,9 @@
       {:else}
         <p class="hint">{msg().settings.elevenLabsHint}</p>
       {/if}
+      <button type="button" class="link" onclick={() => (keyHelp = 'elevenlabs')}>{msg().settings.howToGetKey}</button>
     </form>
-    <form class="card" onsubmit={saveOpenRouterKey}>
+    <form class="card" onsubmit={saveOpenRouterKey} bind:this={keyCards.openrouter}>
       <label for="openrouter-key">{msg().settings.openRouterKey}</label>
       <div class="inline">
         <input id="openrouter-key" bind:value={openRouterKey} oninput={() => (openRouterKeySaved = false)} type="password" placeholder="sk-or-…" />
@@ -196,6 +211,7 @@
       {:else}
         <p class="hint">{msg().settings.openRouterHint}</p>
       {/if}
+      <button type="button" class="link" onclick={() => (keyHelp = 'openrouter')}>{msg().settings.howToGetKey}</button>
     </form>
     <div class="card">
       <span class="name">{msg().settings.presets}</span>
@@ -268,6 +284,12 @@
   </section>
 {/if}
 
+{#if keyHelp}
+  <HelpPanel title={msg().dictation.keyHelp.title(PROVIDER_NAMES[keyHelp])} testid="key-help" onClose={() => (keyHelp = null)}>
+    <KeyHelp provider={keyHelp} />
+  </HelpPanel>
+{/if}
+
 <style>
   header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
   h2 { margin: 0; font-size: 1.15rem; }
@@ -334,6 +356,16 @@
   .inline input { flex: 1; min-width: 0; min-height: 44px; box-sizing: border-box; }
   .hint { margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--text-dim); }
   .hint.ok { color: var(--ok); }
+  .link {
+    margin-top: 0.3rem;
+    padding: 0.2rem 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.8rem;
+    text-decoration: underline;
+  }
   .small,
   .wide {
     min-height: 44px;

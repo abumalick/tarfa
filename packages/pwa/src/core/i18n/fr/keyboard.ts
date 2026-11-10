@@ -6,6 +6,7 @@ export const keyboard: Messages['keyboard'] = {
   option: 'Option',
   command: 'Commande',
   dictate: (preset) => `Dicter (${preset})`,
+  setupDictation: 'Configurer la dictée',
   cursorPad: 'Pavé de curseur',
   selectText: 'Sélectionner du texte',
   paste: 'Coller',

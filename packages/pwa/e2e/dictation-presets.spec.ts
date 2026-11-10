@@ -31,11 +31,47 @@ async function holdMic(page: Page) {
   await page.mouse.up();
 }
 
-test('there is no mic until a dictation key is set', async ({ page }) => {
+test('with nothing set up, the mic explains how, down to the key field in Settings', async ({ page }) => {
   await seedMachine(page, agent);
   await openTerminal(page);
-  await expect(page.getByRole('toolbar', { name: 'Terminal keys' }).getByRole('button', { name: '⏎' })).toBeVisible();
-  await expect(mic(page)).toHaveCount(0);
+  const setup = page.getByRole('toolbar', { name: 'Terminal keys' }).getByRole('button', { name: 'Set up dictation' });
+  await expect(setup).toBeVisible();
+  await setup.click();
+
+  const dialog = page.getByRole('dialog', { name: 'Set up dictation' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('if this machine runs Linux');
+  await expect(dialog.getByRole('link', { name: 'Machine setup guide' })).toHaveAttribute(
+    'href',
+    /github\.com\/abumalick\/tarfa\/blob\/main\/docs\/SETUP-MACHINE\.md#11-/,
+  );
+  await expect(dialog.getByRole('heading', { name: 'ElevenLabs' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'OpenRouter' })).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'How to get a key' }).first().click();
+  const help = page.getByRole('dialog', { name: 'Get an ElevenLabs key' });
+  await expect(help).toContainText('$0.22 per hour');
+  await expect(help.getByRole('link', { name: 'Open the API keys page' })).toHaveAttribute('href', 'https://elevenlabs.io/app/developers/api-keys');
+  await help.getByRole('button', { name: 'Open Settings' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByLabel('ElevenLabs API key')).toBeInViewport();
+});
+
+test('where the machine has Claude voice, the explanation says why this workspace cannot use it', async ({ page }) => {
+  agent.claudeVoice = true;
+  try {
+    await seedMachine(page, agent);
+    await openTerminal(page);
+    await page.getByRole('toolbar', { name: 'Terminal keys' }).getByRole('button', { name: 'Set up dictation' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Set up dictation' });
+    await expect(dialog).toContainText('in a Claude Code workspace');
+    await expect(dialog.getByRole('link', { name: 'Machine setup guide' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  } finally {
+    agent.claudeVoice = false;
+  }
 });
 
 test('the mic shows the current preset, and a long press opens the presets on screen', async ({ page }) => {
