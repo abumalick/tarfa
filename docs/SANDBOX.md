@@ -107,12 +107,13 @@ account owner's approval in a browser:
 
 ```bash
 mkdir -p -m 700 ~/.config/tarfa-sandbox/codex
-printf 'cli_auth_credentials_store = "file"\n' > ~/.config/tarfa-sandbox/codex/config.toml
 CODEX_HOME=~/.config/tarfa-sandbox/codex codex login --device-auth
 ```
 
 Run the last line again when Codex in a sandbox says to sign in again. Without the login `up`
-still works, says Codex is not logged in, and starts no Codex app server.
+still works, says Codex is not logged in, and starts no Codex app server; a login made later
+reaches a sandbox at its next `up`. A `CODEX_HOME` in your environment is dropped inside a
+sandbox, since Codex would prefer it to the sandbox's `HOME`.
 
 - **Linked, never copied.** Codex's refresh token is single-use: a copy that refreshes signs
   out every other copy. Each sandbox's `home/.codex/auth.json` and `auth.lock` are links to the

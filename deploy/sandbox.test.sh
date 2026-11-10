@@ -155,6 +155,7 @@ check "codex trusts the demo projects" "yes" "$(has "[projects.\"${ROOT}/project
 check "codex config is private" "600" "$(stat -c %a "${CT}")"
 check "no codex login: no auth.json" "no" "$([ -e "${ROOT}/home/.codex/auth.json" ] || [ -L "${ROOT}/home/.codex/auth.json" ] && echo yes || echo no)"
 check "no codex login: up says so" "yes" "$(printf '%s' "${out}" | has 'codex login --device-auth' /dev/stdin)"
+check "and how to make its folder" "yes" "$(printf '%s' "${out}" | has 'mkdir -p -m 700' /dev/stdin)"
 check "no codex login: no codex unit" "no null" "$(grep -q "^systemd-run .*tarfa-sb-${SLUG}-codex" "${CALLS}" && echo yes || echo no) $(jq -r .units.codex "${M}")"
 
 check "install-hooks ran under the sandbox HOME" "yes" \
@@ -187,6 +188,8 @@ check "env prints env.sh" "${ROOT}/env.sh" "$(sb env --worktree "${WT}")"
 check "env.sh unsets TMUX and sets HOME" "unset ${ROOT}/home" \
   "$(env TMUX=x TMUX_PANE=%1 bash -c ". '${ROOT}/env.sh'; echo \"\${TMUX-unset} \${HOME}\"")"
 check "env.sh gives Claude its token" "${TOKEN}" "$(env -i bash -c ". '${ROOT}/env.sh'; echo \"\${CLAUDE_CODE_OAUTH_TOKEN:-}\"")"
+check "env.sh drops a CODEX_HOME the caller had" "unset" "$(CODEX_HOME="${REALHOME}/.codex" bash -c ". '${ROOT}/env.sh'; echo \"\${CODEX_HOME-unset}\"")"
+check "the agent unit drops it too" "yes" "$(grep "^systemd-run .*tarfa-sb-${SLUG}-agent" "${CALLS}" | has 'env -u TMUX -u TMUX_PANE -u CODEX_HOME' /dev/stdin)"
 
 echo "up again"
 echo "tarfa-sb-${SLUG}-agent" > "${T}/active"
@@ -417,6 +420,7 @@ check "up does not ask for a login" "no" "$(printf '%s' "${out}" | has 'codex lo
 CX_UNIT="$(grep "^systemd-run .*tarfa-sb-$(slug_of "${CX_WT}")-codex" "${CALLS}" || true)"
 check "the codex app server runs as its own unit" "yes" "$(printf '%s' "${CX_UNIT}" | has 'codex app-server --listen unix://' /dev/stdin)"
 check "codex unit memory cap" "yes" "$(printf '%s' "${CX_UNIT}" | has 'MemoryMax=2G' /dev/stdin)"
+check "codex unit drops a CODEX_HOME the caller had" "yes" "$(printf '%s' "${CX_UNIT}" | has 'env -u TMUX -u TMUX_PANE -u CODEX_HOME codex' /dev/stdin)"
 check "codex unit has the sandbox HOME" "yes" "$(printf '%s' "${CX_UNIT}" | has "--setenv=HOME=${SBROOT}/$(slug_of "${CX_WT}")/home" /dev/stdin)"
 check "manifest names the codex unit" "tarfa-sb-$(slug_of "${CX_WT}")-codex" "$(jq -r .units.codex "${SBROOT}/$(slug_of "${CX_WT}")/manifest.json")"
 check "the real ~/.codex is never named" "no" "$(grep -rlF "${REALHOME}/.codex" "${SBROOT}" 2>/dev/null | head -n 1 | grep -q . && echo yes || echo no)"

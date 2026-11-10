@@ -88,7 +88,8 @@ write_env_sh() { # <root>
   {
     while IFS= read -r kv; do printf 'export %s=%q\n' "${kv%%=*}" "${kv#*=}"; done < <(sb_env_pairs "$1")
     printf 'set -a; . %q; set +a\n' "$1/secrets.env"
-    printf 'unset TMUX TMUX_PANE\n'
+    # Codex prefers CODEX_HOME to HOME: one the caller had would be the user's own login.
+    printf 'unset TMUX TMUX_PANE CODEX_HOME\n'
   } > "$1/env.sh"
 }
 
@@ -210,7 +211,7 @@ start_agent() { # <root>
   # KillMode=process: a restart (rebuild) keeps the tmux server and its workspaces, as in production.
   systemd-run --user --quiet --collect --unit "${unit}" -p KillMode=process -p MemoryMax=4G \
     -p EnvironmentFile="${root}/secrets.env" --working-directory="${wt}" "${flags[@]}" \
-    env -u TMUX -u TMUX_PANE bash -c 'set -a; . "$TARFA_AGENT_ENV"; set +a; exec pnpm --filter @tarfa/cli exec tsx src/serve.ts'
+    env -u TMUX -u TMUX_PANE -u CODEX_HOME bash -c 'set -a; . "$TARFA_AGENT_ENV"; set +a; exec pnpm --filter @tarfa/cli exec tsx src/serve.ts'
 }
 
 # The app server tarfa spawn --cli codex and tarfa send talk to, in its own unit so down stops it
@@ -223,7 +224,7 @@ start_codex() { # <root>
   mapfile -t flags < <(unit_env_flags "${root}")
   systemd-run --user --quiet --collect --unit "${unit}" -p MemoryMax=2G \
     --working-directory="${root}/projects" "${flags[@]}" \
-    env -u TMUX -u TMUX_PANE codex app-server --listen unix://
+    env -u TMUX -u TMUX_PANE -u CODEX_HOME codex app-server --listen unix://
 }
 
 start_pwa() { # <root>
@@ -498,7 +499,7 @@ EOF
   echo "  env       ${root}/env.sh   (pnpm sandbox exec -- <cmd> runs a command in it)"
   echo "  tmux      tmux -S $(sb_socket "${root}") ls"
   if [ ! -L "${root}/home/.codex/auth.json" ]; then
-    echo "  codex     not logged in: run CODEX_HOME=${CODEX_LOGIN} codex login --device-auth once for every sandbox"
+    echo "  codex     not logged in: once for every sandbox, mkdir -p -m 700 ${CODEX_LOGIN} && CODEX_HOME=${CODEX_LOGIN} codex login --device-auth, then pnpm sandbox down and up"
   fi
   UP_ROOT=""
 }
