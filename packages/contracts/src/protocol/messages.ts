@@ -92,6 +92,8 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('listLaunchers') }),
   z.object({ type: z.literal('forgetLauncher'), command: z.string() }),
   z.object({ type: z.literal('listKeyterms') }),
+  // Asked only of an agent whose authResult lists AGENT_FEATURES.dictationKeys.
+  z.object({ type: z.literal('getDictationKeys') }),
   z.object({ type: z.literal('readFile'), path: z.string() }),
   z.object({ type: z.literal('attach'), workspaceId: z.string(), cols: dim, rows: dim }),
   z.object({ type: z.literal('detach'), workspaceId: z.string() }),
@@ -135,7 +137,7 @@ export type DetachReason = z.infer<typeof detachReasonSchema>;
 // it. Bumped only when a PWA must refuse an older agent.
 export const PROTOCOL_VERSION = 1;
 
-export const AGENT_FEATURES = { lastReply: 'lastReply', addresses: 'addresses' } as const;
+export const AGENT_FEATURES = { lastReply: 'lastReply', dictationKeys: 'dictationKeys', addresses: 'addresses' } as const;
 
 export const agentMessageSchema = z.discriminatedUnion('type', [
   // `credential` is what authenticated the session (`token` only from an agent from before token
@@ -180,6 +182,13 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
   // keyterms so jargon transcribes correctly. Additive like `roots`: older agents omit it,
   // so it defaults to [] instead of letting the strict client parser drop the whole message.
   z.object({ type: z.literal('keyterms'), keyterms: z.array(z.string()).default([]) }),
+  // The dictation provider keys the agent's operator stored (~/.tarfa/dictation-keys.json), sent
+  // only in reply to getDictationKeys. A key the agent does not hold is absent.
+  z.object({
+    type: z.literal('dictationKeys'),
+    elevenlabs: z.string().optional().catch(undefined),
+    openrouter: z.string().optional().catch(undefined),
+  }),
   // `files` is additive: older agents that predate it omit the field, so it defaults to []
   // (a strictly-required field would make the strict client parser silently drop their
   // dirEntries during a version-skewed rollout, hanging the browser on "Loading…").

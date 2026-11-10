@@ -3,13 +3,16 @@ import { needsKey, type DictationPreset, type DictationProvider, type PresetKeys
 // What the mic's setup explanation offers when no preset can run here: one entry per way of
 // unlocking a preset in the user's own list, so it never suggests a key nothing would use.
 export type SetupOption =
+  // The attached machine's agent hands its stored keys to every paired phone
+  // (`tarfa dictation-key set`), so one key there serves every device.
+  | { kind: 'machine'; providers: DictationProvider[] }
   | { kind: 'key'; provider: DictationProvider }
   // `setup`: the machine cannot play Claude voice (macOS, Linux without the loopback, an agent
   // too old to say: the phone cannot tell them apart). Otherwise the machine can, and the
   // state is why this workspace cannot.
   | { kind: 'claude'; state: 'setup' | 'not-claude' | 'asking' };
 
-export function setupOptions(presets: readonly DictationPreset[], keys: PresetKeys): SetupOption[] {
+export function setupOptions(presets: readonly DictationPreset[], keys: PresetKeys, machineTakesKeys = false): SetupOption[] {
   const options: SetupOption[] = [];
   const seen = new Set<string>();
   for (const p of presets) {
@@ -20,7 +23,8 @@ export function setupOptions(presets: readonly DictationPreset[], keys: PresetKe
       options.push({ kind: 'claude', state });
     } else options.push({ kind: 'key', provider: p.provider });
   }
-  return options;
+  const providers = options.flatMap((o) => (o.kind === 'key' ? [o.provider] : []));
+  return machineTakesKeys && providers.length > 0 ? [{ kind: 'machine', providers }, ...options] : options;
 }
 
 export const CLAUDE_VOICE_DOCS_URL =

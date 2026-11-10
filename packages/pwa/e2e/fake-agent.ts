@@ -114,6 +114,8 @@ export interface FakeAgent {
   lastReplies: Record<string, string>;
   // The TARFA_PHONE_ADDRESSES an accepted session names (mutable; none until a spec sets them).
   phoneAddresses: string[] | undefined;
+  // The keys `tarfa dictation-key` stored on this machine, sent on getDictationKeys (mutable).
+  dictationKeys: { elevenlabs?: string; openrouter?: string };
   close: () => Promise<void>;
 }
 
@@ -170,6 +172,7 @@ export async function startFakeAgent(
   let claudeVoice = false;
   let phoneAddresses: string[] | undefined;
   const lastReplies: Record<string, string> = {};
+  const dictationKeys: { elevenlabs?: string; openrouter?: string } = {};
   const sessions = new Set<NoiseClientConnection>();
   {
     const browserReceived: Array<{ session: string; message: Record<string, unknown> }> = [];
@@ -439,6 +442,9 @@ export async function startFakeAgent(
             });
             break;
           }
+          case 'getDictationKeys':
+            send({ type: 'dictationKeys', ...dictationKeys });
+            break;
           case 'lastReply':
             send({ type: 'lastReply', workspaceId: String(msg.workspaceId), text: lastReplies[String(msg.workspaceId)] ?? null });
             break;
@@ -519,6 +525,7 @@ export async function startFakeAgent(
         claudeVoice = on;
       },
       lastReplies,
+      dictationKeys,
       created,
       received,
       sendOutput: (workspaceId, data) => {

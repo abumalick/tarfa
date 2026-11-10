@@ -12,6 +12,7 @@ import { FileHiddenFoldersStore } from './infrastructure/file-hidden-folders-sto
 import { FileLaunchersStore } from './infrastructure/file-launchers-store';
 import { detectInstalled, loginShellResolver } from './infrastructure/installed-detector';
 import { FileKeytermsStore } from './infrastructure/file-keyterms-store';
+import { FileDictationKeysStore } from './infrastructure/file-dictation-keys-store';
 import { FileClaudeSessionsStore } from './infrastructure/file-claude-sessions-store';
 import { ProcSystemStats } from './infrastructure/proc-system-stats';
 import { SystemdScopeReaper } from './infrastructure/systemd-scope-reaper';
@@ -77,6 +78,7 @@ export async function main(): Promise<void> {
     config.devicesPath,
     config.pairingPath,
     join(config.stateDir, 'token'),
+    config.dictationKeysPath,
     // The launcher sources it: whoever can write it runs code as this user.
     await locateAgentEnv(env, homedir()),
   ]);
@@ -118,6 +120,7 @@ export async function main(): Promise<void> {
     launchers: new FileLaunchersStore(config.launchersPath),
     detectInstalled: (names) => detectInstalled(names, loginShellResolver()),
     keyterms: new FileKeytermsStore(config.keytermsPath),
+    dictationKeys: new FileDictationKeysStore(config.dictationKeysPath, (problem) => process.stderr.write(`tarfa agent: no dictation keys sent: ${problem}\n`)),
     clientLog: new FileClientLogStore(config.clientLogPath),
     hookEventLog: new FileHookEventLog(config.hookEventLogPath),
     messaging: {

@@ -118,10 +118,11 @@ export class NoiseClientConnection implements ClientConnection {
     }
     if (message.type === 'authResult' && message.ok) {
       const { agentVersion, phoneAddresses } = this.options;
+      const features: string[] = [AGENT_FEATURES.lastReply, AGENT_FEATURES.dictationKeys];
       const agent = {
         protocol: PROTOCOL_VERSION,
         ...(agentVersion ? { version: agentVersion } : {}),
-        features: phoneAddresses ? [AGENT_FEATURES.lastReply, AGENT_FEATURES.addresses] : [AGENT_FEATURES.lastReply],
+        features: phoneAddresses ? [...features, AGENT_FEATURES.addresses] : features,
         ...(phoneAddresses ? { addresses: phoneAddresses } : {}),
       };
       const accepted = { ...message, agent };

@@ -189,6 +189,7 @@ function testConfig(home: string, overrides: Partial<AgentConfig> = {}): AgentCo
     hiddenFoldersPath: join(home, 'hidden-folders.json'),
     launchersPath: join(home, 'launchers.json'),
     keytermsPath: join(home, 'keyterms.txt'),
+    dictationKeysPath: join(home, 'dictation-keys.json'),
     clientLogPath: join(home, 'client-log.jsonl'),
     hookEventLogPath: join(home, 'hook-events.jsonl'),
     messageLogPath: join(home, 'messages.jsonl'),

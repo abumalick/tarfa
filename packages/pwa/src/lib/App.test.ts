@@ -42,6 +42,7 @@ function fakeStore(view: string) {
     setFolderFilter: vi.fn(), setFolderHidden: vi.fn(), setFolderFilterMode: vi.fn(),
     deviceNotices: [],
     dismissDeviceNotice: vi.fn(),
+    dictationKeySources: () => [] as string[],
   };
 }
 

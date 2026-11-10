@@ -32,6 +32,8 @@ export const dictation = {
   setup: {
     title: 'Set up dictation',
     intro: 'The 🎤 needs one of these first.',
+    machineTitle: 'A key on this machine',
+    machine: 'Store a key once on this machine, and every phone paired with it dictates here with it, with nothing to type on each device. On the machine, run:',
     claudeSetup:
       'Claude Code’s own /voice: if this machine runs Linux, its agent can play your dictation into Claude Code, with no API key. It takes a one-time setup on the machine.',
     claudeDocs: 'Machine setup guide',

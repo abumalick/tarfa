@@ -2352,7 +2352,7 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
     open();
     deliver({ type: 'authResult', ok: true });
     const bySent = (type: string) => sent.filter((m) => m.type === type);
-    return { store, sent, deliver, bySent };
+    return { store, sent, deliver, bySent, settings };
   }
 
   describe('reading the last reply aloud', () => {
@@ -2537,6 +2537,85 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       store.back();
       expect(speech.cancels).toBeGreaterThan(before);
       expect(store.readAloud).toBeNull();
+    });
+  });
+
+  describe('dictation keys from the agent', () => {
+    it('asks only an agent that names the feature, and holds its keys in memory only', () => {
+      const { store, deliver, bySent, settings } = buildKeyed();
+      store.setAgent('mac', { features: ['lastReply'] });
+      expect(bySent('getDictationKeys')).toEqual([]);
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      expect(bySent('getDictationKeys')).toEqual([{ type: 'getDictationKeys' }]);
+      deliver({ type: 'dictationKeys', elevenlabs: 'test-key-1' });
+      store.open(ws);
+      expect(store.dictationKey('elevenlabs')).toBe('test-key-1');
+      expect(store.dictationKey('openrouter')).toBeNull();
+      expect(store.presetKeys).toMatchObject({ elevenlabs: true, openrouter: false });
+      expect(settings.elevenLabsApiKey()).toBeNull();
+    });
+
+    it('prefers a key typed on this device, and Save never stores the agent one', () => {
+      const { store, deliver } = buildKeyed();
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      deliver({ type: 'dictationKeys', elevenlabs: 'test-key-1' });
+      store.open(ws);
+      store.setElevenLabsApiKey('typed-key');
+      expect(store.dictationKey('elevenlabs')).toBe('typed-key');
+      store.setElevenLabsApiKey('');
+      expect(store.dictationKey('elevenlabs')).toBe('test-key-1');
+      expect(store.elevenLabsApiKey).toBe('');
+    });
+
+    it('offers no agent key with no workspace open, but names the machines that provide one', () => {
+      const { store, deliver } = buildKeyed();
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      deliver({ type: 'dictationKeys', openrouter: 'test-key-2' });
+      expect(store.dictationKey('openrouter')).toBeNull();
+      expect(store.presetKeys.openrouter).toBe(false);
+      expect(store.dictationKeySources('openrouter')).toEqual(['Mac']);
+      expect(store.dictationKeySources('elevenlabs')).toEqual([]);
+    });
+
+    it('drops the keys when the machine goes offline or stops naming the feature', () => {
+      const { store, deliver } = buildKeyed();
+      store.open(ws);
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      deliver({ type: 'dictationKeys', elevenlabs: 'test-key-1' });
+      store.setStatus('mac', 'offline');
+      expect(store.dictationKey('elevenlabs')).toBeNull();
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      deliver({ type: 'dictationKeys', elevenlabs: 'test-key-1' });
+      store.setAgent('mac', { features: [] });
+      expect(store.dictationKey('elevenlabs')).toBeNull();
+    });
+
+    it('drops the keys of a machine switched off, which closes with no offline status', () => {
+      const { store, deliver } = buildKeyed();
+      store.open(ws);
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      deliver({ type: 'dictationKeys', elevenlabs: 'test-key-1' });
+      store.toggleMachine('mac');
+      expect(store.dictationKeySources('elevenlabs')).toEqual([]);
+      expect(store.dictationKey('elevenlabs')).toBeNull();
+    });
+
+    it("says whether the attached workspace's machine takes keys", () => {
+      const { store } = buildKeyed();
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      expect(store.activeMachineTakesKeys).toBe(false);
+      store.open(ws);
+      expect(store.activeMachineTakesKeys).toBe(true);
+      store.setAgent('mac', { features: [] });
+      expect(store.activeMachineTakesKeys).toBe(false);
+    });
+
+    it('ignores keys from an agent that never named the feature', () => {
+      const { store, deliver } = buildKeyed();
+      store.open(ws);
+      store.setAgent('mac', { features: [] });
+      deliver({ type: 'dictationKeys', elevenlabs: 'test-key-1' });
+      expect(store.dictationKey('elevenlabs')).toBeNull();
     });
   });
 
