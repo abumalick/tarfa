@@ -196,8 +196,8 @@ run `/hooks` and trust them (again after any change). See `docs/DEPLOY.md`, step
 
 ## 7. The app
 
-Phones load the app from `https://tarfa.app`, the maintainer's copy, which every pairing link
-names unless `TARFA_PWA_ORIGIN` says otherwise. The origin holds every phone's device key, and
+Phones load the app from `https://tarfa.app`, the maintainer's copy, which `tarfa pair` tells phones to
+install unless `TARFA_PWA_ORIGIN` says otherwise. The origin holds every phone's device key, and
 whoever serves it can read what it shows, so if you would rather trust yourself, serve your own
 copy. Any static host serves `packages/pwa/dist` after `pnpm --filter @tarfa/pwa build`. On a free
 Cloudflare account it is a static-assets Worker, deployed from a clean, pushed `main` of your
@@ -235,18 +235,22 @@ tarfa setup --machine-id <name> --project-roots /home/<user>/workspace \
 connected. `--tailscale funnel` publishes it on the internet too (the phone needs no VPN; the
 policy file must give the node the `funnel` attribute), at about 0.2 MB/s, which is fine for
 terminals and slow for large previews. `tarfa setup --help` has the details. `--pair` prints
-a QR code and a link; check the agent with `journalctl --user -u tarfa-agent | grep 'phones on'`.
+a pairing code and its QR code; check the agent with `journalctl --user -u tarfa-agent | grep 'phones on'`.
 
 On your phone, open the app's origin and install it (iPhone: Share → Add to Home Screen; Android:
 install from the browser menu). Then pair:
 
-- **iPhone:** scan the QR code from **inside the installed app** (Settings → Scan QR code), or
-  copy the link and use **Paste pairing link**. The Camera app opens Safari, whose storage is not
-  the installed app's.
-- **Android:** open the link anywhere; it goes straight into the installed app. Chrome asks once
-  whether the app may reach your local network (a tailnet address): allow it.
+- In the installed app, **Settings → Add machine**, then **Scan QR code**, or copy the code to the
+  phone and tap **Paste pairing code**. The same on an iPhone, Android or a desktop browser. The
+  code is not a link: scanning it with the Camera app or pasting it in a browser's address bar does
+  nothing (on an iPhone, Safari's storage is not the installed app's anyway).
+- The app asks before it pairs: check that the machine key it shows is the one `tarfa pair`
+  printed.
+- **Android:** Chrome asks once whether the app may reach your local network (a tailnet address):
+  allow it.
 
-A code works once, for 10 minutes; `tarfa pair` makes another. Only a `tarfa pair` code adds a
+A code works once, for the minutes `tarfa pair` states; `tarfa pair` makes another. An app from
+before pairing codes takes a link instead: `tarfa pair --link`. Only a `tarfa pair` code adds a
 phone:
 
 ```bash

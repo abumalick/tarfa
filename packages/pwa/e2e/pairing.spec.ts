@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { pairingLink } from '@tarfa/secure-channel';
+import { deviceFingerprint, pairingCode, pairingLink } from '@tarfa/secure-channel';
 import { startFakeAgent, type FakeAgent } from './fake-agent';
 import { failOnCspViolation } from './csp';
 
@@ -27,6 +27,10 @@ test.beforeEach(async () => {
 
 function link(origin: string, defaultPath?: string): string {
   return pairingLink(origin, { urls: [agent.url], agentKey: agent.agentKey, secret: SECRET, name: 'dev box', defaultPath });
+}
+
+function code(defaultPath?: string): string {
+  return pairingCode({ urls: [agent.url], agentKey: agent.agentKey, secret: SECRET, name: 'dev box', defaultPath });
 }
 
 function recordUrls(page: Page): string[] {
@@ -72,20 +76,55 @@ test('a pairing link opened from elsewhere adds nothing unless the owner confirm
   expect(agent.received.filter((m) => m.type === 'auth' && m.token === SECRET)).toEqual([]);
 });
 
-test('pasting a pairing link in Settings pairs too, on a phone', async ({ page, baseURL }) => {
+// A code pasted from a chat is as foreign as a link opened from one: the owner is asked the same
+// question, naming the host and the machine key `tarfa pair` printed.
+test('pasting a pairing code in Settings pairs once the owner confirms, on a phone', async ({ page }) => {
+  const asked: string[] = [];
+  page.on('dialog', (dialog) => {
+    asked.push(dialog.message());
+    void dialog.accept();
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.getByRole('button', { name: /add a machine/i }).click();
-  await page.getByLabel(/paste a pairing link/i).fill(link(baseURL!));
+  // Wrapped, as a terminal or a chat app hands it over.
+  const pasted = code();
+  await page.getByLabel(/paste a pairing code/i).fill(`${pasted.slice(0, 60)}\n${pasted.slice(60)}`);
+  await page.getByRole('button', { name: 'Pair', exact: true }).click();
+  await expect(page.getByText('demo', { exact: true })).toBeVisible();
+  expect(asked).toEqual([expect.stringContaining(deviceFingerprint(agent.agentKey))]);
+  expect(asked[0]).toContain('Pair with dev box through 127.0.0.1');
+  expect(agent.received.find((m) => m.type === 'auth')).toEqual({ type: 'auth', token: SECRET });
+});
+
+test('a pasted pairing code adds nothing when the owner declines', async ({ page }) => {
+  page.on('dialog', (dialog) => void dialog.dismiss());
+  await page.goto('/');
+  await page.getByRole('button', { name: /add a machine/i }).click();
+  await page.getByLabel(/paste a pairing code/i).fill(code());
+  await page.getByRole('button', { name: 'Pair', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(await stored(page)).toEqual([]);
+  await page.waitForTimeout(300);
+  expect(agent.received.filter((m) => m.type === 'auth' && m.token === SECRET)).toEqual([]);
+});
+
+// Released agents print links, and an iPhone's InstallFirst copies one: the field takes both.
+test('pasting a pairing link in Settings pairs too', async ({ page, baseURL }) => {
+  page.on('dialog', (dialog) => void dialog.accept());
+  await page.goto('/');
+  await page.getByRole('button', { name: /add a machine/i }).click();
+  await page.getByLabel(/paste a pairing code/i).fill(link(baseURL!));
   await page.getByRole('button', { name: 'Pair', exact: true }).click();
   await expect(page.getByText('demo', { exact: true })).toBeVisible();
   expect(agent.received.find((m) => m.type === 'auth')).toEqual({ type: 'auth', token: SECRET });
 });
 
-test("a pairing link carrying the machine's default path sets it on the new entry", async ({ page, baseURL }) => {
+test("a pairing code carrying the machine's default path sets it on the new entry", async ({ page }) => {
+  page.on('dialog', (dialog) => void dialog.accept());
   await page.goto('/');
   await page.getByRole('button', { name: /add a machine/i }).click();
-  await page.getByLabel(/paste a pairing link/i).fill(link(baseURL!, '/home/u/workspace'));
+  await page.getByLabel(/paste a pairing code/i).fill(code('/home/u/workspace'));
   await page.getByRole('button', { name: 'Pair', exact: true }).click();
   await expect(page.getByText('demo', { exact: true }).first()).toBeVisible();
   // Still there once enrolment has spent the secret and rewritten the entry.
@@ -93,10 +132,10 @@ test("a pairing link carrying the machine's default path sets it on the new entr
   expect(await stored(page)).toEqual([expect.objectContaining({ defaultPath: '/home/u/workspace' })]);
 });
 
-test('a pasted link that is not a pairing link is refused with a reason', async ({ page }) => {
+test('pasted text that is not a pairing code is refused with a reason', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: /add a machine/i }).click();
-  await page.getByLabel(/paste a pairing link/i).fill('https://example.com/#pair?u=nope');
+  await page.getByLabel(/paste a pairing code/i).fill('https://example.com/#pair?u=nope');
   await page.getByRole('button', { name: 'Pair', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('not a Tarfa pairing code');
   expect(await stored(page)).toEqual([]);

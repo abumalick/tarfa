@@ -17,9 +17,10 @@
   let video = $state<HTMLVideoElement>();
   let stop: (() => void) | null = null;
 
+  // True once the text is dealt with: paired, or declined by the owner.
   function pair(text: string): boolean {
     const result = store.pairFromLink(text);
-    if ('name' in result) return true;
+    if (!('error' in result)) return true;
     error = result.error;
     return false;
   }
@@ -51,7 +52,7 @@
     }
   }
 
-  // The way in for a link copied outside the Home Screen app (`InstallFirst`).
+  // A code copied from `tarfa pair`, or a link copied outside the Home Screen app (`InstallFirst`).
   async function pasteLink(): Promise<void> {
     error = '';
     let text: string;
@@ -86,7 +87,7 @@
   <form onsubmit={submitLink}>
     <label>
       {msg().pairing.orPaste}
-      <input bind:value={link} placeholder="https://…/#pair?…" autocapitalize="off" autocomplete="off" spellcheck="false" />
+      <input bind:value={link} placeholder="TARFA…" autocapitalize="off" autocomplete="off" spellcheck="false" />
     </label>
     <button type="submit" class="wide" disabled={!link.trim()}>{msg().pairing.pair}</button>
   </form>

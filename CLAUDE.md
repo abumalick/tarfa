@@ -47,7 +47,7 @@ the phone's device key, and streams its terminals. No agent listens off loopback
   agent phones pair with is at least as new as `MIN_AGENT_VERSION` (PWA `core/agent-skew.ts`, `0.0.0`
   today: an agent below it, or one reporting no version, gets a notice and stays connected).
 - `packages/secure-channel` (`@tarfa/secure-channel`) — the Noise IK session both ends run, its
-  framing, the device hello, pairing links and refusals (see "Device keys, enrolment and
+  framing, the device hello, pairing codes and links, and refusals (see "Device keys, enrolment and
   pairing").
 - `packages/pwa` (`@tarfa/pwa`) — Svelte 5 (runes) PWA, launched as Tarfa. xterm.js terminal, vite-plugin-pwa
   (an update banner, reload on tap: `registerType: 'prompt'`), Playwright e2e. Core logic (connection manager, aggregator, store) is in
@@ -194,8 +194,8 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   and reads `funnel` when that port is already on Funnel** (`serve` would turn Funnel off for every
   agent on it; `--tailscale serve` on a Funnel port runs `tailscale funnel` for the same reason); and **a `systemctl --user` that cannot reach the manager stops setup** (without
   `XDG_RUNTIME_DIR` it would read as "not installed" and reinstall a working unit). `tarfa pair` mints a
-  link with every `TARFA_PHONE_ADDRESSES` address in order (`TARFA_PWA_ORIGIN` defaults to
-  `https://tarfa.app`).
+  code with every `TARFA_PHONE_ADDRESSES` address in order (`--link`: a link on `TARFA_PWA_ORIGIN`,
+  default `https://tarfa.app`).
 - **The rename from Perch reads the old names for one release; don't drop a read early.** Each
   one goes when its condition holds:
   - `PERCH_*` env names stand in for `TARFA_*` (`application/legacy-env.ts`, through
@@ -906,7 +906,26 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     ignored with one startup warning, and `tarfa connect`, `tarfa relay-key` and
     `tarfa pair --relay` refuse in one line pointing at `tarfa setup` and `tarfa pair` (exit 2).
   - **Machines are set up with `tarfa setup`; phones pair with `tarfa pair`** (runbook:
-    `docs/DEPLOY.md`). Pairing-link rules:
+    `docs/DEPLOY.md`). Pairing rules:
+    - **What `tarfa pair` prints is a code, not a link** (`secure-channel/src/pairing-code.ts`):
+      `TARFA` + upper-case Crockford base32 of a version byte, the raw agent key and secret, the
+      name, the default path, 1–4 addresses (a scheme byte, `wss`/`ws`, and the rest) and a 4-byte
+      SHA-256 checksum, with the QR code carrying the same text. A link looked like something to
+      open, and opened outside the installed app (a desktop, an iPhone's Safari) it paired
+      nothing, so the code is pasted or scanned inside the app on every device. Opaque on
+      purpose: no `wss://` or host for a chat app to linkify, one alphabet a double-click selects
+      whole, and the QR code's dense alphanumeric mode. Whitespace and case are ignored (a
+      terminal or chat wraps it); anything else that is not exactly a valid code is refused
+      whole, and an unknown version byte says "update the app". It decodes to the same
+      `PairingLink` the link does, through the same checks (`isMachineUrl`, `MAX_ADDRESSES`, the
+      name length, `isPairingPath`), so every rule below holds for both. A code names no origin,
+      so `otherOrigin` applies to links only. **The PWA keeps reading links** (released agents
+      print them, `tarfa pair --link` still does, and `deploy/sandbox.sh` opens one in its
+      headless browser), so deploy a PWA that reads codes before an agent that prints them.
+    - **A pasted or scanned code is confirmed like a link opened from elsewhere**
+      (`store.pairFromLink` asks `pairingQuestion`): a code pasted from a chat is as foreign as a
+      link, and `tarfa pair` promises the phone will show the key's fingerprint. A decline stops
+      the scan, or the next frame would ask again.
     - **A link's default path (`p`, from `TARFA_DEFAULT_PATH`) is a convenience, never a reason
       to fail a pairing.** The phone drops one that is not absolute or exceeds 128 characters and
       pairs anyway, so `tarfa pair` refuses such a value up front instead. It sets a new entry's
@@ -917,8 +936,8 @@ See `docs/DEPLOY.md` for the full runbook. In short:
       `u` repeats 1–4 times in the order the phone tries them, each `wss:` (`ws:` on loopback
       only, for the e2e) with the path `/` or one segment (a `tailscale serve --set-path` slug); a
       fifth or any invalid one nulls the whole link. A link naming an address another key's entry
-      holds is refused (`pairedMachine`, direct section). A link opened from outside the app is
-      confirmed first, showing every host and the machine key's fingerprint that `tarfa pair`
+      holds is refused (`pairedMachine`, direct section). A link opened from outside the app (or
+      a pasted code) is confirmed first, showing every host and the machine key's fingerprint that `tarfa pair`
       prints beside the code. A full link must name this app's own origin (`readPairingLink`).
     - **A pairing link tapped inside the app is paired by the running app**
       (`store.openPairingLink`, from the terminal's link handlers and a capture-phase click
@@ -933,7 +952,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
       own storage, apart from Safari's and from the in-app browsers chat apps open links in, and
       no link ever opens it, so pairing there spent the one-time code on a context the owner
       then left. `InstallFirst` walks them through copying the link, adding the app, and
-      **Paste pairing link** in Settings (the clipboard is the one thing the contexts share);
+      **Paste pairing code** in Settings (which takes a link too) (the clipboard is the one thing the contexts share);
       "Pair in this browser instead" keeps the old path.
   - **An enrolled phone with no credential is served at once, right behind message 2.** Its
     device hello carries `push`; when the agent finds the key enrolled it answers `authResult`
@@ -976,8 +995,8 @@ So the PWA is on a public origin, tarfa.app, and what follows from that:
   which say tarfa.app) and
   points their pairing links at it (`tarfa pair --pwa`). Moving origins means a new device key
   (a new origin has empty storage), so every phone pairs again there.
-- **Pairing links name the PWA's origin** (`TARFA_PWA_ORIGIN`, default `https://tarfa.app`), so
-  they follow it.
+- **`tarfa pair` names the PWA's origin** (`TARFA_PWA_ORIGIN`, default `https://tarfa.app`): its
+  instructions say where to install the app, and a `--link` link points at it.
 - **A device that cannot fetch the PWA's origin never updates, and nothing says so.** It keeps
   running its cached service-worker build, which can still connect, so the app looks healthy
   while `sw.js` cannot be fetched (on the tailnet staging origin, a device with Tailscale off).

@@ -22,7 +22,7 @@ export const app: Messages['app'] = {
     openTarfa: 'Ouvrez Tarfa depuis son icône, touchez ',
     addMachine: 'Ajouter une machine',
     then: ', puis ',
-    pastePairingLink: 'Coller le lien d’association',
+    pastePairingLink: 'Coller le code d’association',
     notUsedYet: 'Le code n’a pas encore servi. Il fonctionne une fois, dans le délai annoncé par ',
     pairInBrowser: 'Associer plutôt dans ce navigateur',
   },
