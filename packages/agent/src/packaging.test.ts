@@ -197,7 +197,7 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
       const stubBin = join(scratch, 'stubbin');
       await Promise.all([join(adoptHome, '.config', 'systemd', 'user'), join(clone, 'deploy'), stubBin].map((d) => mkdir(d, { recursive: true })));
       await writeFile(join(clone, 'deploy', 'run-agent.sh'), '#!/usr/bin/env bash\n');
-      await writeFile(join(clone, 'deploy', 'agent.env'), `TARFA_MACHINE_ID=adopt-test\nTARFA_PROJECT_ROOTS=${adoptHome}\nTARFA_PORT=${await freePort()}\nTARFA_PHONE_PORT=${await freePort()}\n`, { mode: 0o600 });
+      await writeFile(join(clone, 'deploy', 'agent.env'), `TARFA_MACHINE_ID=adopt-test\nTARFA_PROJECT_ROOTS=${adoptHome}\nTARFA_PORT=${await freePort()}\nTARFA_PHONE_PORT=${await freePort()}\nTARFA_PHONE_ADDRESSES=wss://adopt-test.example.ts.net/adopt\n`, { mode: 0o600 });
       await symlink(clone, join(clone, 'deploy', 'agent-live'));
       await writeFile(join(adoptHome, '.config', 'systemd', 'user', 'tarfa-agent.service'), `[Service]\nExecStart=/usr/bin/env bash ${clone}/deploy/run-agent.sh\nKillMode=process\n`);
       for (const tool of ['systemctl', 'loginctl']) await writeFile(join(stubBin, tool), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
