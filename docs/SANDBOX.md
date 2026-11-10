@@ -36,7 +36,7 @@ All take `--worktree <path>`; without it they act on the checkout you are in.
   app server, pairs the browser, prints the
   PWA address, the browser session, the tmux socket and the env file. A sandbox already up is
   refused; one whose agent died is replaced. If anything fails on the way, it is taken down
-  again. `TARFA_SANDBOX_NO_BROWSER=1` skips the browser and only prints the pairing link.
+  again. `TARFA_SANDBOX_NO_BROWSER=1` skips the browser and only prints the pairing link (`tarfa pair --link`, which the browser opens).
 - `down` — stops the tmux server, the browser and its units, and deletes the sandbox.
   `pnpm worktree:remove` does it for you.
 - `rebuild [--agent|--pwa]` — rebuilds the PWA and taps the browser's update banner, and/or

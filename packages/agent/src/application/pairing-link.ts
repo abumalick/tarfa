@@ -1,5 +1,5 @@
 // `tarfa pair`: hand a phone what it needs to pair with this machine.
-import { isPairingPath, pairingLink, type AgentKeys } from '@tarfa/secure-channel';
+import { isPairingPath, type AgentKeys, type PairingLink } from '@tarfa/secure-channel';
 import type { PairingStorePort } from '../ports/pairing-store-port';
 import { addPairing } from './pairing';
 
@@ -23,19 +23,20 @@ export function pairingName(machineId: string, hostname: string): string {
   return GENERIC_MACHINE_IDS.has(machineId) ? hostname.split('.')[0]! : machineId;
 }
 
-// `phoneUrls` are the addresses the phone tries, in order, each as the phone dials it.
-export async function mintPairingLink(deps: PairingDeps, input: { phoneUrls: string[]; pwaOrigin: string }): Promise<string> {
+// Stores a one-time secret and returns what the phone needs, which `tarfa pair` prints as a code
+// (or a link). `phoneUrls` are the addresses the phone tries, in order, each as the phone dials it.
+export async function mintPairing(deps: PairingDeps, input: { phoneUrls: string[] }): Promise<PairingLink> {
   // The phone drops a path it cannot use, so one is refused here, where its owner can fix it.
   if (deps.defaultPath !== undefined && !isPairingPath(deps.defaultPath)) {
     throw new Error(`TARFA_DEFAULT_PATH must be an absolute path of at most 128 characters (got ${deps.defaultPath})`);
   }
   const secret = deps.newSecret();
   await deps.pairings.update((list) => addPairing(list, secret, deps.now(), deps.ttlMs));
-  return pairingLink(input.pwaOrigin, {
+  return {
     urls: input.phoneUrls,
     agentKey: deps.keys.x25519.publicKey,
     secret,
     name: deps.machineId,
     ...(deps.defaultPath !== undefined ? { defaultPath: deps.defaultPath } : {}),
-  });
+  };
 }

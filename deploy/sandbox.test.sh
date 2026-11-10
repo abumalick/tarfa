@@ -316,6 +316,7 @@ check "agent-browser runs in the caller's runtime dir" "0" "$(grep '^  ab-env' "
 : > "${CALLS}"
 sbb pair --worktree "${WT}" > /dev/null
 check "pair mints a new link" "yes" "$(has 'cli.ts pair' "${CALLS}")"
+check "pair asks for a link the browser can open" "yes" "$(has 'cli.ts pair --link' "${CALLS}")"
 check "pair opens it and accepts" "yes" "$(grep '^agent-browser ' "${CALLS}" | paste -sd '|' | grep -qF "open http://127.0.0.1:1/#pair?u=ws://127.0.0.1:2&k=x&s=y&n=z|agent-browser --session ${SESSION} dialog accept" && echo yes || echo no)"
 check "pair waits for a second device" "2" "$(jq '.devices | length' "${ROOT}/home/.tarfa/devices.json")"
 touch "${T}/spend"

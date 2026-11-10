@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { setLanguage } from '../i18n.svelte';
-import { pairingLink, type PairingLink } from '@tarfa/secure-channel';
+import { b64url, pairingCode, pairingLink, type PairingLink } from '@tarfa/secure-channel';
 import { deviceFingerprint } from '@tarfa/secure-channel';
 import { acceptPairingLink, outsideInstalledApp, pairedMachine, pairingPlan, pairingQuestion, readPairingLink, takePairingFragment } from './pairing';
 import type { MachineConfig } from './settings-store';
@@ -123,6 +123,17 @@ describe('readPairingLink', () => {
   it("refuses a link for another origin, saying whose it is", () => {
     const result = readPairingLink(pairingLink('https://elsewhere.example', link), 'https://pwa.example');
     expect(result).toEqual({ ok: false, reason: expect.stringContaining('elsewhere.example') });
+  });
+
+  // A code names no origin, like a bare fragment: it is this app's to take wherever it was pasted.
+  it('takes a pairing code, wrapped or not, and says when one comes from a newer app', () => {
+    const coded = { ...link, agentKey: b64url.encode(new Uint8Array(32).fill(1)), secret: b64url.encode(new Uint8Array(32).fill(2)) };
+    const code = pairingCode(coded);
+    expect(readPairingLink(code, 'https://pwa.example')).toEqual({ ok: true, link: coded });
+    expect(readPairingLink(`${code.slice(0, 50)}\n${code.slice(50)}\n`, 'https://pwa.example')).toEqual({ ok: true, link: coded });
+    expect(readPairingLink(code.slice(0, -2), 'https://pwa.example')).toEqual({ ok: false, reason: expect.stringMatching(/not a Tarfa pairing code/) });
+    // Version 2: the byte after the prefix decodes from its first two characters.
+    expect(readPairingLink('TARFA08' + code.slice(7), 'https://pwa.example')).toEqual({ ok: false, reason: expect.stringMatching(/newer Tarfa/) });
   });
 
   it('says so when the text is no pairing link at all', () => {

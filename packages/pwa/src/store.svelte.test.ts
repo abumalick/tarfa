@@ -111,13 +111,23 @@ describe('TarfaStore pairing', () => {
     name: 'dev',
   });
 
-  it('adds the machine from a pairing link and goes home to watch it connect', () => {
-    const { store } = build();
+  it('adds the machine from a pasted pairing link once the owner confirms, and goes home to watch it connect', () => {
+    const asked: string[] = [];
+    const { store } = build(undefined, undefined, undefined, undefined, { confirm: (m) => (asked.push(m), true) });
     store.start();
     store.goSettings();
     expect(store.pairFromLink(`  ${link}\n`)).toEqual({ name: 'dev' });
+    expect(asked).toEqual([expect.stringContaining('box.example')]);
     expect(store.machines).toEqual([expect.objectContaining({ name: 'dev', addresses: ['wss://box.example/abu'], pairing: 'S'.repeat(43) })]);
     expect(store.view).toBe('list');
+  });
+
+  // A pasted code is as foreign as a link: the owner is asked the same question first.
+  it('adds nothing when the owner declines a pasted code', () => {
+    const { store } = build();
+    store.start();
+    expect(store.pairFromLink(link)).toEqual({ declined: true });
+    expect(store.machines).toEqual([]);
   });
 
   describe('a link for an entry that connects with its key alone', () => {
@@ -126,7 +136,7 @@ describe('TarfaStore pairing', () => {
     const linkTo = (urls: string[]) => pairingLink('https://pwa.example', { urls, agentKey: linkKey, secret: 'S'.repeat(43), name: 'dev' });
     const setup = (connected: boolean, seed: Record<string, unknown> = paired) => {
       const alerts: string[] = [];
-      const built = build([seed], undefined, undefined, undefined, { alert: (m) => void alerts.push(m) });
+      const built = build([seed], undefined, undefined, undefined, { confirm: () => true, alert: (m) => void alerts.push(m) });
       const probed: string[][] = [];
       built.manager.probe = async (config) => (probed.push(config.addresses), connected);
       built.store.start();
@@ -266,7 +276,7 @@ describe('TarfaStore pairing', () => {
   });
 
   it('forgets the pairing secret once the machine says the key is enrolled', () => {
-    const { store, sockets } = build();
+    const { store, sockets } = build(undefined, undefined, undefined, undefined, { confirm: () => true });
     store.start();
     store.pairFromLink(link);
     sockets['wss://box.example/abu']!.open();
@@ -277,7 +287,7 @@ describe('TarfaStore pairing', () => {
 
   // The agent could not write the enrolment: the code is still the phone's way in.
   it('keeps the pairing secret when the machine says the key is not enrolled', () => {
-    const { store, sockets } = build();
+    const { store, sockets } = build(undefined, undefined, undefined, undefined, { confirm: () => true });
     store.start();
     store.pairFromLink(link);
     sockets['wss://box.example/abu']!.open();
