@@ -437,9 +437,48 @@ describe('KeyboardBar dictation presets', () => {
   const mic = () => screen.getByRole('button', { name: /^dictate/i });
   const menu = () => screen.queryByRole('listbox', { name: 'Dictation presets' });
 
-  it('has no mic until some preset has its key', () => {
-    render(KeyboardBar, { props: { ...base, presetKeys: { elevenlabs: false, openrouter: false, claude: 'unavailable' } } });
-    expect(screen.queryByRole('button', { name: /^dictate/i })).toBeNull();
+  const noKeys = { elevenlabs: false, openrouter: false, claude: 'unavailable' } as const;
+
+  it('has no mic with no usable preset where nothing explains how to set one up', () => {
+    render(KeyboardBar, { props: { ...base, presetKeys: noKeys } });
+    expect(screen.queryByRole('button', { name: /dictat/i })).toBeNull();
+  });
+
+  it('keeps the mic with no usable preset, and a tap opens the setup explanation', async () => {
+    const onDictate = vi.fn();
+    const onSetupDictation = vi.fn();
+    render(KeyboardBar, { props: { ...base, presetKeys: noKeys, onDictate, onSetupDictation } });
+    const setup = screen.getByRole('button', { name: 'Set up dictation' });
+    expect(setup).toHaveTextContent('🎤');
+    pointer(setup, 'pointerdown', 100, 100);
+    pointer(setup, 'pointerup', 100, 100);
+    await fireEvent.click(setup);
+    expect(onSetupDictation).toHaveBeenCalledTimes(1);
+    expect(onDictate).not.toHaveBeenCalled();
+  });
+
+  it('opens nothing when a press on the setup mic turns into a scroll', async () => {
+    const onSetupDictation = vi.fn();
+    render(KeyboardBar, { props: { ...base, presetKeys: noKeys, onSetupDictation } });
+    const setup = screen.getByRole('button', { name: 'Set up dictation' });
+    pointer(setup, 'pointerdown', 100, 100);
+    pointer(setup, 'pointermove', 100 + TAP_SLOP_PX + 1, 100);
+    pointer(setup, 'pointerup', 100 + TAP_SLOP_PX + 1, 100);
+    await fireEvent.click(setup);
+    expect(onSetupDictation).not.toHaveBeenCalled();
+  });
+
+  it('still opens the presets on a long press of the setup mic, each saying why it cannot run', async () => {
+    const onSetupDictation = vi.fn();
+    render(KeyboardBar, { props: { ...base, presetKeys: noKeys, onSetupDictation } });
+    const setup = screen.getByRole('button', { name: 'Set up dictation' });
+    pointer(setup, 'pointerdown', 100, 100);
+    await vi.advanceTimersByTimeAsync(HOLD_MS);
+    pointer(setup, 'pointerup', 100, 100);
+    await fireEvent.click(setup);
+    expect(menu()).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Scribe/ })).toBeDisabled();
+    expect(onSetupDictation).not.toHaveBeenCalled();
   });
 
   it('dictates with Claude voice by default where it can run, with no key needed', () => {

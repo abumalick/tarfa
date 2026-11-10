@@ -69,7 +69,7 @@ never replaces an agent key, an installed unit that already runs the launcher (o
 An existing `TARFA_PWA_ORIGIN` is kept unless `--pwa` names another (the default is
 `https://tarfa.app`). Where Tailscale needs root, it prints `sudo tailscale set --operator=$USER`
 and exits 1. The address it derives, `wss://<node>.<tailnet>.ts.net:<port>/<slug>`, goes first in
-`TARFA_PHONE_ADDRESSES`, then any `--address`; `tarfa pair` then mints links with all of them, in
+`TARFA_PHONE_ADDRESSES`, then any `--address`; `tarfa pair` then mints codes with all of them, in
 order.
 
 ### A machine running from a clone: `tarfa setup --adopt`
@@ -146,7 +146,7 @@ install -m 600 deploy/agent.env.example ~/.tarfa/agent.env   # the example is in
 # edit it: set TARFA_MACHINE_ID (unique: "mac"/"mini"), TARFA_PROJECT_ROOTS (e.g. ~/workspace),
 # keep TARFA_PORT=8787
 ```
-> Phones join only with a one-time `tarfa pair` link; a paired phone's enrolled device key is its
+> Phones join only with a one-time `tarfa pair` code; a paired phone's enrolled device key is its
 > credential. The local hooks use their own secret, which the agent writes to `~/.tarfa/token` at
 > each start. An agent.env from before still holding `TARFA_TOKEN` starts; the agent ignores the
 > line with one warning, so delete it.
@@ -191,20 +191,26 @@ agent where phones reach it:
 ```sh
 tailscale serve --bg --https=10000 --set-path=/me http://127.0.0.1:8797   # or `tailscale funnel`
 # ~/.tarfa/agent.env: TARFA_PHONE_ADDRESSES=wss://<node>.<tailnet>.ts.net:10000/me
-tarfa pair [--pwa https://<where phones open the app>] [--ttl <minutes>]
+tarfa pair [--pwa https://<where phones open the app>] [--ttl <minutes>] [--link]
 ```
-`tarfa pair` prints a one-time pairing QR code and link (ten minutes, or `--ttl` 1–10; one phone)
-with every address in `TARFA_PHONE_ADDRESSES`. When a phone enrols, every other phone connected to
-that machine shows "New device paired", and the agent logs `device enrolled: <id> "<name>"`. The link names the origin phones open the app at,
-`TARFA_PWA_ORIGIN` (default `https://tarfa.app`). Set `TARFA_DEFAULT_PATH` (an absolute path) and
-the link hands it to the phone as the new entry's default path; a re-scan fills it only on an
-entry that has none. `TARFA_RELAY_URLS` from an older setup is ignored with a warning at
+`tarfa pair` prints a one-time pairing code and its QR code (one phone, for 20 minutes, or `--ttl`
+1–20) with every address in `TARFA_PHONE_ADDRESSES`. The code (`TARFA…`, letters and
+digits only) is pasted or scanned inside the installed app, on any device: Settings → Add machine.
+It is not a link, so nothing opens it outside the app, where it would pair nothing. The phone asks
+before pairing, naming every host and the machine key `tarfa pair` printed beside the code. When a
+phone enrols, every other phone connected to that machine shows "New device paired", and the agent
+logs `device enrolled: <id> "<name>"`. The instructions name the origin phones install the app
+from, `TARFA_PWA_ORIGIN` (default `https://tarfa.app`). `--link` prints a pairing link on that
+origin instead, for an app from before pairing codes (an older self-hosted copy, or a device that
+cannot fetch the origin and still runs a cached build); a current app takes both. Set
+`TARFA_DEFAULT_PATH` (an absolute path) and the code hands it to the phone as the new entry's
+default path; a re-scan fills it only on an entry that has none. `TARFA_RELAY_URLS` from an older setup is ignored with a warning at
 startup; remove it.
 
 **Moving a machine off relays.** An agent updated past the relays' removal no longer dials
 them, so a machine phones reached only through a relay is cut off until it is moved: run
 `tarfa setup` with `--tailscale serve|funnel` (or `--address` for a proxy), remove
-`TARFA_RELAY_URLS` from `agent.env`, then send each phone a fresh `tarfa pair` link. The
+`TARFA_RELAY_URLS` from `agent.env`, then send each phone a fresh `tarfa pair` code. The
 entry, known by its agent key, takes the new addresses; its device key stays enrolled. Update the
 agent before phones use a current app: an older agent refuses a new phone's hello ("too old to
 pair"). A self-hosted app built before the change must be redeployed too, and the old relay
@@ -232,6 +238,8 @@ curl -si --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebS
   -H "Sec-WebSocket-Key: $(openssl rand -base64 16)" http://127.0.0.1:8797/x | head -1
 curl -si http://127.0.0.1:8797/hooks | head -1
 ```
+To reach the phone port over the local network without Tailscale (a proxy with a real certificate),
+see `docs/LAN.md`.
 
 ## 4. Wire Claude Code hooks (each machine)
 The agent writes a hooks-only secret to `~/.tarfa/token` at each start (mode 600); the hook reads it.
@@ -323,7 +331,7 @@ deploy/pwa-deploy.sh --dry-run   # build and check only, from any checkout
 ```
 To test a worktree's PWA on a phone from a public origin, `deploy/pwa-deploy.sh --dev` deploys it
 to a throwaway `tarfa-dev` Worker on workers.dev and prints its URL (its header shows a
-`tarfa-dev` badge); mint a link for it with `tarfa pair --pwa <that URL>`, and remove it with
+`tarfa-dev` badge); pair a phone with it from `tarfa pair` (`--pwa <that URL>` names it in the instructions; `--link` for a link to it), and remove it with
 `deploy/pwa-deploy.sh --dev --delete` when done. Another Cloudflare account serves its own copy with
 `--env-file <its file>` from a fork whose `packages/pwa/wrangler.jsonc` names its own domain in `env.production`'s route
 and whose `deploy/pwa-deploy.sh` checks that domain's `version.json` (both name tarfa.app).
@@ -354,8 +362,9 @@ Staging PWA URL: `https://mini.<tailnet>.ts.net:8443/`.
    is needed only for machines published with `tailscale serve` alone; a Funneled machine is
    reached without it.
 2. Share → **Add to Home Screen**. Launch Tarfa from the home screen (standalone).
-3. Pair each machine: on the machine, `tarfa pair` prints a QR code; in Tarfa, **Settings → Scan QR code**.
-   Nothing is typed on the phone. On Android, Chrome asks once to find devices on the local
+3. Pair each machine: on the machine, `tarfa pair` prints a pairing code and its QR code; in Tarfa,
+   **Settings → Add machine → Scan QR code** (or copy the code and **Paste pairing code**), then
+   confirm the machine key matches. Nothing is typed on the phone. On Android, Chrome asks once to find devices on the local
    network the first time it opens a tailnet address: allow it.
 
 ## 7. On-device smoke test

@@ -19,6 +19,8 @@
   import CopyOffer from './CopyOffer.svelte';
   import ReadAloudPlayer from './ReadAloudPlayer.svelte';
   import VoiceHelp from './VoiceHelp.svelte';
+  import DictationSetup from './DictationSetup.svelte';
+  import { setupOptions } from '../core/dictation-setup';
   import { voicePlatform } from './voice-platform';
   import { trackStatusInline, trackViewport, trackWide } from './viewport';
   import { attachTerminalScroll, type TerminalScroll } from './terminal-scroll';
@@ -90,6 +92,7 @@
   // refuses a write that no tap started, so a refused one waits for the user to tap Copy.
   let copyOffer = $state<string | null>(null);
   let voiceHelpOpen = $state(false);
+  let dictationSetupOpen = $state(false);
   let copySeq = 0;
   const copyFromProgram = async (text: string) => {
     const seq = ++copySeq;
@@ -503,6 +506,13 @@
       </div>
     {/if}
   </div>
+  {#if dictationSetupOpen}
+    <DictationSetup
+      options={setupOptions(store.dictationPresets, store.presetKeys)}
+      onOpenSettings={(provider) => store.openDictationKeySettings(provider)}
+      onClose={() => (dictationSetupOpen = false)}
+    />
+  {/if}
   {#if voiceHelpOpen}
     <VoiceHelp platform={voicePlatform(navigator.userAgent, navigator.maxTouchPoints)} trouble={store.readAloudVoiceHelp ?? 'silent'} onClose={() => (voiceHelpOpen = false)} />
   {/if}
@@ -551,6 +561,7 @@
     presetKeys={store.presetKeys}
     onSelectPreset={(id) => store.selectPreset(id)}
     onAddPreset={() => store.addDictationPreset()}
+    onSetupDictation={() => (dictationSetupOpen = true)}
     onPickFile={pickFile}
     onReadAloud={store.canReadAloud ? () => store.startReadAloud() : undefined}
 

@@ -32,5 +32,6 @@ export {
   type DeviceHello,
 } from './device-hello';
 export { generatePairingSecret, isMachineUrl, isPairingPath, MAX_ADDRESSES, pairingLink, parsePairingLink, type PairingLink } from './pairing-link';
+export { pairingCode, parsePairingCode, type PairingCodeRead } from './pairing-code';
 export { REFUSAL, IN_BAND_REFUSAL, DEVICE_REFUSED, type Refusal } from './refusal';
 export { startTimer } from './timers';

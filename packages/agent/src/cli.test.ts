@@ -5,7 +5,8 @@ import { chmod, lstat, mkdtemp, mkdir, readFile, readlink, realpath, rm, stat, s
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deviceFingerprint, generateDeviceKeys, parsePairingLink } from '@tarfa/secure-channel';
+import { deviceFingerprint, generateDeviceKeys, parsePairingCode, parsePairingLink } from '@tarfa/secure-channel';
+import { PAIRING_TTL_MS } from './application/pairing';
 import { FileDeviceStore } from './infrastructure/file-device-store';
 import { TmuxAdapter } from './infrastructure/tmux-adapter';
 import { parseEnvFile } from './application/agent-env';
@@ -271,51 +272,60 @@ describe('tarfa pair (arguments and agent.env)', () => {
     return { home, env: { TARFA_AGENT_ENV: envPath } };
   }
   const base = 'TARFA_MACHINE_ID=box\nTARFA_PHONE_ADDRESSES=wss://box.example.ts.net\n';
+  const codeIn = (out: string) => {
+    const read = parsePairingCode(out.split('\n').find((line) => line.startsWith('TARFA'))!);
+    if (!read.ok) throw new Error('no pairing code in the output');
+    return read.pairing;
+  };
 
-  it('mints a pairing link for the phone address, reading the agent.env the service reads', async () => {
+  it('mints a pairing code for the phone address, reading the agent.env the service reads', async () => {
     const { home, env } = await machine(`${base}TARFA_PWA_ORIGIN=https://pwa.example:8443\n`);
     const out = await run(['pair'], { ...env, TARFA_PHONE_ADDRESSES: 'wss://stale.example.ts.net' }, home);
-    const link = out.split('\n').find((line) => line.startsWith('https://'))!;
-    const pairing = parsePairingLink(link)!;
+    const pairing = codeIn(out);
     expect(pairing.urls).toEqual(['wss://box.example.ts.net']);
     expect(pairing.name).toBe('box');
     const stored = JSON.parse(await readFile(join(home, '.tarfa', 'pairing.json'), 'utf8')) as Array<{ secret: string }>;
     expect(stored.map((p) => p.secret)).toEqual([pairing.secret]);
-    expect(out).toContain('for 10 minutes');
+    expect(out).toContain(`for ${PAIRING_TTL_MS / 60_000} minutes`);
+    // Nothing to open: a link opened outside the installed app pairs nothing.
+    expect(out).not.toContain('#pair?');
+    expect(out).toContain('install it from https://pwa.example:8443 first');
     // The phone shows the same fingerprint before it pairs, to compare by eye.
     expect(out).toContain(`machine key ${deviceFingerprint(pairing.agentKey)};`);
   });
 
-  it('takes --ttl in minutes, from 1 to 10, and stores the expiry it states', async () => {
+  it('takes --ttl in minutes, from 1 to the default, and stores the expiry it states', async () => {
     const { home, env } = await machine(base);
     const before = Date.now();
     const out = await run(['pair', '--ttl', '2'], env, home);
+    expect(await run(['pair', '--ttl', '20'], env, home)).toContain('for 20 minutes');
     expect(out).toContain('for 2 minutes');
     const [stored] = JSON.parse(await readFile(join(home, '.tarfa', 'pairing.json'), 'utf8')) as Array<{ expiresAt: string }>;
     const left = Date.parse(stored!.expiresAt) - before;
     expect(left).toBeGreaterThanOrEqual(2 * 60_000);
     expect(left).toBeLessThan(2 * 60_000 + 5_000);
-    for (const bad of ['0', '11', '1.5', 'x']) await expect(run(['pair', '--ttl', bad], env, home)).rejects.toThrow(/--ttl/);
+    for (const bad of ['0', String(PAIRING_TTL_MS / 60_000 + 1), '1.5', 'x']) await expect(run(['pair', '--ttl', bad], env, home)).rejects.toThrow(/--ttl/);
+    await expect(run(['pair', 'stray'], env, home)).rejects.toThrow('--ttl <minutes, 1-20, default 20>');
   });
 
   it('hands the phone the TARFA_DEFAULT_PATH agent.env sets', async () => {
     const { home, env } = await machine(`${base}TARFA_PWA_ORIGIN=https://pwa.example:8443\nTARFA_DEFAULT_PATH=/home/u/workspace\n`);
     const out = await run(['pair'], env, home);
-    expect(parsePairingLink(out.split('\n').find((line) => line.startsWith('https://'))!)!.defaultPath).toBe('/home/u/workspace');
+    expect(codeIn(out).defaultPath).toBe('/home/u/workspace');
   });
 
   it('names the pairing after the host when the machine id is the generic "local"', async () => {
     const { home, env } = await machine('TARFA_MACHINE_ID=local\nTARFA_PHONE_ADDRESSES=wss://box.example.ts.net\nTARFA_PWA_ORIGIN=https://pwa.example:8443\n');
-    const out = await run(['pair'], env, home);
-    const pairing = parsePairingLink(out.split('\n').find((line) => line.startsWith('https://'))!)!;
-    expect(pairing.name).toBe(hostname().split('.')[0]);
+    expect(codeIn(await run(['pair'], env, home)).name).toBe(hostname().split('.')[0]);
   });
 
-  it('takes --pwa over TARFA_PWA_ORIGIN, and the tarfa.app default without either', async () => {
+  it('prints the legacy link with --link, naming --pwa over TARFA_PWA_ORIGIN, and tarfa.app without either', async () => {
     const { home, env } = await machine(base);
-    expect(await run(['pair'], env, home)).toContain('https://tarfa.app/#pair?');
-    const out = await run(['pair', '--pwa', 'https://pwa.example/ignored/path'], env, home);
+    expect(await run(['pair', '--link'], env, home)).toContain('https://tarfa.app/#pair?');
+    const out = await run(['pair', '--link', '--pwa', 'https://pwa.example/ignored/path'], env, home);
     expect(out).toContain('https://pwa.example/#pair?');
+    expect(out).not.toMatch(/^TARFA/m);
+    expect(await run(['pair', '--pwa', 'https://pwa.example'], env, home)).toContain('install it from https://pwa.example first');
   });
 
   it('refuses a machine with no TARFA_PHONE_ADDRESSES, pointing at tarfa setup', async () => {
@@ -323,17 +333,24 @@ describe('tarfa pair (arguments and agent.env)', () => {
     await expect(run(['pair'], env, home)).rejects.toThrow(/TARFA_PHONE_ADDRESSES.*tarfa setup/);
   });
 
-  it('mints a link with every TARFA_PHONE_ADDRESSES address, in order', async () => {
+  it('mints a code, or with --link a link, with every TARFA_PHONE_ADDRESSES address, in order', async () => {
     const { home, env } = await machine(
       'TARFA_MACHINE_ID=dev\nTARFA_DEFAULT_PATH=/home/u/workspace\n' +
         'TARFA_PHONE_ADDRESSES=wss://dev.example.ts.net:10000/abu,wss://dev.example.ts.net:8443/abu\n',
     );
-    const out = await run(['pair'], env, home);
+    expect(codeIn(await run(['pair'], env, home)).urls).toEqual(['wss://dev.example.ts.net:10000/abu', 'wss://dev.example.ts.net:8443/abu']);
+    const out = await run(['pair', '--link'], env, home);
     const link = out.split('\n').find((line) => line.startsWith('https://'))!;
     const { agentKey, secret } = parsePairingLink(link)!;
     expect(link).toBe(
       `https://tarfa.app/#pair?u=wss://dev.example.ts.net:10000/abu&u=wss://dev.example.ts.net:8443/abu&k=${agentKey}&s=${secret}&n=dev&p=/home/u/workspace`,
     );
+  });
+
+  it('refuses a machine id longer than a phone takes, before storing a secret', async () => {
+    const { home, env } = await machine(`TARFA_MACHINE_ID=${'m'.repeat(65)}\nTARFA_PHONE_ADDRESSES=wss://box.example.ts.net\n`);
+    await expect(run(['pair'], env, home)).rejects.toThrow(/TARFA_MACHINE_ID must be at most 64/);
+    await expect(readFile(join(home, '.tarfa', 'pairing.json'), 'utf8')).rejects.toThrow();
   });
 
   it('refuses a TARFA_PHONE_ADDRESSES address a phone would refuse', async () => {
@@ -451,11 +468,11 @@ describe('tarfa setup (fake service and Tailscale)', () => {
     expect(m.calls).toEqual(['check']);
   });
 
-  it('prints a pairing link with --pair', async () => {
+  it('prints a pairing code with --pair', async () => {
     const m = await machine();
     const out = await run(['setup', ...FLAGS, '--pair'], m.env, m.home, m.io);
-    const link = out.split('\n').find((line) => line.startsWith('https://tarfa.app/#pair?'))!;
-    expect(parsePairingLink(link)!.urls).toEqual([`wss://${HOST}:10000/abu`]);
+    const read = parsePairingCode(out.split('\n').find((line) => line.startsWith('TARFA'))!);
+    expect(read.ok && read.pairing.urls).toEqual([`wss://${HOST}:10000/abu`]);
   });
 
   it('changes nothing on a dry run', async () => {

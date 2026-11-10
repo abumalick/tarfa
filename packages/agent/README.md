@@ -17,13 +17,14 @@ tarfa setup --machine-id <name> --project-roots ~/workspace --tailscale serve --
 
 `tarfa setup` writes `~/.tarfa/agent.env`, the agent key, the service (a systemd user unit or a
 launchd agent) and the Claude Code hooks, publishes the phone port with Tailscale, and prints a
-pairing link and QR code. Open it on the phone, inside the installed app. `tarfa setup --help`
+pairing code and its QR code. In the installed app on the phone, Settings → Add machine: scan it,
+or paste the code. `tarfa setup --help`
 lists every flag.
 
 ## Day to day
 
 ```sh
-tarfa pair        # a one-time pairing link for another phone
+tarfa pair        # a one-time pairing code for another phone (--link: a link, for an older app)
 tarfa devices     # paired phones; revoke or forget one
 tarfa update      # install the newest release and restart the agent; workspaces survive
 tarfa ls          # this machine's workspaces

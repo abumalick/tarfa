@@ -127,8 +127,8 @@ export function hasUsablePreset(presets: readonly DictationPreset[], keys: Prese
 }
 
 // The preset dictation uses: the chosen one if it can run here, else its fallback when that
-// can, else the first that can. With none usable there is no mic, so the plain lookup is only
-// a last resort.
+// can, else the first that can. With none usable the mic's tap explains how to set one up, so
+// the plain lookup only marks the current entry in its long-press menu.
 export function currentPreset(
   presets: readonly DictationPreset[],
   id: string | null,

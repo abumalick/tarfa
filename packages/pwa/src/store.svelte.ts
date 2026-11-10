@@ -38,7 +38,7 @@ export interface DeviceKeyInfo {
 }
 import { SpeechToText, type DictationState } from './core/speech-to-text';
 import { mergeKeyterms } from './core/keyterms';
-import { DEFAULT_PRESETS, currentPreset, type DictationPreset, type PresetKeys } from './core/dictation-presets';
+import { DEFAULT_PRESETS, currentPreset, type DictationPreset, type DictationProvider, type PresetKeys } from './core/dictation-presets';
 import type { AudioRecorder } from './core/ports/audio-recorder';
 import type { Transcriber } from './core/ports/transcriber';
 import type { VoiceLink } from './core/claude-voice';
@@ -230,6 +230,8 @@ export class TarfaStore {
   currentPresetId = $state<string | null>(null);
   // Set by the mic menu's "Add preset…": Settings opens a new preset's form, then clears it.
   addingPreset = $state(false);
+  // The key field Settings scrolls to when opened from the mic's setup explanation.
+  dictationKeyFocus = $state<DictationProvider | null>(null);
   // Project-folder filter on the home list, persisted via settings (loaded in start()).
   // Two independent selections — the live one is whichever `folderFilterMode` names — so
   // focusing on a project for a moment doesn't discard a hide set once.
@@ -1265,6 +1267,12 @@ export class TarfaStore {
     this.view = 'settings';
   }
 
+  openDictationKeySettings(provider: DictationProvider): void {
+    this.back();
+    this.dictationKeyFocus = provider;
+    this.view = 'settings';
+  }
+
   resetDictationPresets(): void {
     this.dictationPresets = [...DEFAULT_PRESETS];
     this.deps.settings.setDictationPresets(null);
@@ -1345,20 +1353,21 @@ export class TarfaStore {
     return this.deps.origin ?? location.origin;
   }
 
-  // A pairing link, scanned or pasted: adds (or updates) the machine's entry and connects it.
-  // Returns the machine's name, or why the link was refused.
-  pairFromLink(text: string): { name: string } | { error: string } {
+  // A pairing code or link, scanned or pasted: adds (or updates) the machine's entry and connects
+  // it. Returns the machine's name, why it was refused, or that the owner declined.
+  pairFromLink(text: string): { name: string } | { error: string } | { declined: true } {
     const read = readPairingLink(text, this.origin());
     if (!read.ok) return { error: read.reason };
-    // Pasting or scanning a code is the owner's own act: nothing to confirm, and a refusal is
-    // shown beside the input rather than in a dialog.
+    // A code pasted from a chat is as foreign as a link opened from one, so the owner is asked
+    // the same question, naming every host and the key `tarfa pair` printed. A refusal is shown
+    // beside the input rather than in a dialog.
     let error = '';
     const machine = acceptPairingLink(this.deps.settings.list(), read.link, {
-      confirm: () => true,
+      confirm: this.deps.confirm,
       alert: (message) => (error = message),
       newId: this.deps.newId,
     });
-    if (!machine) return { error };
+    if (!machine) return error ? { error } : { declined: true };
     this.applyPairing(machine);
     return { name: read.link.name };
   }

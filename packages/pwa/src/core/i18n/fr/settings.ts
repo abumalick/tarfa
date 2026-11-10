@@ -23,6 +23,7 @@ export const settings: Messages['settings'] = {
   elevenLabsHint: 'Stockée sur cet appareil uniquement. Sert à la dictée dans le terminal.',
   openRouterHint:
     'Stockée sur cet appareil uniquement. Les enregistrements envoyés avec un préréglage OpenRouter vont à OpenRouter et au fournisseur du modèle.',
+  howToGetKey: 'Obtenir une clé',
   presets: 'Préréglages',
   presetsHint: 'Maintenez le 🎤 dans le terminal pour passer de l’un à l’autre.',
   terminalLinks: 'Liens du terminal',
@@ -49,8 +50,8 @@ export const settings: Messages['settings'] = {
   addressesHint: 'Une par ligne, essayées dans cet ordre.',
   addressesInvalid: 'Saisissez une à quatre adresses, une par ligne, chacune commençant par wss://.',
   agentKey: "Clé de l’agent",
-  agentKeyPlaceholder: 'la valeur k= d’un lien `tarfa pair`',
-  agentKeyRequired: "Saisissez la clé de l’agent : la valeur k= d’un lien affiché par `tarfa pair` sur la machine.",
+  agentKeyPlaceholder: 'la valeur k= d’un lien `tarfa pair --link`',
+  agentKeyRequired: "Saisissez la clé de l’agent : la valeur k= du lien affiché par `tarfa pair --link` sur la machine. Associer à nouveau avec un code `tarfa pair` la renseigne aussi.",
   save: 'Enregistrer',
   removeMachine: 'Supprimer la machine',
   removeHintBefore: 'Ce téléphone oublie la machine. Pour l’associer à nouveau, lancez ',

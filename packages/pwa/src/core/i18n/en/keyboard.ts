@@ -4,6 +4,7 @@ export const keyboard = {
   option: 'Option',
   command: 'Command',
   dictate: (preset: string) => `Dictate (${preset})`,
+  setupDictation: 'Set up dictation',
   cursorPad: 'Cursor pad',
   selectText: 'Select text',
   paste: 'Paste',

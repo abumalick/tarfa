@@ -248,8 +248,8 @@ wait_pwa_ready() { # <root>
   return 1
 }
 
-pair_link() { # <root>  mint a pairing link, one use, ten minutes
-  in_sandbox "$1" pnpm --filter @tarfa/cli exec tsx src/cli.ts pair | grep -oE 'http://127\.0\.0\.1:[0-9]+/#pair\?[^[:space:]]+' | head -n 1
+pair_link() { # <root>  mint a pairing link (the headless browser opens it), one use
+  in_sandbox "$1" pnpm --filter @tarfa/cli exec tsx src/cli.ts pair --link | grep -oE 'http://127\.0\.0\.1:[0-9]+/#pair\?[^[:space:]]+' | head -n 1
 }
 
 manifest_set() { # <root> <jq filter> [--arg k v]...
