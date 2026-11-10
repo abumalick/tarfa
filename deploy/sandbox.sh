@@ -19,6 +19,9 @@ REAL_HOME="${HOME}"
 BASE="${TARFA_SANDBOX_ROOT:-${REAL_HOME}/.cache/tarfa-sandbox}"
 TOKEN_FILE="${TARFA_SANDBOX_CLAUDE_TOKEN_FILE:-${REAL_HOME}/.config/tarfa-sandbox/claude-oauth-token}"
 READY_SECONDS="${TARFA_SANDBOX_READY_SECONDS:-30}"
+# Each sandbox's workspaces run in tmux's own scopes, outside the agent unit's MemoryMax, so the
+# number of sandboxes is what bounds their memory.
+MAX_SANDBOXES="${TARFA_SANDBOX_MAX:-4}"
 LOCK_HELD=""
 UP_ROOT=""
 
@@ -345,6 +348,7 @@ cmd_gc() { # [max age in hours]
 cmd_up() { # <worktree>
   local wt="$1" slug root
   slug="$(sb_slug "${wt}")"; root="$(sb_root "${slug}")"
+  [[ "${MAX_SANDBOXES}" =~ ^[0-9]+$ ]] || die "TARFA_SANDBOX_MAX must be a number, not ${MAX_SANDBOXES}"
   [ -d "${wt}/node_modules" ] || die "no node_modules in ${wt}: run pnpm install in ${wt}"
   [ -n "$(tr -d '[:space:]' < "${TOKEN_FILE}" 2>/dev/null)" ] || die "no Claude token at ${TOKEN_FILE}: make one with \`claude setup-token\` and save it there (mode 0600)"
   if [ -z "${TARFA_SANDBOX_NO_BROWSER:-}" ] && ! command -v agent-browser > /dev/null; then
@@ -356,6 +360,20 @@ cmd_up() { # <worktree>
       die "sandbox ${slug} is already up — pnpm sandbox rebuild, or pnpm sandbox down first"
     fi
     cmd_down "${root}" > /dev/null
+  fi
+  # By lock, not manifest: a sandbox still being built holds its lock long before its agent starts.
+  # Two ups at once then count each other, which errs toward refusing.
+  local l s m live=()
+  for l in "${BASE}"/*.lock; do
+    [ -f "${l}" ] || continue
+    s="$(basename "${l}" .lock)"; m="${BASE}/${s}/manifest.json"
+    [ "${s}" != "${slug}" ] || continue
+    if ( exec 8> "${l}"; ! flock -n 8 ); then live+=("${s} (being made)")
+    elif [ -f "${m}" ] && sb_unit_active "$(jq -r .units.agent "${m}")"; then live+=("${s} ($(jq -r .worktree "${m}"))")
+    fi
+  done
+  if [ "${#live[@]}" -ge "${MAX_SANDBOXES}" ]; then
+    die "${#live[@]} sandboxes are already up (the limit is ${MAX_SANDBOXES}, TARFA_SANDBOX_MAX): $(printf '%s, ' "${live[@]}" | sed 's/, $//'). pnpm sandbox down one of them first"
   fi
 
   umask 077

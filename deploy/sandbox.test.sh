@@ -341,6 +341,33 @@ set +e; sb down --worktree "${GONE_PHYS}" > /dev/null; rc=$?; set -e
 check "down by the path of a removed worktree" "0" "${rc}"
 check "removes its sandbox" "no" "$([ -e "${GONE_ROOT}" ] && echo yes || echo no)"
 
+echo "how many at once"
+rm -rf "${T}/root"/*; : > "${T}/active"
+CAP_WT=()
+for i in 1 2 3; do w="${T}/cap/w${i}"; mkdir -p "${w}/node_modules"; git -C "${w}" init -q; CAP_WT+=("${w}"); done
+for w in "${CAP_WT[@]:0:2}"; do sb up --worktree "${w}" > /dev/null; echo "tarfa-sb-$(slug_of "${w}")-agent" >> "${T}/active"; done
+set +e; out="$(TARFA_SANDBOX_MAX=2 sb up --worktree "${CAP_WT[2]}")"; rc=$?; set -e
+check "past the limit: refused" "1" "${rc}"
+check "and names the running ones" "yes" "$(printf '%s' "${out}" | has "$(slug_of "${CAP_WT[0]}")" /dev/stdin)"
+check "and says how to raise it" "yes" "$(printf '%s' "${out}" | has 'TARFA_SANDBOX_MAX' /dev/stdin)"
+check "nothing created" "no" "$([ -e "${T}/root/$(slug_of "${CAP_WT[2]}")" ] && echo yes || echo no)"
+sed -i "/$(slug_of "${CAP_WT[1]}")/d" "${T}/active"
+set +e; TARFA_SANDBOX_MAX=2 sb up --worktree "${CAP_WT[2]}" > /dev/null; rc=$?; set -e
+check "a stopped sandbox does not count" "0" "${rc}"
+touch "${T}/root/building-1.lock"
+bash -c 'exec 7> "$1"; flock 7; exec sleep 30' _ "${T}/root/building-1.lock" &
+BUILDER=$!; sleep 0.3
+set +e; out="$(TARFA_SANDBOX_MAX=2 sb up --worktree "${CAP_WT[1]}")"; rc=$?; set -e
+check "a sandbox still being made counts" "1" "${rc}"
+check "and is named" "yes" "$(printf '%s' "${out}" | has 'building-1' /dev/stdin)"
+kill "${BUILDER}" 2>/dev/null; wait "${BUILDER}" 2>/dev/null || true
+rm -f "${T}/root/building-1.lock"
+set +e; out="$(TARFA_SANDBOX_MAX=abc sb up --worktree "${CAP_WT[1]}")"; rc=$?; set -e
+check "a limit that is not a number: refused" "1" "${rc}"
+check "and says so" "yes" "$(printf '%s' "${out}" | has 'TARFA_SANDBOX_MAX must be a number' /dev/stdin)"
+check "the default is 4" "yes" "$(grep -qF 'TARFA_SANDBOX_MAX:-4' "${HERE}/sandbox.sh" && echo yes || echo no)"
+: > "${T}/active"
+
 if [ "${fails}" -gt 0 ]; then
   echo "${fails} check(s) failed"
   exit 1

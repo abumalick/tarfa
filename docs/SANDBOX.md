@@ -107,7 +107,9 @@ Codex is not set up in sandboxes yet: its login and the trust its hooks need are
   close in production; closing the workspace in the PWA reaps its scope. `pgrep -af` the
   sandbox path to find one.
 - The units cap the agent at 4 GB and the preview at 1 GB; workspaces run in their own scopes,
-  outside that cap, as real ones do.
+  outside that cap, as real ones do. So `up` refuses a fifth sandbox while four are up
+  (`TARFA_SANDBOX_MAX` changes the limit) and names the running ones. Inside a sandbox, run one
+  Claude session at a time and wrap test runs and builds in `heavy` where it exists.
 
 ## Checking the tool itself
 
