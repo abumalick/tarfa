@@ -21,6 +21,8 @@ export const settings: Messages['settings'] = {
   saveKey: 'Enregistrer la clé',
   saved: 'Enregistrée ✓',
   elevenLabsHint: 'Stockée sur cet appareil uniquement. Sert à la dictée dans le terminal.',
+  keyFromMachines: (machines: string) => `Laissée vide, les espaces de travail sur ${machines} utilisent la clé fournie par leur machine.`,
+  keyOverridesMachines: (machines: string) => `Utilisée partout, à la place de la clé fournie par ${machines}.`,
   openRouterHint:
     'Stockée sur cet appareil uniquement. Les enregistrements envoyés avec un préréglage OpenRouter vont à OpenRouter et au fournisseur du modèle.',
   howToGetKey: 'Obtenir une clé',

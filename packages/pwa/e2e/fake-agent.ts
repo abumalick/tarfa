@@ -112,6 +112,8 @@ export interface FakeAgent {
   claudeVoice: boolean;
   // Claude's last reply per workspace id, as the agent keeps it from the Stop hook (mutable).
   lastReplies: Record<string, string>;
+  // The keys `tarfa dictation-key` stored on this machine, sent on getDictationKeys (mutable).
+  dictationKeys: { elevenlabs?: string; openrouter?: string };
   close: () => Promise<void>;
 }
 
@@ -167,6 +169,7 @@ export async function startFakeAgent(
   let upgrades = 0;
   let claudeVoice = false;
   const lastReplies: Record<string, string> = {};
+  const dictationKeys: { elevenlabs?: string; openrouter?: string } = {};
   const sessions = new Set<NoiseClientConnection>();
   {
     const browserReceived: Array<{ session: string; message: Record<string, unknown> }> = [];
@@ -436,6 +439,9 @@ export async function startFakeAgent(
             });
             break;
           }
+          case 'getDictationKeys':
+            send({ type: 'dictationKeys', ...dictationKeys });
+            break;
           case 'lastReply':
             send({ type: 'lastReply', workspaceId: String(msg.workspaceId), text: lastReplies[String(msg.workspaceId)] ?? null });
             break;
@@ -499,6 +505,7 @@ export async function startFakeAgent(
         claudeVoice = on;
       },
       lastReplies,
+      dictationKeys,
       created,
       received,
       sendOutput: (workspaceId, data) => {

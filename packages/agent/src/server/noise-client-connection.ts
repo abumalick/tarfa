@@ -115,7 +115,7 @@ export class NoiseClientConnection implements ClientConnection {
       return;
     }
     if (message.type === 'authResult' && message.ok) {
-      const accepted = { ...message, agent: { protocol: PROTOCOL_VERSION, ...(this.options.agentVersion ? { version: this.options.agentVersion } : {}), features: [AGENT_FEATURES.lastReply] } };
+      const accepted = { ...message, agent: { protocol: PROTOCOL_VERSION, ...(this.options.agentVersion ? { version: this.options.agentVersion } : {}), features: [AGENT_FEATURES.lastReply, AGENT_FEATURES.dictationKeys] } };
       message = accepted;
       if (!this.awaitingPhone) this.cancelDeadline();
       this.session.raiseCap(MAX_MESSAGE_BYTES);

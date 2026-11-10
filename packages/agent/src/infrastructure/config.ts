@@ -24,6 +24,7 @@ export interface AgentConfig {
   hiddenFoldersPath: string;
   launchersPath: string;
   keytermsPath: string;
+  dictationKeysPath: string;
   clientLogPath: string;
   hookEventLogPath: string;
   messageLogPath: string;
@@ -92,6 +93,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv, home: string): AgentConfig
     // Usually a symlink to a vocabulary kept with the user's own dotfiles, so one list can
     // serve every machine; TARFA_KEYTERMS_PATH points at it directly instead.
     keytermsPath: env.TARFA_KEYTERMS_PATH ?? join(stateDir, 'keyterms.txt'),
+    dictationKeysPath: join(stateDir, 'dictation-keys.json'),
     clientLogPath: join(stateDir, 'client-log.jsonl'),
     hookEventLogPath: join(stateDir, 'hook-events.jsonl'),
     messageLogPath: join(stateDir, 'messages.jsonl'),

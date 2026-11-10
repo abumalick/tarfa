@@ -27,6 +27,13 @@ describe('DictationSetup', () => {
     expect(onOpenSettings).toHaveBeenCalledWith('openrouter');
   });
 
+  it('shows the command that stores a key on the machine, per provider still missing one', () => {
+    render(DictationSetup, { props: { options: [{ kind: 'machine', providers: ['elevenlabs', 'openrouter'] }], onOpenSettings: vi.fn(), onClose: vi.fn() } });
+    expect(screen.getByRole('heading', { name: 'A key on this machine' })).toBeInTheDocument();
+    expect(screen.getByText('tarfa dictation-key set elevenlabs')).toBeInTheDocument();
+    expect(screen.getByText('tarfa dictation-key set openrouter')).toBeInTheDocument();
+  });
+
   it('closes on Escape', async () => {
     const onClose = vi.fn();
     render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'elevenlabs' }], onOpenSettings: vi.fn(), onClose } });

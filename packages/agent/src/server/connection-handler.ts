@@ -22,6 +22,7 @@ import type { LaunchersPort } from '../ports/launchers-port';
 import { normalizeCommand } from '../application/remember-launcher';
 import { KNOWN_CLIS } from '../infrastructure/installed-detector';
 import type { KeytermsPort } from '../ports/keyterms-port';
+import type { DictationKeysPort } from '../ports/dictation-keys-port';
 import type { WorkspaceLogPort } from '../ports/workspace-log-port';
 import type { ParkedStorePort } from '../ports/parked-store-port';
 import type { ProcessScopePort } from '../ports/process-scope-port';
@@ -72,6 +73,7 @@ export interface ConnectionHandlerDeps {
   // Which of KNOWN_CLIS this machine can run, resolved the way a workspace's command is.
   detectInstalled: (names: string[]) => Promise<string[]>;
   keyterms: KeytermsPort;
+  dictationKeys?: DictationKeysPort;
   workspaceLog: WorkspaceLogPort;
   parked: ParkedStorePort;
   clientLog: ClientLogPort;
@@ -291,6 +293,9 @@ export class ConnectionHandler {
         this.conn.send({ type: 'keyterms', keyterms: await this.deps.keyterms.list() });
         return;
       }
+      case 'getDictationKeys':
+        this.conn.send({ type: 'dictationKeys', ...(await this.deps.dictationKeys?.read()) });
+        return;
       case 'readFile': {
         const { binary, data, truncated } = await readFile({ reader }, message.path, await this.allowedRoots());
         this.conn.send({ type: 'fileContents', path: message.path, data, truncated, binary });

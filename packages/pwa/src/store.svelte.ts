@@ -39,6 +39,7 @@ export interface DeviceKeyInfo {
 import { SpeechToText, type DictationState } from './core/speech-to-text';
 import { mergeKeyterms } from './core/keyterms';
 import { DEFAULT_PRESETS, currentPreset, type DictationPreset, type DictationProvider, type PresetKeys } from './core/dictation-presets';
+import { dictationKey, dictationKeySources, type AgentDictationKeys } from './core/dictation-key-source';
 import type { AudioRecorder } from './core/ports/audio-recorder';
 import type { Transcriber } from './core/ports/transcriber';
 import type { VoiceLink } from './core/claude-voice';
@@ -293,6 +294,9 @@ export class TarfaStore {
   private disconnected = new Set<string>();
   // What each machine's agent says it answers beyond the protocol (authResult `features`).
   private agentFeatures = $state<Record<string, string[]>>({});
+  // The dictation keys each machine's operator stored on it, asked for on every connect and kept
+  // in memory only: a lost or revoked phone holds none at rest.
+  private agentDictationKeys = $state<Record<string, AgentDictationKeys>>({});
   // The open read-aloud player, mirrored from `readAloudPlayer` (null when closed).
   readAloud = $state<{ state: ReadAloudState; position: number; duration: number } | null>(null);
   readAloudNotice = $state<string | null>(null);
@@ -421,6 +425,7 @@ export class TarfaStore {
       this.deps.connectionLog?.push(null, 'boot', { reason: `${Math.round(this.deps.sinceLaunch())}ms` });
     }
     this.deps.manager.setMachines(this.machines);
+    this.pruneDictationKeys();
     this.recomputeGrace();
   }
 
@@ -432,6 +437,8 @@ export class TarfaStore {
 
   setAgent(machineId: string, agent: { version?: string; features?: string[] } | undefined): void {
     this.agentFeatures = { ...this.agentFeatures, [machineId]: agent?.features ?? [] };
+    this.dropDictationKeys(machineId);
+    if (agent?.features?.includes(AGENT_FEATURES.dictationKeys)) this.send(machineId, { type: 'getDictationKeys' });
     this.agentTooOld = { ...this.agentTooOld, [machineId]: agentTooOld(agent?.version, this.deps.minAgentVersion ?? MIN_AGENT_VERSION) };
   }
 
@@ -449,6 +456,7 @@ export class TarfaStore {
       this.machineStats = rest;
       this.agentTooOld = { ...this.agentTooOld, [machineId]: false };
       this.agentFeatures = { ...this.agentFeatures, [machineId]: [] };
+      this.dropDictationKeys(machineId);
       // A reading already under way needs no connection; only a request waiting on this one is lost.
       if (this.pendingReply?.machineId === machineId) this.cancelPendingReply();
     } else if (status === 'online') {
@@ -621,6 +629,14 @@ export class TarfaStore {
       case 'launchers':
         this.machineLaunchers = { ...this.machineLaunchers, [machineId]: { detected: message.detected, custom: message.custom } };
         return;
+      case 'dictationKeys': {
+        if (!(this.agentFeatures[machineId] ?? []).includes(AGENT_FEATURES.dictationKeys)) return;
+        const keys: AgentDictationKeys = {};
+        if (message.elevenlabs) keys.elevenlabs = message.elevenlabs;
+        if (message.openrouter) keys.openrouter = message.openrouter;
+        this.agentDictationKeys = { ...this.agentDictationKeys, [machineId]: keys };
+        return;
+      }
       case 'keyterms':
         this.machineKeyterms = { ...this.machineKeyterms, [machineId]: message.keyterms };
         return;
@@ -1236,8 +1252,37 @@ export class TarfaStore {
     this.deps.settings.setOpenRouterApiKey(key);
   }
 
+  // The key a dictation sends to its provider now: see core/dictation-key-source.ts.
+  dictationKey(provider: DictationProvider): string | null {
+    const typed = provider === 'elevenlabs' ? this.elevenLabsApiKey : this.openRouterApiKey;
+    return dictationKey(provider, typed, this.active?.machineId ?? null, this.agentDictationKeys);
+  }
+
+  // Whether the attached workspace's machine hands out keys its operator stores there.
+  get activeMachineTakesKeys(): boolean {
+    return !!this.active && (this.agentFeatures[this.active.machineId] ?? []).includes(AGENT_FEATURES.dictationKeys);
+  }
+
+  // The machines whose operator provides this key, for Settings to name.
+  dictationKeySources(provider: DictationProvider): string[] {
+    return dictationKeySources(provider, this.machines, this.agentDictationKeys);
+  }
+
+  // A machine switched off or removed (here or in another page context) is closed without an
+  // `offline` status, so its keys are dropped here too.
+  private pruneDictationKeys(): void {
+    const kept = new Set(this.machines.filter(isConnectable).map((m) => m.id));
+    for (const id of Object.keys(this.agentDictationKeys)) if (!kept.has(id)) this.dropDictationKeys(id);
+  }
+
+  private dropDictationKeys(machineId: string): void {
+    if (!(machineId in this.agentDictationKeys)) return;
+    const { [machineId]: _dropped, ...rest } = this.agentDictationKeys;
+    this.agentDictationKeys = rest;
+  }
+
   get presetKeys(): PresetKeys {
-    const keys = { elevenlabs: !!this.elevenLabsApiKey, openrouter: !!this.openRouterApiKey };
+    const keys = { elevenlabs: !!this.dictationKey('elevenlabs'), openrouter: !!this.dictationKey('openrouter') };
     // With no workspace open (Settings), what a Claude Code workspace would get on some machine.
     if (!this.active) return { ...keys, claude: Object.values(this.claudeVoiceOn).some(Boolean) ? 'ok' : 'unavailable' };
     const { machineId, command, asking } = this.active;
@@ -1420,6 +1465,7 @@ export class TarfaStore {
     if (JSON.stringify(stored) === JSON.stringify(this.machines)) return;
     this.machines = stored;
     this.deps.manager.setMachines(this.machines);
+    this.pruneDictationKeys();
     this.recomputeGrace();
   }
 
@@ -1427,6 +1473,7 @@ export class TarfaStore {
     this.deps.settings.add(config);
     this.machines = this.deps.settings.list();
     this.deps.manager.setMachines(this.machines);
+    this.pruneDictationKeys();
     this.recomputeGrace();
   }
 
@@ -1434,6 +1481,7 @@ export class TarfaStore {
     this.deps.settings.update(id, patch);
     this.machines = this.deps.settings.list();
     this.deps.manager.setMachines(this.machines);
+    this.pruneDictationKeys();
     this.recomputeGrace();
   }
 
@@ -1441,6 +1489,7 @@ export class TarfaStore {
     this.deps.settings.remove(id);
     this.machines = this.deps.settings.list();
     this.deps.manager.setMachines(this.machines);
+    this.pruneDictationKeys();
     this.recomputeGrace();
   }
 
@@ -1450,6 +1499,7 @@ export class TarfaStore {
     this.deps.settings.setEnabled(id, current.enabled === false);
     this.machines = this.deps.settings.list();
     this.deps.manager.setMachines(this.machines);
+    this.pruneDictationKeys();
     this.recomputeGrace();
   }
 

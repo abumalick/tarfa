@@ -32,4 +32,18 @@ describe('setupOptions', () => {
       { kind: 'key', provider: 'openrouter' },
     ]);
   });
+
+  it('offers storing a key on the machine first when its agent takes one, for the providers still keyless', () => {
+    expect(setupOptions(DEFAULT_PRESETS, { elevenlabs: true, openrouter: false, claude: 'unavailable' }, true)).toEqual([
+      { kind: 'machine', providers: ['openrouter'] },
+      { kind: 'claude', state: 'setup' },
+      { kind: 'key', provider: 'openrouter' },
+    ]);
+  });
+
+  it('does not offer the machine when its agent cannot hand keys out, or no key is missing', () => {
+    expect(setupOptions(DEFAULT_PRESETS, { ...none, claude: 'unavailable' }, false).map((o) => o.kind)).not.toContain('machine');
+    const onlyClaude: DictationPreset[] = [{ id: 'cv', name: 'CV', badge: 'CV', provider: 'claude' }];
+    expect(setupOptions(onlyClaude, { ...none, claude: 'unavailable' }, true)).toEqual([{ kind: 'claude', state: 'setup' }]);
+  });
 });

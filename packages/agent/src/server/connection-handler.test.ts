@@ -1,3 +1,4 @@
+import type { DictationKeysPort } from '../ports/dictation-keys-port';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ConnectionHandler, type ConnectionHandlerDeps } from './connection-handler';
 import { ViewerRegistry } from './viewer-registry';
@@ -189,6 +190,7 @@ function baseDeps() {
     launchers: fakeLaunchers(),
     detectInstalled: async (names: string[]) => names.filter((n) => n === 'claude'),
     keyterms: { list: async (): Promise<string[]> => [] },
+    dictationKeys: undefined as DictationKeysPort | undefined,
     workspaceLog: { append: async () => {} } as WorkspaceLogPort,
     forgetWorkspace: (_id: string): Workspace | undefined => undefined,
     dropWorkspaceState: undefined as ((id: string) => void) | undefined,
@@ -587,6 +589,33 @@ describe('ConnectionHandler control routing', () => {
     f.emit({ type: 'listKeyterms' });
     await new Promise((r) => setTimeout(r, 0));
     expect(f.sent).toContainEqual({ type: 'keyterms', keyterms: [] });
+  });
+
+  it('answers getDictationKeys with the keys the operator stored', async () => {
+    const deps = baseDeps();
+    deps.dictationKeys = { read: async () => ({ elevenlabs: 'test-key-1' }) };
+    new ConnectionHandler(f.conn, deps);
+    f.emit({ type: 'auth', token: '' });
+    f.emit({ type: 'getDictationKeys' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.sent).toContainEqual({ type: 'dictationKeys', elevenlabs: 'test-key-1' });
+  });
+
+  it('never reads the dictation keys for a session that has not authenticated', async () => {
+    const stranger = fakeConn(true);
+    const deps = baseDeps();
+    let reads = 0;
+    deps.dictationKeys = {
+      read: async () => {
+        reads++;
+        return { elevenlabs: 'test-key-1' };
+      },
+    };
+    new ConnectionHandler(stranger.conn, deps);
+    stranger.emit({ type: 'getDictationKeys' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reads).toBe(0);
+    expect(stranger.sent.map((m) => m.type)).not.toContain('dictationKeys');
   });
 
   it('answers readFile with fileContents for an allowed path', async () => {
