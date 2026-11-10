@@ -7,7 +7,8 @@ const A = 'a'.repeat(43);
 const B = 'b'.repeat(43);
 
 describe('pairing secrets', () => {
-  it('lives for ten minutes', () => {
+  it('lives for twenty minutes', () => {
+    expect(PAIRING_TTL_MS).toBe(20 * 60_000);
     const list = addPairing([], A, NOW);
     expect(redeemPairing(list, A, later(PAIRING_TTL_MS - 1), 'phone').outcome).toBe('redeemed');
     expect(redeemPairing(list, A, later(PAIRING_TTL_MS + 49_000), 'phone').outcome).toBe('expired');

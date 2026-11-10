@@ -18,5 +18,5 @@ export const pairing = {
   orPaste: 'Or paste a pairing link',
   pair: 'Pair',
   hintBefore: 'Run ',
-  hintAfter: ' on the machine to get a code. It works once, for 10 minutes or the --ttl given.',
+  hintAfter: ' on the machine to get a code. It works once, for 20 minutes or the --ttl given.',
 };
