@@ -40,7 +40,6 @@ ab_in() { local root="$1"; shift; agent-browser --session "$(jq -r .browser "${r
 ref() { ab_in "$1" snapshot -i | grep -F -- "$2" | grep -oE 'ref=e[0-9]+' | head -n 1 | sed 's/ref=/@/'; }
 
 REAL_LOG="${HOME}/.tarfa/workspace-log.jsonl"
-real_codex_auth="$(stat -c %Y "${HOME}/.codex/auth.json" 2>/dev/null || echo none)"
 real_log_lines="$(wc -l < "${REAL_LOG}" 2>/dev/null || echo 0)"
 
 echo "two sandboxes"
@@ -106,6 +105,8 @@ if [ -n "${TARFA_SANDBOX_LIVE_CODEX:-}" ]; then
 
   echo "a Codex workspace from the PWA"
   check "the sandbox login is linked" "yes" "$([ -L "${A}/home/.codex/auth.json" ] && echo yes || echo no)"
+  # Deterministic, unlike the real file's mtime, which the user's own Codex may change mid-run.
+  check "and it is not your own login" "no" "$([ "$(readlink -f "${A}/home/.codex/auth.json")" = "$(readlink -f "${HOME}/.codex/auth.json")" ] && echo yes || echo no)"
   ab_in "${A}" open "http://127.0.0.1:$(jq -r .ports.pwa "${A}/manifest.json")/" > /dev/null
   ab_in "${A}" click "$(ref "${A}" 'button "New"')" > /dev/null
   ab_in "${A}" fill "$(ref "${A}" 'textbox "Path')" demo-a > /dev/null
@@ -147,7 +148,6 @@ if [ -n "${TARFA_SANDBOX_LIVE_CODEX:-}" ]; then
 fi
 
 echo "nothing reached the real machine"
-check "the real Codex login is untouched" "${real_codex_auth}" "$(stat -c %Y "${HOME}/.codex/auth.json" 2>/dev/null || echo none)"
 check "the real workspace log is unchanged" "${real_log_lines}" "$(wc -l < "${REAL_LOG}" 2>/dev/null || echo 0)"
 check "the real tarfa ls has no sandbox workspace" "no" "$(pnpm -s tarfa ls 2>/dev/null | grep -qF "${BASE}" && echo yes || echo no)"
 
