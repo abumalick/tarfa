@@ -9,7 +9,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"
 mkdir -p "${REPO}/.tmp"
 T="$(mktemp -d "${REPO}/.tmp/sandbox-test.XXXXXX")"
-trap 'rm -rf "${T}"' EXIT
+# The sandboxes themselves need a short folder: up refuses one too deep for the Codex socket.
+SBROOT="$(mktemp -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/tsbt.XXXXXX")"
+trap 'rm -rf "${T}" "${SBROOT}"' EXIT
 
 fails=0
 check() {
@@ -28,7 +30,7 @@ has() { if grep -qF -- "$1" "$2"; then echo yes; else echo no; fi; }
 NODE_DIR="$(dirname "$(node -p process.execPath)")"
 TOKEN="sk-ant-oat01-STUBTOKEN"
 REALHOME="${T}/realhome"
-mkdir -p "${REALHOME}/.config/tarfa-sandbox" "${T}/bin" "${T}/root"
+mkdir -p "${REALHOME}/.config/tarfa-sandbox" "${T}/bin"
 printf '%s\n' "${TOKEN}" > "${REALHOME}/.config/tarfa-sandbox/claude-oauth-token"
 CALLS="${T}/calls"
 : > "${CALLS}"
@@ -54,7 +56,7 @@ if [ \"\${2:-}\" = is-active ]; then
   if grep -qxF \"\$u\" \"${T}/activating\" 2>/dev/null; then echo activating; exit 3; fi
   echo inactive; exit 3
 fi
-if [ \"\${2:-}\" = restart ]; then s=\"\${3#tarfa-sb-}\"; s=\"\${s%-agent}\"; echo t > \"${T}/root/\$s/home/.tarfa/token\"; fi"
+if [ \"\${2:-}\" = restart ]; then s=\"\${3#tarfa-sb-}\"; s=\"\${s%-agent}\"; echo t > \"${SBROOT}/\$s/home/.tarfa/token\"; fi"
 stub tmux 'if [ "$1 ${2:-} ${3:-}" = "display-message -p #S" ]; then echo tarfa-9; fi'
 stub curl ''
 stub journalctl ''
@@ -63,7 +65,7 @@ stub journalctl ''
 stub agent-browser "
 echo \"  ab-env XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR:-}\" >> \"${CALLS}\"
 if [ \"\$3 \${4:-}\" = 'dialog accept' ] && [ ! -e \"${T}/no-enrol\" ]; then
-  for d in \"${T}\"/root/*/home/.tarfa; do
+  for d in \"${SBROOT}\"/*/home/.tarfa; do
     if [ -e \"${T}/spend\" ]; then echo '[{\"secret\":\"y\",\"expiresAt\":\"x\",\"usedAt\":\"now\"}]' > \"\$d/pairing.json\"; continue; fi
     [ -f \"\$d/devices.json\" ] || echo '{\"devices\":[],\"revoked\":[]}' > \"\$d/devices.json\"
     jq '.devices += [{\"id\":\"d\"}]' \"\$d/devices.json\" > \"\$d/x\" && mv \"\$d/x\" \"\$d/devices.json\"
@@ -74,9 +76,18 @@ stub pnpm "
 echo \"  env HOME=\$HOME XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR:-} TMUX=\${TMUX-unset} FLAVOR=\${TARFA_APP_FLAVOR:-} LABEL=\${TARFA_BUILD_LABEL:-}\" >> \"${CALLS}\"
 case \"\$*\" in
   *'cli.ts pair'*) echo 'Open this:'; echo 'http://127.0.0.1:1/#pair?u=ws://127.0.0.1:2&k=x&s=y&n=z';;
-  *'cli.ts install-hooks'*) mkdir -p \"\$HOME/.claude\"; echo '{\"hooks\":{}}' > \"\$HOME/.claude/settings.json\";;
+  *'cli.ts install-hooks'*) mkdir -p \"\$HOME/.claude\"; echo '{\"hooks\":{}}' > \"\$HOME/.claude/settings.json\"
+    if [ -d \"\$HOME/.codex\" ]; then cp \"${T}/codex-hooks.json\" \"\$HOME/.codex/hooks.json\"; fi;;
   *build*) prev=''; for a in \"\$@\"; do [ \"\$prev\" = --outDir ] && mkdir -p \"\$a\"; prev=\"\$a\"; done;;
 esac"
+
+# What install-hooks writes for Codex; the expected hashes below are the ones Codex 0.167 itself
+# stored when the maintainer trusted these exact hooks in /hooks.
+cat > "${T}/codex-hooks.json" <<'JSON'
+{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"bash ~/.tarfa/tarfa-hook.sh Stop 8787 codex"}]}],
+"PreToolUse":[{"hooks":[{"type":"command","command":"bash ~/.tarfa/tarfa-hook.sh PreToolUse 8787 codex"}]},
+{"matcher":"Bash","hooks":[{"type":"command","command":"bash ~/.tarfa/tarfa-guard.sh"}]}]}}
+JSON
 
 WT="${T}/My_Feature.Branch"
 mkdir -p "${WT}/node_modules" "${WT}/packages/pwa"
@@ -84,7 +95,7 @@ git -C "${WT}" init -q
 
 sb() { # <args...>  run sandbox.sh as a caller inside a Tarfa pane would
   env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:${PATH}" TMUX="/real/server,1,0" TMUX_PANE="%1" \
-    TARFA_SANDBOX_ROOT="${T}/root" TARFA_SANDBOX_NO_BROWSER=1 \
+    TARFA_SANDBOX_ROOT="${SBROOT}" TARFA_SANDBOX_NO_BROWSER=1 \
     bash "${HERE}/sandbox.sh" "$@" 2>&1
 }
 
@@ -92,7 +103,7 @@ sb() { # <args...>  run sandbox.sh as a caller inside a Tarfa pane would
 slug_of() { printf '%s-%s' "$(basename "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | cut -c1-12)" \
   "$(printf '%s' "$(cd "$1" 2>/dev/null && pwd -P || echo "$1")" | sha1sum | cut -c1-8)"; }
 SLUG="$(slug_of "${WT}")"
-ROOT="${T}/root/${SLUG}"
+ROOT="${SBROOT}/${SLUG}"
 SOCK="${ROOT}/tmux/tmux-$(id -u)/default"
 
 echo "up"
@@ -132,6 +143,20 @@ check "settings model sonnet" "sonnet" "$(jq -r .model "${ROOT}/home/.claude/set
 check "gitconfig name" "Tarfa Sandbox" "$(git config -f "${ROOT}/home/.gitconfig" user.name)"
 check "gitconfig email" "sandbox@example.invalid" "$(git config -f "${ROOT}/home/.gitconfig" user.email)"
 check "sandbox CLAUDE.md" "yes" "$([ -s "${ROOT}/home/CLAUDE.md" ] && echo yes || echo no)"
+CT="${ROOT}/home/.codex/config.toml"
+HJ="${ROOT}/home/.codex/hooks.json"
+trusted() { # <event:group:handler>  the trusted_hash Codex reads for one sandbox hook
+  awk -v k="[hooks.state.\"${HJ}:$1\"]" '$0 == k { getline; print; exit }' "${CT}"; }
+check "codex keeps its login in a file" "yes" "$(has 'cli_auth_credentials_store = "file"' "${CT}")"
+check "codex trusts the stop hook" 'trusted_hash = "sha256:3c613654077a590962e4630a2147db33ca2a2614afb7aaf749056143d3deba54"' "$(trusted stop:0:0)"
+check "codex trusts the tool hook" 'trusted_hash = "sha256:c7cf7e7b3367f660866ce8c8a28f5acafb183c82163852961042fab23b4e66b2"' "$(trusted pre_tool_use:0:0)"
+check "codex trusts the guard, matcher included" 'trusted_hash = "sha256:15903bc2ce92f2f5904f6c29ed6e6e05aa1c44380e911a665d8d78cda3b2a631"' "$(trusted pre_tool_use:1:0)"
+check "codex trusts the demo projects" "yes" "$(has "[projects.\"${ROOT}/projects/demo-a\"]" "${CT}")"
+check "codex config is private" "600" "$(stat -c %a "${CT}")"
+check "no codex login: no auth.json" "no" "$([ -e "${ROOT}/home/.codex/auth.json" ] || [ -L "${ROOT}/home/.codex/auth.json" ] && echo yes || echo no)"
+check "no codex login: up says so" "yes" "$(printf '%s' "${out}" | has 'codex login --device-auth' /dev/stdin)"
+check "and how to make its folder" "yes" "$(printf '%s' "${out}" | has 'mkdir -p -m 700' /dev/stdin)"
+check "no codex login: no codex unit" "no null" "$(grep -q "^systemd-run .*tarfa-sb-${SLUG}-codex" "${CALLS}" && echo yes || echo no) $(jq -r .units.codex "${M}")"
 
 check "install-hooks ran under the sandbox HOME" "yes" \
   "$(grep -A1 'cli.ts install-hooks' "${CALLS}" | has "HOME=${ROOT}/home XDG_RUNTIME_DIR=${ROOT}/run TMUX=unset" /dev/stdin)"
@@ -163,6 +188,8 @@ check "env prints env.sh" "${ROOT}/env.sh" "$(sb env --worktree "${WT}")"
 check "env.sh unsets TMUX and sets HOME" "unset ${ROOT}/home" \
   "$(env TMUX=x TMUX_PANE=%1 bash -c ". '${ROOT}/env.sh'; echo \"\${TMUX-unset} \${HOME}\"")"
 check "env.sh gives Claude its token" "${TOKEN}" "$(env -i bash -c ". '${ROOT}/env.sh'; echo \"\${CLAUDE_CODE_OAUTH_TOKEN:-}\"")"
+check "env.sh drops a CODEX_HOME the caller had" "unset" "$(CODEX_HOME="${REALHOME}/.codex" bash -c ". '${ROOT}/env.sh'; echo \"\${CODEX_HOME-unset}\"")"
+check "the agent unit drops it too" "yes" "$(grep "^systemd-run .*tarfa-sb-${SLUG}-agent" "${CALLS}" | has 'env -u TMUX -u TMUX_PANE -u CODEX_HOME' /dev/stdin)"
 
 echo "up again"
 echo "tarfa-sb-${SLUG}-agent" > "${T}/active"
@@ -178,7 +205,7 @@ check "and comes back up" "yes" "$([ -f "${M}" ] && echo yes || echo no)"
 echo "down"
 : > "${CALLS}"
 sb down --worktree "${WT}" > /dev/null
-check "down order" "tmux -S ${SOCK} kill-server|systemctl --user stop tarfa-sb-${SLUG}-agent tarfa-sb-${SLUG}-pwa|systemctl --user reset-failed tarfa-sb-${SLUG}-agent tarfa-sb-${SLUG}-pwa" \
+check "down order" "tmux -S ${SOCK} kill-server|systemctl --user stop tarfa-sb-${SLUG}-agent tarfa-sb-${SLUG}-pwa tarfa-sb-${SLUG}-codex|systemctl --user reset-failed tarfa-sb-${SLUG}-agent tarfa-sb-${SLUG}-pwa tarfa-sb-${SLUG}-codex" \
   "$(grep -E '^(tmux|systemctl)' "${CALLS}" | paste -sd '|')"
 check "root removed" "no" "$([ -e "${ROOT}" ] && echo yes || echo no)"
 set +e; sb down --worktree "${WT}" > /dev/null; rc=$?; set -e
@@ -231,13 +258,13 @@ echo "gc"
 WT2="${T}/gone-tree"; WT3="${T}/dead-agent"; WT4="${T}/old-live"
 WT5="${T}/being-made"
 for w in "${WT2}" "${WT3}" "${WT4}" "${WT5}"; do mkdir -p "${w}/node_modules"; git -C "${w}" init -q; sb up --worktree "${w}" > /dev/null; done
-R2="${T}/root/$(slug_of "${WT2}")"; R3="${T}/root/$(slug_of "${WT3}")"; R4="${T}/root/$(slug_of "${WT4}")"; R5="${T}/root/$(slug_of "${WT5}")"
+R2="${SBROOT}/$(slug_of "${WT2}")"; R3="${SBROOT}/$(slug_of "${WT3}")"; R4="${SBROOT}/$(slug_of "${WT4}")"; R5="${SBROOT}/$(slug_of "${WT5}")"
 rm -rf "${WT2}"
 printf '%s\n' "tarfa-sb-${SLUG}-agent" "tarfa-sb-$(basename "${R4}")-agent" > "${T}/active"
 jq '.createdAt = "2000-01-01T00:00:00Z"' "${R4}/manifest.json" > "${T}/m" && mv "${T}/m" "${R4}/manifest.json"
 # A sandbox whose agent is still starting, and one another command holds the lock of.
 echo "tarfa-sb-$(basename "${R3}")-agent" > "${T}/activating"
-bash -c 'exec 7> "$1"; flock 7; exec sleep 30' _ "${T}/root/$(basename "${R5}").lock" &
+bash -c 'exec 7> "$1"; flock 7; exec sleep 30' _ "${SBROOT}/$(basename "${R5}").lock" &
 LOCKER=$!
 sleep 0.3
 check "ls marks a gone worktree" "yes" "$(sb ls | grep -E "^$(basename "${R2}") " | grep -qF '(gone)' && echo yes || echo no)"
@@ -268,7 +295,7 @@ done
 echo "browser"
 sbb() { # like sb, with the browser step on
   env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:${PATH}" TMUX="/real/server,1,0" TMUX_PANE="%1" \
-    XDG_RUNTIME_DIR="/run/user/caller" TARFA_SANDBOX_ROOT="${T}/root" TARFA_SANDBOX_READY_SECONDS=1 \
+    XDG_RUNTIME_DIR="/run/user/caller" TARFA_SANDBOX_ROOT="${SBROOT}" TARFA_SANDBOX_READY_SECONDS=1 \
     bash "${HERE}/sandbox.sh" "$@" 2>&1
 }
 : > "${CALLS}"
@@ -307,11 +334,11 @@ set +e; out="$(sbb up --worktree "${WT}")"; rc=$?; set -e
 check "a failed pairing fails up" "1" "${rc}"
 check "and takes the sandbox down" "no" "$([ -e "${ROOT}" ] && echo yes || echo no)"
 check "and stops its units" "yes" "$(has "systemctl --user stop tarfa-sb-${SLUG}-agent tarfa-sb-${SLUG}-pwa" "${CALLS}")"
-check "and keeps a screenshot" "yes" "$(has "screenshot ${T}/root/${SLUG}-pair-failed.png" "${CALLS}")"
+check "and keeps a screenshot" "yes" "$(has "screenshot ${SBROOT}/${SLUG}-pair-failed.png" "${CALLS}")"
 rm -f "${T}/no-enrol"
 mv "${T}/bin/agent-browser" "${T}/agent-browser.bak"
 : > "${CALLS}"
-set +e; out="$(env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:/usr/bin:/bin" TARFA_SANDBOX_ROOT="${T}/root" bash "${HERE}/sandbox.sh" up --worktree "${WT}" 2>&1)"; rc=$?; set -e
+set +e; out="$(env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:/usr/bin:/bin" TARFA_SANDBOX_ROOT="${SBROOT}" bash "${HERE}/sandbox.sh" up --worktree "${WT}" 2>&1)"; rc=$?; set -e
 check "no agent-browser: refused" "1" "${rc}"
 check "no agent-browser: says how to skip the browser" "yes" "$(printf '%s' "${out}" | has 'TARFA_SANDBOX_NO_BROWSER=1' /dev/stdin)"
 check "no agent-browser: nothing started" "no" "$(has 'systemd-run' "${CALLS}")"
@@ -325,8 +352,8 @@ sb down --worktree "${WT}" > /dev/null
 echo "one sandbox per worktree"
 TWIN_A="${T}/one/tarfa"; TWIN_B="${T}/two/tarfa"
 for w in "${TWIN_A}" "${TWIN_B}"; do mkdir -p "${w}/node_modules"; git -C "${w}" init -q; sb up --worktree "${w}" > /dev/null; done
-check "same folder name, two sandboxes" "2" "$(find "${T}/root" -maxdepth 1 -name 'tarfa-*' -type d | wc -l | tr -d ' ')"
-jq --arg w "${TWIN_B}" '.worktree = $w' "${T}/root/$(slug_of "${TWIN_A}")/manifest.json" > "${T}/m" && mv "${T}/m" "${T}/root/$(slug_of "${TWIN_A}")/manifest.json"
+check "same folder name, two sandboxes" "2" "$(find "${SBROOT}" -maxdepth 1 -name 'tarfa-*' -type d | wc -l | tr -d ' ')"
+jq --arg w "${TWIN_B}" '.worktree = $w' "${SBROOT}/$(slug_of "${TWIN_A}")/manifest.json" > "${T}/m" && mv "${T}/m" "${SBROOT}/$(slug_of "${TWIN_A}")/manifest.json"
 set +e; out="$(sb status --worktree "${TWIN_A}")"; rc=$?; set -e
 check "a sandbox naming another worktree is refused" "1" "${rc}"
 check "and says whose it is" "yes" "$(printf '%s' "${out}" | has "belongs to ${TWIN_B}" /dev/stdin)"
@@ -334,7 +361,7 @@ check "and says whose it is" "yes" "$(printf '%s' "${out}" | has "belongs to ${T
 echo "down after the worktree is gone"
 GONE="${T}/removed-tree"
 mkdir -p "${GONE}/node_modules"; git -C "${GONE}" init -q
-GONE_PHYS="$(cd "${GONE}" && pwd -P)"; GONE_ROOT="${T}/root/$(slug_of "${GONE}")"
+GONE_PHYS="$(cd "${GONE}" && pwd -P)"; GONE_ROOT="${SBROOT}/$(slug_of "${GONE}")"
 sb up --worktree "${GONE}" > /dev/null
 rm -rf "${GONE}"
 set +e; sb down --worktree "${GONE_PHYS}" > /dev/null; rc=$?; set -e
@@ -342,7 +369,7 @@ check "down by the path of a removed worktree" "0" "${rc}"
 check "removes its sandbox" "no" "$([ -e "${GONE_ROOT}" ] && echo yes || echo no)"
 
 echo "how many at once"
-rm -rf "${T}/root"/*; : > "${T}/active"
+rm -rf "${SBROOT:?}"/*; : > "${T}/active"
 CAP_WT=()
 for i in 1 2 3; do w="${T}/cap/w${i}"; mkdir -p "${w}/node_modules"; git -C "${w}" init -q; CAP_WT+=("${w}"); done
 for w in "${CAP_WT[@]:0:2}"; do sb up --worktree "${w}" > /dev/null; echo "tarfa-sb-$(slug_of "${w}")-agent" >> "${T}/active"; done
@@ -350,18 +377,18 @@ set +e; out="$(TARFA_SANDBOX_MAX=2 sb up --worktree "${CAP_WT[2]}")"; rc=$?; set
 check "past the limit: refused" "1" "${rc}"
 check "and names the running ones" "yes" "$(printf '%s' "${out}" | has "$(slug_of "${CAP_WT[0]}")" /dev/stdin)"
 check "and says how to raise it" "yes" "$(printf '%s' "${out}" | has 'TARFA_SANDBOX_MAX' /dev/stdin)"
-check "nothing created" "no" "$([ -e "${T}/root/$(slug_of "${CAP_WT[2]}")" ] && echo yes || echo no)"
+check "nothing created" "no" "$([ -e "${SBROOT}/$(slug_of "${CAP_WT[2]}")" ] && echo yes || echo no)"
 sed -i "/$(slug_of "${CAP_WT[1]}")/d" "${T}/active"
 set +e; TARFA_SANDBOX_MAX=2 sb up --worktree "${CAP_WT[2]}" > /dev/null; rc=$?; set -e
 check "a stopped sandbox does not count" "0" "${rc}"
-touch "${T}/root/building-1.lock"
-bash -c 'exec 7> "$1"; flock 7; exec sleep 30' _ "${T}/root/building-1.lock" &
+touch "${SBROOT}/building-1.lock"
+bash -c 'exec 7> "$1"; flock 7; exec sleep 30' _ "${SBROOT}/building-1.lock" &
 BUILDER=$!; sleep 0.3
 set +e; out="$(TARFA_SANDBOX_MAX=2 sb up --worktree "${CAP_WT[1]}")"; rc=$?; set -e
 check "a sandbox still being made counts" "1" "${rc}"
 check "and is named" "yes" "$(printf '%s' "${out}" | has 'building-1' /dev/stdin)"
 kill "${BUILDER}" 2>/dev/null; wait "${BUILDER}" 2>/dev/null || true
-rm -f "${T}/root/building-1.lock"
+rm -f "${SBROOT}/building-1.lock"
 set +e; out="$(TARFA_SANDBOX_MAX=abc sb up --worktree "${CAP_WT[1]}")"; rc=$?; set -e
 check "a limit that is not a number: refused" "1" "${rc}"
 check "and says so" "yes" "$(printf '%s' "${out}" | has 'TARFA_SANDBOX_MAX must be a number' /dev/stdin)"
@@ -371,12 +398,42 @@ check "the refusal never says to take a peer down" "no" "$(printf '%s' "${out}" 
 : > "${T}/active"
 sb up --worktree "${CAP_WT[0]}" > /dev/null
 echo "tarfa-sb-$(slug_of "${CAP_WT[0]}")-agent" > "${T}/active"
-check "a sandbox made over a stopped one keeps its lock file" "yes" "$([ -e "${T}/root/$(slug_of "${CAP_WT[0]}").lock" ] && echo yes || echo no)"
-rm -f "${T}/root/$(slug_of "${CAP_WT[0]}").lock"
+check "a sandbox made over a stopped one keeps its lock file" "yes" "$([ -e "${SBROOT}/$(slug_of "${CAP_WT[0]}").lock" ] && echo yes || echo no)"
+rm -f "${SBROOT}/$(slug_of "${CAP_WT[0]}").lock"
 set +e; out="$(TARFA_SANDBOX_MAX=1 sb up --worktree "${CAP_WT[1]}")"; rc=$?; set -e
 check "a live sandbox with no lock file still counts" "1 yes" "${rc} $(printf '%s' "${out}" | has "$(slug_of "${CAP_WT[0]}")" /dev/stdin)"
 check "the default is 4" "yes" "$(grep -qF 'TARFA_SANDBOX_MAX:-4' "${HERE}/sandbox.sh" && echo yes || echo no)"
 : > "${T}/active"
+
+echo "codex login"
+rm -rf "${SBROOT:?}"/*; : > "${T}/active"
+CX="${REALHOME}/.config/tarfa-sandbox/codex"
+mkdir -p "${CX}"; echo '{"auth_mode":"chatgpt","tokens":{"refresh_token":"STUBREFRESH"}}' > "${CX}/auth.json"
+CX_WT="${T}/cx/w"; mkdir -p "${CX_WT}/node_modules"; git -C "${CX_WT}" init -q
+out="$(sb up --worktree "${CX_WT}")"
+CX_HOME="${SBROOT}/$(slug_of "${CX_WT}")/home/.codex"
+check "auth.json links to the sandbox login" "${CX}/auth.json" "$(readlink "${CX_HOME}/auth.json")"
+check "auth.lock links to the shared lock" "${CX}/auth.lock" "$(readlink "${CX_HOME}/auth.lock")"
+check "the shared lock exists" "yes" "$([ -f "${CX}/auth.lock" ] && echo yes || echo no)"
+check "the login is never copied" "no" "$(grep -rlF STUBREFRESH "${SBROOT}" 2>/dev/null | head -n 1 | grep -q . && echo yes || echo no)"
+check "up does not ask for a login" "no" "$(printf '%s' "${out}" | has 'codex login --device-auth' /dev/stdin)"
+CX_UNIT="$(grep "^systemd-run .*tarfa-sb-$(slug_of "${CX_WT}")-codex" "${CALLS}" || true)"
+check "the codex app server runs as its own unit" "yes" "$(printf '%s' "${CX_UNIT}" | has 'codex app-server --listen unix://' /dev/stdin)"
+check "codex unit memory cap" "yes" "$(printf '%s' "${CX_UNIT}" | has 'MemoryMax=2G' /dev/stdin)"
+check "codex unit drops a CODEX_HOME the caller had" "yes" "$(printf '%s' "${CX_UNIT}" | has 'env -u TMUX -u TMUX_PANE -u CODEX_HOME codex' /dev/stdin)"
+check "codex unit has the sandbox HOME" "yes" "$(printf '%s' "${CX_UNIT}" | has "--setenv=HOME=${SBROOT}/$(slug_of "${CX_WT}")/home" /dev/stdin)"
+check "manifest names the codex unit" "tarfa-sb-$(slug_of "${CX_WT}")-codex" "$(jq -r .units.codex "${SBROOT}/$(slug_of "${CX_WT}")/manifest.json")"
+check "the real ~/.codex is never named" "no" "$(grep -rlF "${REALHOME}/.codex" "${SBROOT}" 2>/dev/null | head -n 1 | grep -q . && echo yes || echo no)"
+: > "${T}/active"
+
+echo "a root too deep for the Codex socket"
+LONG="${T}/$(printf 'd%.0s' $(seq 1 80))"
+LONG_WT="${T}/long/w"; mkdir -p "${LONG_WT}/node_modules"; git -C "${LONG_WT}" init -q
+set +e; out="$(env HOME="${REALHOME}" PATH="${T}/bin:${NODE_DIR}:${PATH}" TARFA_SANDBOX_ROOT="${LONG}" TARFA_SANDBOX_NO_BROWSER=1 \
+  bash "${HERE}/sandbox.sh" up --worktree "${LONG_WT}" 2>&1)"; rc=$?; set -e
+check "refused" "1" "${rc}"
+check "and names the knob" "yes" "$(printf '%s' "${out}" | has 'TARFA_SANDBOX_ROOT' /dev/stdin)"
+check "nothing created" "no" "$([ -e "${LONG}/$(slug_of "${LONG_WT}")" ] && echo yes || echo no)"
 
 if [ "${fails}" -gt 0 ]; then
   echo "${fails} check(s) failed"

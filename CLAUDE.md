@@ -93,8 +93,9 @@ Build each feature in its own git worktree; full runbook in `docs/WORKTREES.md`.
   `E2E_PORT=4175 pnpm --filter @tarfa/pwa e2e` (build first — `vite preview` serves the gitignored `dist/`).
 - **See a change working in a sandbox first** (`docs/SANDBOX.md`): `pnpm sandbox up` from a
   worktree runs that worktree's agent and PWA as a disposable machine (its own `HOME`, tmux
-  server, runtime dir and ports, Claude logged in with a token kept off every command line),
-  paired to a headless Chrome, beside every other sandbox and apart from the real agent.
+  server, runtime dir and ports, Claude logged in with a token kept off every command line,
+  Codex on a ChatGPT login of the sandboxes' own, linked and never copied, with its hooks
+  trusted), paired to a headless Chrome, beside every other sandbox and apart from the real agent.
   Where a change gets shown: the fake-agent e2e for the UI alone, a sandbox for anything that
   touches the agent, staging and the phone only for what needs the device (the Android
   keyboard, iOS install, voice, read-aloud, the share target, links to other apps, launch

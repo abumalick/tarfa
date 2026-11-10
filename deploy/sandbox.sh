@@ -16,8 +16,11 @@
 set -euo pipefail
 
 REAL_HOME="${HOME}"
-BASE="${TARFA_SANDBOX_ROOT:-${REAL_HOME}/.cache/tarfa-sandbox}"
+BASE="${TARFA_SANDBOX_ROOT:-${REAL_HOME}/.cache/tsb}"
 TOKEN_FILE="${TARFA_SANDBOX_CLAUDE_TOKEN_FILE:-${REAL_HOME}/.config/tarfa-sandbox/claude-oauth-token}"
+# A ChatGPT login of its own for every sandbox's Codex, never the user's ~/.codex: its refresh token
+# is single-use, so a sandbox sharing the user's login could sign the user's own Codex out.
+CODEX_LOGIN="${TARFA_SANDBOX_CODEX_HOME:-${REAL_HOME}/.config/tarfa-sandbox/codex}"
 READY_SECONDS="${TARFA_SANDBOX_READY_SECONDS:-30}"
 # Each sandbox's workspaces run in tmux's own scopes, outside the agent unit's MemoryMax, so the
 # number of sandboxes is what bounds their memory.
@@ -85,7 +88,8 @@ write_env_sh() { # <root>
   {
     while IFS= read -r kv; do printf 'export %s=%q\n' "${kv%%=*}" "${kv#*=}"; done < <(sb_env_pairs "$1")
     printf 'set -a; . %q; set +a\n' "$1/secrets.env"
-    printf 'unset TMUX TMUX_PANE\n'
+    # Codex prefers CODEX_HOME to HOME: one the caller had would be the user's own login.
+    printf 'unset TMUX TMUX_PANE CODEX_HOME\n'
   } > "$1/env.sh"
 }
 
@@ -133,6 +137,52 @@ install_hooks() { # <root>
   local root="$1" settings="$1/home/.claude/settings.json"
   in_sandbox "${root}" pnpm --filter @tarfa/cli exec tsx src/cli.ts install-hooks > /dev/null
   jq '.model = "sonnet"' "${settings}" > "${settings}.new" && mv "${settings}.new" "${settings}"
+  codex_config "${root}"
+}
+
+# Codex runs a hook only once it is trusted in /hooks, which stores
+# [hooks.state."<hooks.json>:<event>:<group>:<handler>"] trusted_hash = sha256 of the hook's
+# normalised identity, as compact JSON with sorted keys. Computed here the way Codex 0.167 does
+# (a command handler gets timeout 600 and async false when unset), so the sandbox trusts exactly
+# the hooks install-hooks wrote. The live test catches a Codex release that hashes differently.
+codex_hook_trust() { # <hooks.json>
+  local hj="$1" row
+  [ -f "${hj}" ] || return 0
+  jq -c '.hooks | to_entries[] | .key as $ev
+    | ($ev | gsub("(?<a>[a-z])(?<b>[A-Z])"; "\(.a)_\(.b)") | ascii_downcase) as $label
+    | .value | to_entries[] | .key as $g | .value as $grp
+    | $grp.hooks | to_entries[] | select(.value.type == "command")
+    | ["\($label):\($g):\(.key)",
+       ({event_name: $label, hooks: [.value + {timeout: (.value.timeout // 600), async: (.value.async // false)}]}
+        + (if $grp.matcher then {matcher: $grp.matcher} else {} end))]' "${hj}" |
+    while IFS= read -r row; do
+      printf '\n[hooks.state."%s:%s"]\ntrusted_hash = "sha256:%s"\n' "${hj}" "$(jq -r '.[0]' <<< "${row}")" \
+        "$(jq -cSj '.[1]' <<< "${row}" | sha256sum | cut -d' ' -f1)"
+    done
+}
+
+codex_config() { # <root>
+  local root="$1" p
+  (
+    umask 077
+    {
+      printf 'cli_auth_credentials_store = "file"\ncheck_for_update_on_startup = false\n'
+      for p in "${root}/projects" "${root}/projects/demo-a" "${root}/projects/demo-b"; do
+        printf '\n[projects."%s"]\ntrust_level = "trusted"\n' "${p}"
+      done
+      codex_hook_trust "${root}/home/.codex/hooks.json"
+    } > "${root}/home/.codex/config.toml"
+  )
+}
+
+# Links, not copies: Codex follows a linked auth.json and renames its refreshed tokens onto the
+# target, so every sandbox sees each rotation. The commit lock beside auth.json is shared that way;
+# auth.lock lives in each CODEX_HOME, so it is linked too.
+link_codex_login() { # <root>
+  [ -f "${CODEX_LOGIN}/auth.json" ] || return 0
+  touch "${CODEX_LOGIN}/auth.lock"
+  ln -s "${CODEX_LOGIN}/auth.json" "$1/home/.codex/auth.json"
+  ln -s "${CODEX_LOGIN}/auth.lock" "$1/home/.codex/auth.lock"
 }
 
 build_pwa() { # <root>
@@ -161,7 +211,20 @@ start_agent() { # <root>
   # KillMode=process: a restart (rebuild) keeps the tmux server and its workspaces, as in production.
   systemd-run --user --quiet --collect --unit "${unit}" -p KillMode=process -p MemoryMax=4G \
     -p EnvironmentFile="${root}/secrets.env" --working-directory="${wt}" "${flags[@]}" \
-    env -u TMUX -u TMUX_PANE bash -c 'set -a; . "$TARFA_AGENT_ENV"; set +a; exec pnpm --filter @tarfa/cli exec tsx src/serve.ts'
+    env -u TMUX -u TMUX_PANE -u CODEX_HOME bash -c 'set -a; . "$TARFA_AGENT_ENV"; set +a; exec pnpm --filter @tarfa/cli exec tsx src/serve.ts'
+}
+
+# The app server tarfa spawn --cli codex and tarfa send talk to, in its own unit so down stops it
+# (run as a daemon from a shell it would stay in that shell's cgroup and outlive the sandbox).
+start_codex() { # <root>
+  local root="$1" unit
+  unit="$(jq -r .units.codex "${root}/manifest.json")"
+  [ "${unit}" != null ] || return 0
+  local flags=()
+  mapfile -t flags < <(unit_env_flags "${root}")
+  systemd-run --user --quiet --collect --unit "${unit}" -p MemoryMax=2G \
+    --working-directory="${root}/projects" "${flags[@]}" \
+    env -u TMUX -u TMUX_PANE -u CODEX_HOME codex app-server --listen unix://
 }
 
 start_pwa() { # <root>
@@ -274,8 +337,8 @@ cmd_down() { # <root>
   if [ -f "${root}/manifest.json" ] && [ "$(jq -r .browser "${root}/manifest.json")" != null ]; then
     browser "${root}" close > /dev/null 2>&1 || true
   fi
-  systemctl --user stop "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" 2>/dev/null || true
-  systemctl --user reset-failed "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" 2>/dev/null || true
+  systemctl --user stop "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" "tarfa-sb-${slug}-codex" 2>/dev/null || true
+  systemctl --user reset-failed "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" "tarfa-sb-${slug}-codex" 2>/dev/null || true
   # The lock file stays: whoever holds it (an up replacing this sandbox) would otherwise hold a
   # deleted file nobody else can see.
   rm -rf "${root}"
@@ -290,7 +353,7 @@ cmd_exec() { # <root> <cmd...>
 cmd_status() { # <root>
   local root="$1" unit
   jq -r '"sandbox \(.slug)  worktree \(.worktree)\n  ports  hooks \(.ports.hooks)  phone \(.ports.phone)  pwa \(.ports.pwa)"' "${root}/manifest.json"
-  for unit in $(jq -r '.units.agent, .units.pwa' "${root}/manifest.json"); do
+  for unit in $(jq -r '.units[] | select(. != null)' "${root}/manifest.json"); do
     if sb_unit_active "${unit}"; then echo "  ${unit}: active"; else echo "  ${unit}: not running"; fi
   done
   echo "tmux sessions:"
@@ -352,6 +415,10 @@ cmd_up() { # <worktree>
   slug="$(sb_slug "${wt}")"; root="$(sb_root "${slug}")"
   [[ "${MAX_SANDBOXES}" =~ ^[0-9]+$ ]] || die "TARFA_SANDBOX_MAX must be a number, not ${MAX_SANDBOXES}"
   [ -d "${wt}/node_modules" ] || die "no node_modules in ${wt}: run pnpm install in ${wt}"
+  # Tarfa reaches the sandbox's Codex app server from node, which refuses a unix socket path over
+  # 107 bytes.
+  local codex_sock="${root}/home/.codex/app-server-control/app-server-control.sock"
+  [ "${#codex_sock}" -le 107 ] || die "the sandbox folder is too deep for the Codex socket (${codex_sock}: ${#codex_sock} bytes, at most 107): set TARFA_SANDBOX_ROOT to a shorter folder"
   [ -n "$(tr -d '[:space:]' < "${TOKEN_FILE}" 2>/dev/null)" ] || die "no Claude token at ${TOKEN_FILE}: make one with \`claude setup-token\` and save it there (mode 0600)"
   if [ -z "${TARFA_SANDBOX_NO_BROWSER:-}" ] && ! command -v agent-browser > /dev/null; then
     die "agent-browser is not installed: install it, or set TARFA_SANDBOX_NO_BROWSER=1 to pair a browser yourself"
@@ -392,8 +459,10 @@ cmd_up() { # <worktree>
   jq -n --arg slug "${slug}" --arg wt "${wt}" --arg root "${root}" \
     --argjson hooks "${hooks}" --argjson phone "${phone}" --argjson pwa "${pwa}" \
     --arg agent "tarfa-sb-${slug}-agent" --arg pwaunit "tarfa-sb-${slug}-pwa" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg codex "$([ -f "${CODEX_LOGIN}/auth.json" ] && echo "tarfa-sb-${slug}-codex")" \
     '{slug: $slug, worktree: $wt, root: $root, ports: {hooks: $hooks, phone: $phone, pwa: $pwa},
-      units: {agent: $agent, pwa: $pwaunit}, browser: null, pairLink: null, createdAt: $at}' > "${root}/manifest.json"
+      units: {agent: $agent, pwa: $pwaunit, codex: (if $codex == "" then null else $codex end)},
+      browser: null, pairLink: null, createdAt: $at}' > "${root}/manifest.json"
   cat > "${root}/home/.tarfa/agent.env" <<EOF
 TARFA_MACHINE_ID=sandbox-${slug}
 TARFA_PROJECT_ROOTS=${root}/projects
@@ -407,9 +476,11 @@ EOF
   printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\n' "$(tr -d '[:space:]' < "${TOKEN_FILE}")" > "${root}/secrets.env"
   seed_projects "${root}"
   seed_home "${root}"
+  link_codex_login "${root}"
   write_env_sh "${root}"
   install_hooks "${root}"
   build_pwa "${root}"
+  start_codex "${root}"
   start_agent "${root}"
   start_pwa "${root}"
   wait_agent_ready "${root}" || die "the agent did not start within ${READY_SECONDS}s (its log is above)"
@@ -427,6 +498,9 @@ EOF
   fi
   echo "  env       ${root}/env.sh   (pnpm sandbox exec -- <cmd> runs a command in it)"
   echo "  tmux      tmux -S $(sb_socket "${root}") ls"
+  if [ ! -L "${root}/home/.codex/auth.json" ]; then
+    echo "  codex     not logged in: once for every sandbox, mkdir -p -m 700 ${CODEX_LOGIN} && CODEX_HOME=${CODEX_LOGIN} codex login --device-auth, then pnpm sandbox down and up"
+  fi
   UP_ROOT=""
 }
 
