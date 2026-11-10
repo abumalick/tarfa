@@ -172,7 +172,7 @@ describe('NoiseClientConnection', () => {
     const phone = await handshake(socket, gate);
     conn.send({ type: 'authResult', ok: true });
     const replies = socket.sent.slice(1).map((f) => phone.open(f)).filter((m): m is Uint8Array => m !== null);
-    expect(replies.map((m) => JSON.parse(new TextDecoder().decode(m)))).toEqual([{ type: 'authResult', ok: true, enrolled: true, agent: { protocol: 1, features: ['lastReply'] } }]);
+    expect(replies.map((m) => JSON.parse(new TextDecoder().decode(m)))).toEqual([{ type: 'authResult', ok: true, enrolled: true, agent: { protocol: 1, features: ['lastReply', 'dictationKeys'] } }]);
   });
 
   it('names the agent version on the accepted authResult when it has one', async () => {
@@ -183,7 +183,7 @@ describe('NoiseClientConnection', () => {
     conn.send({ type: 'authResult', ok: true });
     const replies = socket.sent.slice(1).map((f) => phone.open(f)).filter((m): m is Uint8Array => m !== null);
     expect(replies.map((m) => JSON.parse(new TextDecoder().decode(m)))).toEqual([
-      { type: 'authResult', ok: true, enrolled: true, agent: { protocol: 1, version: '9.8.7', features: ['lastReply'] } },
+      { type: 'authResult', ok: true, enrolled: true, agent: { protocol: 1, version: '9.8.7', features: ['lastReply', 'dictationKeys'] } },
     ]);
   });
 
@@ -358,7 +358,7 @@ describe('NoiseClientConnection serving an enrolled device at once', () => {
     const { socket, conn, gate, timers, authenticated } = setup();
     const phone = await ikHandshake(socket, enrolledPhone(gate), { push: true });
     conn.send({ type: 'authResult', ok: true, credential: 'device' });
-    expect(replies(socket, phone)).toEqual([{ type: 'authResult', ok: true, credential: 'device', enrolled: true, agent: { protocol: 1, features: ['lastReply'] } }]);
+    expect(replies(socket, phone)).toEqual([{ type: 'authResult', ok: true, credential: 'device', enrolled: true, agent: { protocol: 1, features: ['lastReply', 'dictationKeys'] } }]);
     expect(timers[0]!.cancelled).toBe(false);
     expect(authenticated).toEqual([]);
     deliver(socket, phone, { type: 'auth', token: '' });
@@ -485,7 +485,7 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     write(true);
     await flush();
     expect(replies(socket, phone)).toEqual([
-      { type: 'authResult', ok: true, credential: 'pairing', enrolled: true, agent: { protocol: 1, features: ['lastReply'] } },
+      { type: 'authResult', ok: true, credential: 'pairing', enrolled: true, agent: { protocol: 1, features: ['lastReply', 'dictationKeys'] } },
       { type: 'workspaces', workspaces: [] },
     ]);
   });
@@ -499,7 +499,7 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     await presentCode(socket, phone, gate);
     conn.send({ type: 'authResult', ok: true, credential: 'pairing' });
     await flush();
-    expect(replies(socket, phone)).toEqual([{ type: 'authResult', ok: true, credential: 'pairing', enrolled: false, agent: { protocol: 1, features: ['lastReply'] } }]);
+    expect(replies(socket, phone)).toEqual([{ type: 'authResult', ok: true, credential: 'pairing', enrolled: false, agent: { protocol: 1, features: ['lastReply', 'dictationKeys'] } }]);
   });
 
   // The operator closed enrolment between the phone's handshake and its auth (or the device's id
@@ -623,7 +623,7 @@ describe('NoiseClientConnection with device keys (IK)', () => {
     const phone = await ikHandshake(socket, device);
     deliver(socket, phone, { type: 'auth', token: '' });
     conn.send({ type: 'authResult', ok: true, credential: 'device' });
-    expect(replies(socket, phone)).toEqual([{ type: 'authResult', ok: true, credential: 'device', enrolled: true, agent: { protocol: 1, features: ['lastReply'] } }]);
+    expect(replies(socket, phone)).toEqual([{ type: 'authResult', ok: true, credential: 'device', enrolled: true, agent: { protocol: 1, features: ['lastReply', 'dictationKeys'] } }]);
   });
 
   // A phone that paired, then lost its enrolment (forgotten, or the roster was reset), has no

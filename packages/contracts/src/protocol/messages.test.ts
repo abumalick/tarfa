@@ -231,6 +231,27 @@ describe('agentMessageSchema', () => {
     expect(parseAgentMessage({ type: 'keyterms' })).toEqual({ type: 'keyterms', keyterms: [] });
   });
 
+  it('parses a getDictationKeys request', () => {
+    expect(parseClientMessage({ type: 'getDictationKeys' })).toEqual({ type: 'getDictationKeys' });
+  });
+
+  it('parses a dictationKeys reply, each key optional', () => {
+    expect(parseAgentMessage({ type: 'dictationKeys', elevenlabs: 'test-key-1', openrouter: 'test-key-2' })).toEqual({
+      type: 'dictationKeys',
+      elevenlabs: 'test-key-1',
+      openrouter: 'test-key-2',
+    });
+    expect(parseAgentMessage({ type: 'dictationKeys' })).toEqual({ type: 'dictationKeys' });
+  });
+
+  it('drops a malformed key in a dictationKeys reply and keeps the other', () => {
+    expect(parseAgentMessage({ type: 'dictationKeys', elevenlabs: 42, openrouter: 'test-key-2' })).toEqual({
+      type: 'dictationKeys',
+      elevenlabs: undefined,
+      openrouter: 'test-key-2',
+    });
+  });
+
   it('parses a stats message with a cgroup limit', () => {
     const stats = {
       cpuPercent: 12.5,

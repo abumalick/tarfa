@@ -22,6 +22,7 @@ describe('loadConfig', () => {
       hiddenFoldersPath: '/home/u/.tarfa/hidden-folders.json',
       launchersPath: '/home/u/.tarfa/launchers.json',
       keytermsPath: '/home/u/.tarfa/keyterms.txt',
+      dictationKeysPath: '/home/u/.tarfa/dictation-keys.json',
       clientLogPath: '/home/u/.tarfa/client-log.jsonl',
       hookEventLogPath: '/home/u/.tarfa/hook-events.jsonl',
       messageLogPath: '/home/u/.tarfa/messages.jsonl',

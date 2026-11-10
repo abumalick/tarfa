@@ -42,6 +42,9 @@ import type { TailscalePort } from './ports/tailscale-port';
 import type { AgentServicePort } from './ports/agent-service-port';
 import { loadOrCreateAgentKeys } from './infrastructure/agent-key-file';
 import { FileDeviceStore } from './infrastructure/file-device-store';
+import { FileDictationKeysStore } from './infrastructure/file-dictation-keys-store';
+import { readSecret } from './infrastructure/read-secret';
+import { checkKey, DICTATION_PROVIDERS, providerOf, withKey, withoutKey } from './application/dictation-keys';
 import { enrolmentMode, forgetDevice, revokeDevice, withEnrolmentMode, type Device, type DeviceRoster, type EnrolmentMode } from './application/device-roster';
 import encodeQR from 'qr';
 import { deviceFingerprint, generatePairingSecret, isMachineUrl, MAX_ADDRESSES, parsePairingLink, sanitizeDeviceName } from '@tarfa/secure-channel';
@@ -81,6 +84,8 @@ function wire(config: AgentConfig) {
 export interface CliIo {
   tmux?: TmuxPort;
   stdin?: () => Promise<string>;
+  // A secret the operator types (echo off) or pipes in.
+  secret?: (prompt: string) => Promise<string>;
   cwd?: string;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -208,6 +213,8 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
     }
     case 'devices':
       return devices(new FileDeviceStore(config.devicesPath), rest);
+    case 'dictation-key':
+      return dictationKey(new FileDictationKeysStore(config.dictationKeysPath), rest, io.secret ?? readSecret);
     default:
       throw new UsageError(`unknown command: ${command} (run \`tarfa --help\`)`);
   }
@@ -219,6 +226,7 @@ Set up this machine:
   setup          write agent.env, the agent key, the service and the hooks, then check the phone port
   pair           print a one-time pairing link and QR code for a phone
   devices        list, revoke or forget paired phones; open or close enrolment
+  dictation-key  store the ElevenLabs or OpenRouter key every paired phone dictates with
   update         install the newest @tarfa/cli and apply it (package installs)
   apply          rewrite the launcher and service if they changed, reinstall the hooks, restart
   install-hooks  install the Claude Code and Codex hooks that report each workspace's status
@@ -238,7 +246,7 @@ Workspaces on this machine:
   --version      print the version`;
 
 const COMMANDS = new Set([
-  'setup', 'apply', 'update', 'pair', 'connect', 'relay-key', 'devices', 'install-hooks',
+  'setup', 'apply', 'update', 'pair', 'connect', 'relay-key', 'devices', 'dictation-key', 'install-hooks',
   'ls', 'spawn', 'peek', 'unpark', 'rename', 'send', 'close', 'wait',
   'list', 'create', 'recent', 'browse',
 ]);
@@ -960,6 +968,39 @@ function pairingInstructions(link: string, minutes = PAIRING_TTL_MS / 60_000): s
     `The phone will show machine key ${deviceFingerprint(parsePairingLink(link)!.agentKey)}; check it matches.`,
     `It works once, for ${minutes} minute${minutes === 1 ? '' : 's'}. \`tarfa pair\` makes another.`,
   ].join('\n');
+}
+
+const DICTATION_KEY_USAGE = [
+  `usage: tarfa dictation-key [status | set ${DICTATION_PROVIDERS.join('|')} | remove ${DICTATION_PROVIDERS.join('|')}]`,
+  '  set     reads the key on stdin, or asks for it with echo off; never as an argument',
+  '  every phone paired with this machine dictates into its workspaces with it, at its next connect',
+].join('\n');
+
+// The provider keys this machine hands its paired phones. A running agent reads the file on each
+// request, so a change reaches a phone at its next connect.
+async function dictationKey(store: FileDictationKeysStore, [action = 'status', name, ...extra]: string[], secret: (prompt: string) => Promise<string>): Promise<string> {
+  if (action === 'status') {
+    if (name !== undefined) throw new UsageError(DICTATION_KEY_USAGE);
+    const loaded = await store.load();
+    if ('problem' in loaded) throw new Error(loaded.problem);
+    return DICTATION_PROVIDERS.map((p) => `${p}  ${loaded.keys[p] ? 'set' : 'not set'}`).join('\n');
+  }
+  if (action !== 'set' && action !== 'remove') throw new UsageError(DICTATION_KEY_USAGE);
+  if (action === 'set' && extra.length > 0) {
+    throw new UsageError('pass the key on stdin or type it at the prompt, never as an argument: any local user can read a process\'s arguments');
+  }
+  const provider = name ? providerOf(name) : null;
+  if (!provider || extra.length > 0) throw new UsageError(DICTATION_KEY_USAGE);
+  const loaded = await store.load();
+  if ('problem' in loaded) throw new Error(loaded.problem);
+  if (action === 'remove') {
+    await store.save(withoutKey(loaded.keys, provider));
+    return `${provider}: removed; phones stop getting it at their next connect. Rotate it at the provider if a phone that had it is lost`;
+  }
+  const checked = checkKey(await secret(`${provider} key: `));
+  if (!checked.ok) throw new Error(checked.error);
+  await store.save(withKey(loaded.keys, provider, checked.key));
+  return `${provider}: stored; every phone paired with this machine gets it at its next connect`;
 }
 
 const DEVICES_USAGE = [

@@ -339,12 +339,28 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   Custom is kept). A remembered command runs as typed, with no model picker; `forgetLauncher`
   removes one. An agent that predates this never answers, and the PWA keeps the fixed
   Claude/Codex/Bash list. Needs an agent restart per machine.
-- **Dictation presets are on-device config: no agent, no protocol.** The 🎤 records in the PWA
+- **Dictation presets are on-device config; the keys may come from the agent.** The 🎤 records in the PWA
   and sends the audio straight from the phone, either to ElevenLabs Scribe or to an OpenRouter
   model that hears it and follows the preset's prompt (`adapters/openrouter-transcriber.ts`);
   `PresetTranscriber` picks one per dictation from the current preset. A long press (500 ms,
   `HOLD_MS`) on the mic opens the presets; its badge shows the current one; Settings edits them
-  and holds both keys. **Only a preset whose provider has a key can be used**: the current
+  and holds both typed keys. **A provider key is the typed one, else the attached workspace's
+  machine's** (`store.dictationKey`, `core/dictation-key-source.ts`; the transcribers and
+  `presetKeys` read only that). An operator stores one with `tarfa dictation-key set <provider>`
+  (stdin or an echo-off prompt, never argv) in `~/.tarfa/dictation-keys.json` (0600, in the startup
+  private-file check, and mode-checked again on every read since the file may appear later; a
+  malformed file reports a fixed message, since `JSON.parse`'s quotes the text). The agent
+  advertises `AGENT_FEATURES.dictationKeys`, and the PWA then sends `getDictationKeys` on each
+  accepted `authResult`; the handler answers `dictationKeys` only behind `authed`. Things not to
+  "simplify": **a request, not a field on `authResult.agent`** (a malformed field there would
+  wipe `features` too, and the transport layer should read no secret file); **held in memory per
+  machine, never in localStorage**, dropped when the machine goes offline, is removed, or stops
+  naming the feature, so a lost phone holds none at rest; **no cross-machine fallback** (machines
+  on one phone may have different operators, and each pays for its own workspaces' dictation;
+  with no workspace open, no agent key counts, and Settings names the machines that provide each
+  key instead); and **Save in Settings never writes the agent's key** (the typed state is
+  separate). A revoked phone may still hold a key it fetched: the remedy is rotating it at the
+  provider. **Only a preset whose provider has a key can be used**: the current
   preset is the chosen one if it has its key, else the first that does (`currentPreset`), a
   keyless one is disabled in the menu, and with no usable preset at all (no key, and no Claude
   voice here) the mic is not rendered.
@@ -892,7 +908,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     `sandbox`: WebKit draws PDFs with a plugin, which any sandbox disables.
   - **Secret files must be private, or the agent does not start.** At startup it makes
     `~/.tarfa` 0700 and exits, naming each file and the `chmod 600` that fixes it, while
-    `agent-key.json` (the agent key), `devices.json`, `pairing.json`, `token` or the agent.env it
+    `agent-key.json` (the agent key), `devices.json`, `pairing.json`, `token`, `dictation-keys.json` or the agent.env it
     read (`~/.tarfa/agent.env`, or the file `TARFA_AGENT_ENV` names) can be read or
     written by another user. A service that crash-loops right after an update: read its log for
     that line first.

@@ -19,6 +19,9 @@ export const settings = {
   saveKey: 'Save key',
   saved: 'Saved ✓',
   elevenLabsHint: 'Stored on this device only. Used for speech-to-text in the terminal.',
+  // Under a key field, naming the machines whose operator stored that key with `tarfa dictation-key`.
+  keyFromMachines: (machines: string) => `Left empty, workspaces on ${machines} use the key their machine provides.`,
+  keyOverridesMachines: (machines: string) => `Used everywhere, instead of the key from ${machines}.`,
   openRouterHint: "Stored on this device only. Recordings sent with an OpenRouter preset go to OpenRouter and the model's provider.",
   presets: 'Presets',
   presetsHint: 'Hold the 🎤 in the terminal to switch between them.',

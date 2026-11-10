@@ -46,6 +46,8 @@
   let apiKey = $state(untrack(() => store.elevenLabsApiKey));
   let apiKeySaved = $state(false);
   let openRouterKey = $state(untrack(() => store.openRouterApiKey));
+  const elevenlabsSources = $derived(store.dictationKeySources('elevenlabs').join(', '));
+  const openrouterSources = $derived(store.dictationKeySources('openrouter').join(', '));
   let openRouterKeySaved = $state(false);
 
   let openId = $state<string | null>(null);
@@ -184,6 +186,9 @@
       {:else}
         <p class="hint">{msg().settings.elevenLabsHint}</p>
       {/if}
+      {#if elevenlabsSources}
+        <p class="hint" data-testid="elevenlabs-key-source">{store.elevenLabsApiKey ? msg().settings.keyOverridesMachines(elevenlabsSources) : msg().settings.keyFromMachines(elevenlabsSources)}</p>
+      {/if}
     </form>
     <form class="card" onsubmit={saveOpenRouterKey}>
       <label for="openrouter-key">{msg().settings.openRouterKey}</label>
@@ -195,6 +200,9 @@
         <p class="hint ok" role="status">{msg().settings.saved}</p>
       {:else}
         <p class="hint">{msg().settings.openRouterHint}</p>
+      {/if}
+      {#if openrouterSources}
+        <p class="hint" data-testid="openrouter-key-source">{store.openRouterApiKey ? msg().settings.keyOverridesMachines(openrouterSources) : msg().settings.keyFromMachines(openrouterSources)}</p>
       {/if}
     </form>
     <div class="card">

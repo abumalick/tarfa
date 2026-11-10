@@ -28,6 +28,7 @@ function fakeStore(overrides: Record<string, unknown> = {}) {
     setElevenLabsApiKey: vi.fn(),
     openRouterApiKey: '',
     setOpenRouterApiKey: vi.fn(),
+    dictationKeySources: vi.fn((): string[] => []),
     dictationPresets: [...DEFAULT_PRESETS],
     saveDictationPresets: vi.fn(),
     resetDictationPresets: vi.fn(),
@@ -166,6 +167,14 @@ describe('Settings — dictation', () => {
     await fireEvent.input(field, { target: { value: 'sk-or-new' } });
     await fireEvent.click(screen.getAllByRole('button', { name: /save key/i })[1]!);
     expect(store.setOpenRouterApiKey).toHaveBeenCalledWith('sk-or-new');
+  });
+
+  it('names the machines that provide a key, and never shows the key itself', () => {
+    const store = fakeStore({ dictationKeySources: vi.fn((p: string) => (p === 'elevenlabs' ? ['Mac', 'Box'] : [])) });
+    render(Settings, { props: { store: store as never } });
+    expect(screen.getByText('Left empty, workspaces on Mac, Box use the key their machine provides.')).toBeInTheDocument();
+    expect(screen.queryByTestId('openrouter-key-source')).toBeNull();
+    expect((screen.getByLabelText(/elevenlabs api key/i) as HTMLInputElement).value).toBe('');
   });
 
   it('lists the dictation presets', () => {
