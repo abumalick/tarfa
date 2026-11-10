@@ -76,7 +76,7 @@ export const readAloud: Messages['readAloud'] = {
   settingsTitle: 'Lecture à voix haute',
   settingsHint: 'Un appui long sur 🔊 change de voix. ElevenLabs utilise la clé de la machine dont l’espace de travail est ouvert.',
   voiceTitle: 'Voix ElevenLabs',
-  defaultVoice: (voice: string) => `${voice} (par défaut)`,
+  defaultTag: 'par défaut',
   showVoices: 'Afficher les voix',
   loadingVoices: 'Chargement des voix…',
   voicesFrom: (machine: string) => `Les voix du compte ElevenLabs de ${machine}. Une voix absente d’un autre compte est remplacée par celle par défaut.`,

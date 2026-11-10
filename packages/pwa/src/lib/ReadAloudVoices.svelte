@@ -139,8 +139,10 @@
         <li>
           <button type="button" class="voice" role="option" aria-selected={voice.id === chosen.id} onclick={() => pick(voice)}>
             <span class="text">
-              <span class="title">{voice.id === DEFAULT_ELEVENLABS_VOICE.id ? msg().readAloud.defaultVoice(voice.name) : voice.name}</span>
-              {#if voice.description}<span class="sub">{voice.description}</span>{/if}
+              <span class="title">{voice.name}</span>
+              {#if voice.description || voice.id === DEFAULT_ELEVENLABS_VOICE.id}
+                <span class="sub">{[voice.id === DEFAULT_ELEVENLABS_VOICE.id ? msg().readAloud.defaultTag : '', voice.description].filter(Boolean).join(' · ')}</span>
+              {/if}
             </span>
             {#if voice.id === chosen.id}<span aria-hidden="true">✓</span>{/if}
           </button>

@@ -78,7 +78,7 @@ export const readAloud = {
   settingsTitle: 'Read aloud',
   settingsHint: 'Long press 🔊 to switch between the voices. ElevenLabs uses the key of the machine whose workspace is open.',
   voiceTitle: 'ElevenLabs voice',
-  defaultVoice: (voice: string) => `${voice} (default)`,
+  defaultTag: 'default',
   showVoices: 'Show the voices',
   loadingVoices: 'Loading the voices…',
   voicesFrom: (machine: string) => `The voices of the ElevenLabs account on ${machine}. A voice another account lacks reads with the default.`,

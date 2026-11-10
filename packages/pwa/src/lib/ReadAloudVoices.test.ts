@@ -40,7 +40,7 @@ describe('ReadAloudVoices', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Show the voices' }));
     await flush();
     expect(screen.getByText(/ElevenLabs account on Box/)).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /George \(default\)/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: /George default · british/ })).toHaveAttribute('aria-selected', 'true');
     await fireEvent.click(screen.getByRole('option', { name: /Ann/ }));
     expect(store.setElevenLabsVoice).toHaveBeenCalledWith({ id: 'v2', name: 'Ann' });
     await fireEvent.click(screen.getByRole('option', { name: /George/ }));
