@@ -219,6 +219,7 @@ The agent logs `tarfa agent: phones on 127.0.0.1:<port>` at startup. The port ta
 upgrade on any path (`tailscale serve --set-path` strips its prefix) and answers anything else
 404, so `/hooks`, `/unpark`, `/close` and `/message` are never one proxy away from the network. It is meant to sit behind
 `tailscale serve` or Funnel; the only port to publish is `TARFA_PHONE_PORT`, never `TARFA_PORT`.
+To reach it over the local network without Tailscale (a proxy with a real certificate), see `docs/LAN.md`.
 A phone there goes through the agent's device roster, revocation and pairing codes. Its bounds:
 8 unauthenticated sockets per client
 address and 32 in all (the oldest is closed when full), 20 new sockets a minute per address, a
