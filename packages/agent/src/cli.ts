@@ -667,8 +667,13 @@ replace anything it did not make (an agent key, another tailscale serve entry).
   --default-path <dir>          where a phone resolves relative paths (in pairing links)
   --phone-port <n>              loopback port phones reach (default 8797); every Linux user on one
                                 machine needs their own, e.g. 8797 and 8798
-  --tailscale serve|funnel|none publish the phone port on the tailnet (serve), also on the public
-                                internet (funnel), or not at all (none, the default)
+  --tailscale funnel|serve|none how phones reach this machine: with or without Tailscale (funnel,
+                                public through Funnel), only with Tailscale on (serve), or through an
+                                address published some other way (none, with --address). Ask the
+                                operator. Without it, setup keeps the TARFA_PHONE_ADDRESSES or the
+                                serve handler for the phone port the machine already has, picks
+                                funnel for a machine phones reached through a relay, and otherwise
+                                refuses. Every run prints a reachability: line saying which
   --tailscale-port <n>          the HTTPS port Tailscale serves it on (default 443 for serve, 10000
                                 for funnel; Funnel allows only 443, 8443 and 10000)
   --slug <name>                 serve under /<name>, so several agents share one port
@@ -748,7 +753,7 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
 
   // A flag not given takes what the machine already runs (the agent.env found above, or the one an
   // adoption copies), so a bare rerun plans nothing. How the port is published is not in agent.env:
-  // --tailscale defaults to none, which changes nothing, and TARFA_PHONE_ADDRESSES is kept.
+  // planSetup infers it from what the machine holds (resolveReachability), or refuses.
   const given = withLegacyEnv(parseEnvFile(envText ?? ''));
   const filled = (name: string, value: string | undefined) => (value !== undefined && value !== '' && !argv.includes(name) ? [name, value] : []);
   const flags = parseSetupFlags([
@@ -791,9 +796,10 @@ async function setup(argv: string[], env: NodeJS.ProcessEnv, home: string, io: C
     stateDir: stateDirLayout(home),
     phonePortOwner: await owner(flags.phonePort),
     hooksPortOwner: await owner(config.port),
-    tailscale: flags.tailscale === 'none' ? null : await tailscale.status(),
-    // Under --tailscale none, read only to word the operator's line: unreadable means the serve form.
-    serve: flags.tailscale === 'none' && !flags.slug ? null : await tailscale.serveStatus(),
+    // Read whatever --tailscale says: they settle how the port is published when no flag does, and word
+    // whether phones need Tailscale. Both answer null when Tailscale is absent or will not tell.
+    tailscale: await tailscale.status(),
+    serve: await tailscale.serveStatus(),
     cli: kind === 'package' ? await cliState(home, env) : null,
     adoption: cloneRepo === null ? null : { repo: cloneRepo, copyEnv, agentLive: { path: agentLivePath, kind: await linkKind(agentLivePath) } },
   };

@@ -453,6 +453,20 @@ describe('tarfa setup (fake service and Tailscale)', () => {
     expect(m.calls).toEqual(['check']);
   });
 
+  it('refuses to pick how phones reach a fresh machine, and a bare rerun of a set-up one says how they do', async () => {
+    const m = await machine();
+    const bare = ['--machine-id', 'dev', '--project-roots', '/home/u/workspace'];
+    await expect(run(['setup', ...bare], m.env, m.home, m.io)).rejects.toThrow(/--tailscale funnel.*--tailscale serve/);
+    expect(m.calls).toEqual([]);
+
+    await run(['setup', ...bare, '--tailscale', 'serve', '--slug', 'abu'], m.env, m.home, m.io);
+    m.calls.length = 0;
+    const out = await run(['setup'], m.env, m.home, m.io);
+    expect(out).toContain(`reachability: phones reach this machine only with Tailscale on (wss://${HOST}:443/abu)`);
+    expect(out).toMatch(/already set up/);
+    expect(m.calls).toEqual(['check']);
+  });
+
   it('prints a pairing link with --pair', async () => {
     const m = await machine();
     const out = await run(['setup', ...FLAGS, '--pair'], m.env, m.home, m.io);
@@ -609,6 +623,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
       'TARFA_PROJECT_ROOTS=/home/u/workspace:/home/u/other',
       'TARFA_PORT=8791',
       'TARFA_PHONE_PORT=8797',
+      'TARFA_PHONE_ADDRESSES=wss://dev.example.ts.net:10000/abu',
       "TARFA_PWA_ORIGIN='https://tarfa.app'",
       '',
     ].join('\n');
