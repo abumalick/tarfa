@@ -426,7 +426,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     seeded into `tarfa.dictationPresets`), so an update can replace a model id OpenRouter has
     retired for everyone who never customised. Nothing personal ships: the default prompt
     cleans up in the language spoken, and a translation preset is the user's own. **Claude
-    voice is the first default, falling back to Scribe:** `currentPreset` skips it wherever it
+    voice is the first default, falling back to Scribe v3, then Scribe v2:** `currentPreset` skips it wherever it
     cannot run, so one list serves every machine. A list the user edited is kept as it is.
   - **A Scribe preset names its model; no `model` is v2** (stored lists predate v3). A v3 preset
     asks for `numbers_format=digits` and may list languages, sent as `language_code` (the first)

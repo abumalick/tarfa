@@ -32,11 +32,12 @@ Rules:
 
 // Kept in code, not seeded into storage: until the user edits the list, an app update can
 // replace a model id the provider has retired. Claude voice leads: where the machine cannot
-// run it, `currentPreset` skips it and Scribe takes over.
+// run it, `currentPreset` skips it and Scribe v3 takes over. Scribe v2 keeps the id `scribe`,
+// which a stored choice of the old default names.
 export const DEFAULT_PRESETS: readonly DictationPreset[] = [
-  { id: 'claude', name: 'Claude voice', badge: 'CV', provider: 'claude', fallbackId: 'scribe' },
-  { id: 'scribe', name: 'Scribe', badge: 'EL', provider: 'elevenlabs' },
-  { id: 'scribe-v3', name: 'Scribe v3', badge: 'E3', provider: 'elevenlabs', model: 'scribe_v3' },
+  { id: 'claude', name: 'Claude voice', badge: 'CV', provider: 'claude', fallbackId: 'scribe-v3' },
+  { id: 'scribe-v3', name: 'Scribe v3', badge: 'EL3', provider: 'elevenlabs', model: 'scribe_v3' },
+  { id: 'scribe', name: 'Scribe v2', badge: 'EL2', provider: 'elevenlabs' },
   {
     id: 'clean',
     name: 'Clean up',

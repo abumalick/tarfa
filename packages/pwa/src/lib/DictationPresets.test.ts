@@ -27,13 +27,13 @@ describe('DictationPresets', () => {
     expect(screen.getByRole('button', { name: /Edit Clean up/ })).toBeInTheDocument();
   });
 
-  it('lists Claude voice first among the defaults, falling back to Scribe', async () => {
+  it('lists Claude voice first among the defaults, falling back to Scribe v3', async () => {
     render(DictationPresets, { props: { store: fakeStore([...DEFAULT_PRESETS]) as never } });
     const edits = screen.getAllByRole('button', { name: /^Edit / });
     expect(edits[0]).toHaveAccessibleName(/Edit Claude voice/);
     expect(edits[0]).toHaveTextContent('CV');
     await fireEvent.click(edits[0]!);
-    expect(screen.getByLabelText('Fallback')).toHaveValue('scribe');
+    expect(screen.getByLabelText('Fallback')).toHaveValue('scribe-v3');
   });
 
   it('highlights the preset in use', () => {
@@ -88,13 +88,13 @@ describe('DictationPresets', () => {
   it('picks the Scribe model, and takes languages for v3 only', async () => {
     const store = fakeStore();
     render(DictationPresets, { props: { store: store as never } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit Scribe' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit Scribe v2' }));
     expect(screen.getByLabelText('Scribe model')).toHaveValue('scribe_v2');
     expect(screen.queryByLabelText('Languages')).toBeNull();
     await fireEvent.change(screen.getByLabelText('Scribe model'), { target: { value: 'scribe_v3' } });
     await fireEvent.input(screen.getByLabelText('Languages'), { target: { value: 'FR, en ar' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
-    expect(saved(store)[0]).toEqual({ id: 'scribe', name: 'Scribe', badge: 'EL', provider: 'elevenlabs', model: 'scribe_v3', languages: ['fr', 'en', 'ar'] });
+    expect(saved(store)[0]).toEqual({ id: 'scribe', name: 'Scribe v2', badge: 'EL2', provider: 'elevenlabs', model: 'scribe_v3', languages: ['fr', 'en', 'ar'] });
   });
 
   it('shows a v3 preset with its model and languages, and refuses a bad code', async () => {
@@ -112,10 +112,10 @@ describe('DictationPresets', () => {
   it('saves a v3 preset with no languages as auto-detect', async () => {
     const store = fakeStore();
     render(DictationPresets, { props: { store: store as never } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit Scribe' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit Scribe v2' }));
     await fireEvent.change(screen.getByLabelText('Scribe model'), { target: { value: 'scribe_v3' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
-    expect(saved(store)[0]).toEqual({ id: 'scribe', name: 'Scribe', badge: 'EL', provider: 'elevenlabs', model: 'scribe_v3' });
+    expect(saved(store)[0]).toEqual({ id: 'scribe', name: 'Scribe v2', badge: 'EL2', provider: 'elevenlabs', model: 'scribe_v3' });
   });
 
   it('will not save an invalid preset, and says why', async () => {
@@ -160,7 +160,7 @@ describe('DictationPresets', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Add preset' }));
     await fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'claude' } });
     const fallback = screen.getByLabelText('Fallback');
-    expect([...fallback.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['First available preset', 'Scribe', 'Clean up', 'Fast']);
+    expect([...fallback.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['First available preset', 'Scribe v2', 'Clean up', 'Fast']);
     await fireEvent.change(fallback, { target: { value: 'clean' } });
     await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'Claude voice' } });
     await fireEvent.input(screen.getByLabelText('Badge'), { target: { value: 'CV' } });
@@ -173,7 +173,7 @@ describe('DictationPresets', () => {
     render(DictationPresets, { props: { store: store as never } });
     await fireEvent.click(screen.getByRole('button', { name: 'Move Fast up' }));
     expect(saved(store).map((p) => p.id)).toEqual(['scribe', 'fast', 'clean']);
-    await fireEvent.click(screen.getByRole('button', { name: 'Delete Scribe' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete Scribe v2' }));
     expect(saved(store).map((p) => p.id)).toEqual(['clean', 'fast']);
   });
 

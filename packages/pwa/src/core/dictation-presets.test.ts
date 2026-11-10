@@ -27,19 +27,19 @@ const custom: DictationPreset = {
 };
 
 describe('DEFAULT_PRESETS', () => {
-  it('ships Claude voice, Scribe, Scribe v3, Clean up and Fast, in that order', () => {
-    expect(DEFAULT_PRESETS.map((p) => p.id)).toEqual(['claude', 'scribe', 'scribe-v3', 'clean', 'fast']);
+  it('ships Claude voice, Scribe v3, Scribe v2, Clean up and Fast, in that order', () => {
+    expect(DEFAULT_PRESETS.map((p) => p.id)).toEqual(['claude', 'scribe-v3', 'scribe', 'clean', 'fast']);
     expect(preset('scribe')).not.toHaveProperty('model');
     expect(preset('scribe-v3')).toMatchObject({ provider: 'elevenlabs', model: 'scribe_v3' });
-    expect(preset('claude')).toMatchObject({ provider: 'claude', fallbackId: 'scribe' });
+    expect(preset('claude')).toMatchObject({ provider: 'claude', fallbackId: 'scribe-v3' });
   });
 
-  it('dictates with Claude voice where the machine can, else with Scribe', () => {
+  it('dictates with Claude voice where the machine can, else with Scribe v3', () => {
     const both = { elevenlabs: true, openrouter: true };
     expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'ok' }).id).toBe('claude');
-    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'unavailable' }).id).toBe('scribe');
-    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'not-claude' }).id).toBe('scribe');
-    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'asking' }).id).toBe('scribe');
+    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'unavailable' }).id).toBe('scribe-v3');
+    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'not-claude' }).id).toBe('scribe-v3');
+    expect(currentPreset(DEFAULT_PRESETS, null, { ...both, claude: 'asking' }).id).toBe('scribe-v3');
     expect(currentPreset(DEFAULT_PRESETS, 'clean', { ...both, claude: 'ok' }).id).toBe('clean');
   });
 
@@ -129,8 +129,8 @@ describe('currentPreset', () => {
   });
 
   it('falls back to the first preset for an unknown or missing id', () => {
-    expect(currentPreset(DEFAULT_PRESETS, 'gone', both).id).toBe('scribe');
-    expect(currentPreset(DEFAULT_PRESETS, null, both).id).toBe('scribe');
+    expect(currentPreset(DEFAULT_PRESETS, 'gone', both).id).toBe('scribe-v3');
+    expect(currentPreset(DEFAULT_PRESETS, null, both).id).toBe('scribe-v3');
   });
 
   it('skips presets whose provider has no key', () => {
@@ -236,5 +236,12 @@ describe('scribeOptions', () => {
     expect(scribeOptions(preset('scribe-v3'))).toEqual({ model: 'scribe_v3', languages: [] });
     expect(scribeOptions(scribe)).toEqual({ model: 'scribe_v2', languages: [] });
     expect(scribeOptions(clean)).toEqual({ model: 'scribe_v2', languages: [] });
+  });
+});
+
+describe('the Scribe defaults', () => {
+  it('are v3 (EL3) then v2 (EL2), with no languages, v2 keeping the old id', () => {
+    expect(preset('scribe-v3')).toEqual({ id: 'scribe-v3', name: 'Scribe v3', badge: 'EL3', provider: 'elevenlabs', model: 'scribe_v3' });
+    expect(preset('scribe')).toEqual({ id: 'scribe', name: 'Scribe v2', badge: 'EL2', provider: 'elevenlabs' });
   });
 });

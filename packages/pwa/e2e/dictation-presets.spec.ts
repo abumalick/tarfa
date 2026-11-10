@@ -82,8 +82,8 @@ test('the mic shows the current preset, and a long press opens the presets on sc
   agent.dictationKeys.elevenlabs = 'sk-el-test';
   await seedMachine(page, agent);
   await openTerminal(page);
-  await expect(mic(page)).toHaveAccessibleName('Dictate (Scribe), long press for presets');
-  await expect(mic(page)).toContainText('EL');
+  await expect(mic(page)).toHaveAccessibleName('Dictate (Scribe v3), long press for presets');
+  await expect(mic(page)).toContainText('EL3');
 
   await holdMic(page);
   const menu = page.getByRole('listbox', { name: 'Dictation presets' });
@@ -181,7 +181,7 @@ test('a Claude voice preset falls back on a machine whose agent cannot do Claude
   }
 });
 
-test('out of the box, Claude voice is the mic where the machine can do it, and Scribe elsewhere', async ({ page }) => {
+test('out of the box, Claude voice is the mic where the machine can do it, and Scribe v3 elsewhere', async ({ page }) => {
   const claudeAgent = await startFakeAgent([
     { machineId: 'agent-machine-id', id: 'perch-demo', name: 'demo', projectPath: '/home/u/workspace/demo', command: 'claude', createdAt: 1, lastActivityAt: 1, status: 'idle' },
   ]);
@@ -195,7 +195,7 @@ test('out of the box, Claude voice is the mic where the machine can do it, and S
     claudeAgent.dictationKeys.elevenlabs = 'sk-el-test';
     claudeAgent.claudeVoice = false;
     await openTerminal(page);
-    await expect(mic(page)).toHaveAccessibleName('Dictate (Scribe), long press for presets');
+    await expect(mic(page)).toHaveAccessibleName('Dictate (Scribe v3), long press for presets');
   } finally {
     await claudeAgent.close();
   }

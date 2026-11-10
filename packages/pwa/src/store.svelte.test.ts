@@ -573,12 +573,12 @@ describe('TarfaStore', () => {
       expect(store.presetKeys.claude).toBe('not-claude');
     });
 
-    it('dictates with Claude voice by default where it works, else with Scribe', () => {
+    it('dictates with Claude voice by default where it works, else with Scribe v3', () => {
       const { store, sockets } = opened();
       machineKeys(store, 'mac', { elevenlabs: 'sk-el' });
       expect(store.currentPreset.id).toBe('claude');
       sockets['wss://mac']!.deliver({ type: 'workspaces', workspaces: [], claudeVoice: false });
-      expect(store.currentPreset.id).toBe('scribe');
+      expect(store.currentPreset.id).toBe('scribe-v3');
     });
 
     it('shows Claude voice in use outside a workspace only when some machine can run it', () => {
@@ -588,7 +588,7 @@ describe('TarfaStore', () => {
       expect(store.active).toBeNull();
       expect(store.currentPreset.id).toBe('claude');
       sockets['wss://mac']!.deliver({ type: 'workspaces', workspaces: [], claudeVoice: false });
-      expect(store.currentPreset.id).toBe('scribe');
+      expect(store.currentPreset.id).toBe('scribe-v3');
     });
 
     it('offers Claude voice only on a machine whose agent says it works there', () => {
@@ -3021,7 +3021,7 @@ describe('TarfaStore dictation presets', () => {
     const { store, storage } = build();
     store.start();
     machineKeys(store, 'mac', { elevenlabs: 'sk-el', openrouter: 'sk-or' });
-    expect(store.currentPreset.id).toBe('scribe');
+    expect(store.currentPreset.id).toBe('scribe-v3');
     store.selectPreset('clean');
     expect(store.currentPreset.id).toBe('clean');
     expect(storage.read('tarfa.dictationPreset')).toBe('clean');
@@ -3035,7 +3035,7 @@ describe('TarfaStore dictation presets', () => {
     const list = DEFAULT_PRESETS.filter((p) => p.id !== 'fast');
     store.saveDictationPresets(list);
     expect(store.dictationPresets).toEqual(list);
-    expect(store.currentPreset.id).toBe('scribe');
+    expect(store.currentPreset.id).toBe('scribe-v3');
   });
 
   it('uses a preset that has a key when the chosen one has none', () => {

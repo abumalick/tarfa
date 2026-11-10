@@ -20,12 +20,12 @@ describe('DictationMenu', () => {
     const options = screen.getAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual([
       expect.stringContaining('CV'),
-      expect.stringContaining('EL'),
-      expect.stringContaining('E3'),
+      expect.stringContaining('EL3'),
+      expect.stringContaining('EL2'),
       expect.stringContaining('CL'),
       expect.stringContaining('⚡'),
     ]);
-    expect(screen.getByRole('option', { name: /^EL Scribe/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: /^EL2 Scribe v2/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('option', { name: /Claude voice/ })).toHaveTextContent('not on this machine');
   });
 
@@ -34,7 +34,7 @@ describe('DictationMenu', () => {
     const clean = screen.getByRole('option', { name: /Clean up/ });
     expect(clean).toBeDisabled();
     expect(clean).toHaveTextContent('needs key');
-    expect(screen.getByRole('option', { name: /^EL Scribe/ })).not.toHaveTextContent('needs key');
+    expect(screen.getByRole('option', { name: /^EL2 Scribe v2/ })).not.toHaveTextContent('needs key');
   });
 
   it('selects and closes', async () => {

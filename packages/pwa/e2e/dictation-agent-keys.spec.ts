@@ -34,7 +34,7 @@ test("the machine's stored key gives its workspaces a mic, and is never written 
   await page.goto('/');
   await page.getByText('demo', { exact: true }).click();
   await expect(page.locator('.xterm-rows').filter({ hasText: 'TARFA_READY' })).toBeVisible();
-  await expect(mic(page)).toHaveAccessibleName('Dictate (Scribe), long press for presets');
+  await expect(mic(page)).toHaveAccessibleName('Dictate (Scribe v3), long press for presets');
 
   const stored = await page.evaluate(() => Object.keys(localStorage).map((k) => localStorage.getItem(k) ?? '').join('\n'));
   expect(stored).not.toContain('test-key-from-agent');

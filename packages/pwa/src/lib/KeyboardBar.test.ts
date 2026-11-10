@@ -179,7 +179,7 @@ describe('KeyboardBar', () => {
       'Option',
       'Command',
       '␣',
-      'Dictate (Scribe), long press for presets',
+      'Dictate (Scribe v3), long press for presets',
       'Cursor pad',
       '⏎',
       '⎋',
@@ -477,7 +477,7 @@ describe('KeyboardBar dictation presets', () => {
     pointer(setup, 'pointerup', 100, 100);
     await fireEvent.click(setup);
     expect(menu()).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /^EL Scribe/ })).toBeDisabled();
+    expect(screen.getByRole('option', { name: /^EL3 Scribe v3/ })).toBeDisabled();
     expect(onSetupDictation).not.toHaveBeenCalled();
   });
 
@@ -642,7 +642,7 @@ describe('KeyboardBar long-press hint', () => {
       props: { ...base, onReadAloud: vi.fn(), readAloudMenu: model, readAloudBadge: 'EL' },
     });
     expect(expandOn(container)).toEqual([
-      'Dictate (Scribe), long press for presets',
+      'Dictate (Scribe v3), long press for presets',
       'Listen to the last reply, long press for voices',
     ]);
     for (const e of container.querySelectorAll('.expand')) expect(e).toHaveAttribute('aria-hidden', 'true');
@@ -657,12 +657,12 @@ describe('KeyboardBar long-press hint', () => {
   it('leaves the 🔊 plain where it has no menu', () => {
     const { container } = render(KeyboardBar, { props: { ...base, onReadAloud: vi.fn() } });
     expect(screen.getByRole('button', { name: 'Listen to the last reply' })).toBeInTheDocument();
-    expect(expandOn(container)).toEqual(['Dictate (Scribe), long press for presets']);
+    expect(expandOn(container)).toEqual(['Dictate (Scribe v3), long press for presets']);
   });
 
   it('drops the hint while recording, when a long press stops instead', () => {
     const { container } = render(KeyboardBar, { props: { ...base, dictation: 'recording' } });
-    expect(screen.getByRole('button', { name: 'Dictate (Scribe)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dictate (Scribe v3)' })).toBeInTheDocument();
     expect(container.querySelector('.expand')).toBeNull();
   });
 
@@ -670,7 +670,7 @@ describe('KeyboardBar long-press hint', () => {
     setLanguage('fr');
     try {
       render(KeyboardBar, { props: { ...base, onReadAloud: vi.fn(), readAloudMenu: model } });
-      expect(screen.getByRole('button', { name: 'Dicter (Scribe), appui long pour les préréglages' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Dicter (Scribe v3), appui long pour les préréglages' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Écouter la dernière réponse, appui long pour les voix' })).toBeInTheDocument();
     } finally {
       setLanguage('en');
