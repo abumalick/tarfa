@@ -1,6 +1,6 @@
 {
   "name": "@tarfa/cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Tarfa agent and CLI: serves your Claude Code terminal sessions (tmux workspaces) to the Tarfa phone app.",
   "repository": {
     "type": "git",
