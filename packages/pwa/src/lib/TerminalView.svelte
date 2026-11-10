@@ -504,7 +504,7 @@
     {/if}
   </div>
   {#if voiceHelpOpen}
-    <VoiceHelp platform={voicePlatform(navigator.userAgent, navigator.maxTouchPoints)} onClose={() => (voiceHelpOpen = false)} />
+    <VoiceHelp platform={voicePlatform(navigator.userAgent, navigator.maxTouchPoints)} trouble={store.readAloudVoiceHelp ?? 'silent'} onClose={() => (voiceHelpOpen = false)} />
   {/if}
   <WorkspaceMenu
     bind:open={menuOpen}

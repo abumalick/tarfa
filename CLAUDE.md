@@ -458,6 +458,11 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     12 s (`START_TIMEOUT_MS`) before it says so. That notice (and a voice error) offers "How
     to fix", whose steps follow the device (`lib/voice-platform.ts`: iOS, Android Chromium
     browsers, Android Firefox, which uses the phone's own engine, desktop).
+    **A voice that answers with an error on Android Chrome leads with restarting Chrome**, the
+    install steps below it (`VoiceHelp`'s `trouble`, `failed` vs `silent`): measured on a Galaxy
+    Tab, an update of Google's engine while Chrome runs leaves Chrome unbound from it for good
+    (`synthesis-failed` with every voice still listed, logcat `not bound to TTS engine`), and only
+    a Force stop of Chrome rebinds it; swiping the WebAPK away does not stop Chrome.
   - **The speed (0.75–2×, `tarfa.readAloudRate`) is the utterance's `rate`;** positions, the
     duration and the ±10 s skips are in seconds of the voice at 1× (as a video player counts),
     so a speed change never moves the clock; it restarts the sentence under way. Inside a

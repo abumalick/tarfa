@@ -2363,9 +2363,26 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       timer.timers.at(-1)!();
       expect(store.readAloud).toBeNull();
       expect(store.readAloudNotice).toContain('did not start');
-      expect(store.readAloudVoiceHelp).toBe(true);
+      expect(store.readAloudVoiceHelp).toBe('silent');
       store.dismissReadAloudNotice();
-      expect(store.readAloudVoiceHelp).toBe(false);
+      expect(store.readAloudVoiceHelp).toBe(null);
+    });
+
+    it('tells a voice that failed from one that stayed silent', () => {
+      let fail: ((code: string) => void) | undefined;
+      const port = {
+        speak: (_t: string, _v: unknown, on: { error: (code: string) => void }) => void (fail ??= on.error),
+        cancel: () => undefined,
+        unlock: () => undefined,
+      };
+      const { store, deliver } = buildKeyed({ speech: port });
+      store.open(ws);
+      store.setAgent('mac', { features: ['lastReply'] });
+      store.startReadAloud();
+      deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Broken.' });
+      fail!('synthesis-failed');
+      expect(store.readAloudNotice).toContain('synthesis-failed');
+      expect(store.readAloudVoiceHelp).toBe('failed');
     });
 
     it('offers no voice help for a reply that is missing', () => {
@@ -2376,7 +2393,7 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       store.startReadAloud();
       deliver({ type: 'lastReply', workspaceId: 'perch-a', text: null });
       expect(store.readAloudNotice).toBeTruthy();
-      expect(store.readAloudVoiceHelp).toBe(false);
+      expect(store.readAloudVoiceHelp).toBe(null);
     });
 
     it('reads at the chosen speed and keeps it', () => {

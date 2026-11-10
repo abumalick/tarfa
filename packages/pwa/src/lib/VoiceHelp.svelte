@@ -3,7 +3,11 @@
   import { msg } from '../i18n.svelte';
   import { GOOGLE_SPEECH_URL, type VoicePlatform } from './voice-platform';
 
-  let { platform, onClose }: { platform: VoicePlatform; onClose: () => void } = $props();
+  let { platform, trouble, onClose }: { platform: VoicePlatform; trouble: 'silent' | 'failed'; onClose: () => void } = $props();
+
+  // On Android Chrome a voice that answered with an error has its engine, so the install
+  // steps would send the user to the Play Store for an app they have.
+  const restart = $derived(platform === 'android-chrome' && trouble === 'failed');
 
   // Takes the focus from the terminal, so keys (Escape included) never reach the workspace.
   let done = $state<HTMLButtonElement>();
@@ -15,6 +19,14 @@
 <button type="button" class="scrim" aria-label={msg().readAloud.dismiss} onclick={onClose}></button>
 <div class="panel" role="dialog" aria-modal="true" aria-label={msg().readAloud.helpTitle} data-testid="voice-help">
   <h2>{msg().readAloud.helpTitle}</h2>
+  {#if restart}
+    <ol>
+      {#each msg().readAloud.restartSteps as step (step)}
+        <li>{step}</li>
+      {/each}
+    </ol>
+    <h3>{msg().readAloud.stillFailing}</h3>
+  {/if}
   <ol>
     {#each msg().readAloud.helpSteps[platform] as step (step)}
       <li>{step}</li>
@@ -53,6 +65,10 @@
   h2 {
     margin: 0 0 0.75rem;
     font-size: 1rem;
+  }
+  h3 {
+    margin: 0.25rem 0 0.5rem;
+    font-size: 0.9rem;
   }
   ol {
     margin: 0 0 0.75rem;
