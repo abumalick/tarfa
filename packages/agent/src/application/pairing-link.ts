@@ -1,5 +1,5 @@
 // `tarfa pair`: hand a phone what it needs to pair with this machine.
-import { isPairingPath, pairingLink, type AgentKeys } from '@tarfa/secure-channel';
+import { isMachineUrl, isPairingPath, MAX_ADDRESSES, pairingLink, type AgentKeys } from '@tarfa/secure-channel';
 import type { PairingStorePort } from '../ports/pairing-store-port';
 import { addPairing } from './pairing';
 
@@ -21,6 +21,14 @@ const GENERIC_MACHINE_IDS = new Set(['', 'local', 'localhost']);
 // that would name every machine alike, then the host name without its domain.
 export function pairingName(machineId: string, hostname: string): string {
   return GENERIC_MACHINE_IDS.has(machineId) ? hostname.split('.')[0]! : machineId;
+}
+
+// The phone addresses an accepted session names to the phone, which adopts each one it can
+// connect through: none unless the whole list is one a pairing link could carry, since saying
+// nothing changes nothing while a wrong list would be tried.
+export function announcedAddresses(phoneAddresses: string[]): string[] | undefined {
+  const valid = phoneAddresses.length > 0 && phoneAddresses.length <= MAX_ADDRESSES && phoneAddresses.every(isMachineUrl);
+  return valid ? phoneAddresses : undefined;
 }
 
 // `phoneUrls` are the addresses the phone tries, in order, each as the phone dials it.

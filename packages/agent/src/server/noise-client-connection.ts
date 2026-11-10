@@ -52,6 +52,8 @@ export interface NoiseClientConnectionOptions {
   startTimer?: (fn: () => void, ms: number) => () => void;
   // Named on the accepted authResult beside the protocol.
   agentVersion?: string;
+  // Where phones reach this agent (`announcedAddresses`), named on the accepted authResult too.
+  phoneAddresses?: string[];
 }
 
 type State =
@@ -115,7 +117,14 @@ export class NoiseClientConnection implements ClientConnection {
       return;
     }
     if (message.type === 'authResult' && message.ok) {
-      const accepted = { ...message, agent: { protocol: PROTOCOL_VERSION, ...(this.options.agentVersion ? { version: this.options.agentVersion } : {}), features: [AGENT_FEATURES.lastReply] } };
+      const { agentVersion, phoneAddresses } = this.options;
+      const agent = {
+        protocol: PROTOCOL_VERSION,
+        ...(agentVersion ? { version: agentVersion } : {}),
+        features: phoneAddresses ? [AGENT_FEATURES.lastReply, AGENT_FEATURES.addresses] : [AGENT_FEATURES.lastReply],
+        ...(phoneAddresses ? { addresses: phoneAddresses } : {}),
+      };
+      const accepted = { ...message, agent };
       message = accepted;
       if (!this.awaitingPhone) this.cancelDeadline();
       this.session.raiseCap(MAX_MESSAGE_BYTES);

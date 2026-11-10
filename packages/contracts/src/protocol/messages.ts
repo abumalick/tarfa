@@ -135,7 +135,7 @@ export type DetachReason = z.infer<typeof detachReasonSchema>;
 // it. Bumped only when a PWA must refuse an older agent.
 export const PROTOCOL_VERSION = 1;
 
-export const AGENT_FEATURES = { lastReply: 'lastReply' } as const;
+export const AGENT_FEATURES = { lastReply: 'lastReply', addresses: 'addresses' } as const;
 
 export const agentMessageSchema = z.discriminatedUnion('type', [
   // `credential` is what authenticated the session (`token` only from an agent from before token
@@ -151,8 +151,15 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
     pushed: z.literal(true).optional().catch(undefined),
     // `features` names what this agent answers beyond the protocol, so the PWA offers a control
     // only to an agent that supports it (a worktree agent shares a release's version number).
+    // `addresses`: where phones reach this agent now (its TARFA_PHONE_ADDRESSES), which a phone
+    // adopts only once it has connected through each one.
     agent: z
-      .object({ protocol: z.number().int(), version: z.string().optional(), features: z.array(z.string()).optional().catch(undefined) })
+      .object({
+        protocol: z.number().int(),
+        version: z.string().optional(),
+        features: z.array(z.string()).optional().catch(undefined),
+        addresses: z.array(z.string()).optional().catch(undefined),
+      })
       .optional()
       .catch(undefined),
   }),

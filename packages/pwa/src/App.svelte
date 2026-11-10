@@ -73,6 +73,7 @@
       if (visible) {
         store.refreshMachines();
         store.reconnectAll();
+        store.syncAddresses('visible');
       }
     };
     // Another page context of the app (a pairing link opened in a new window) changed the
@@ -86,6 +87,7 @@
     const onOnline = () => {
       store.logConnectivity('net-online');
       store.reconnectAll();
+      store.syncAddresses('network');
     };
     const onOffline = () => store.logConnectivity('net-offline');
     document.addEventListener('visibilitychange', onVisible);

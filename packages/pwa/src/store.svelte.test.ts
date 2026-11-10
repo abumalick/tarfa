@@ -103,6 +103,59 @@ function build(
 const agentKey = generateAgentKeys().x25519.publicKey;
 const mac = { id: 'mac', name: 'Mac', addresses: ['wss://mac'], agentKey };
 
+describe('TarfaStore addresses the agent names', () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const setup = (reachable: string[]) => {
+    const built = build([mac]);
+    const probed: string[][] = [];
+    built.manager.probe = async (config) => (probed.push(config.addresses), reachable.includes(config.addresses[0]!));
+    let writes = 0;
+    const write = built.storage.write;
+    built.storage.write = (k, v) => ((writes += k === 'tarfa.machines' ? 1 : 0), write(k, v));
+    built.store.start();
+    return { ...built, probed, writes: () => writes };
+  };
+  const online = (sockets: ReturnType<typeof build>['sockets'], url: string, addresses: string[]) => {
+    sockets[url]!.open();
+    sockets[url]!.deliver({ type: 'authResult', ok: true, agent: { protocol: 1, features: ['addresses'], addresses } });
+  };
+
+  it('adopts an address once it connects through it, and the session that write causes writes nothing', async () => {
+    const { store, sockets, probed, writes } = setup(['wss://funnel.example/']);
+    online(sockets, 'wss://mac', ['wss://mac', 'wss://funnel.example']);
+    await settle();
+    expect(probed).toEqual([['wss://funnel.example/']]);
+    expect(store.machines[0]!.addresses).toEqual(['wss://mac/', 'wss://funnel.example/']);
+    expect(writes()).toBe(1);
+    online(sockets, 'wss://mac/', ['wss://mac', 'wss://funnel.example']);
+    await settle();
+    expect(writes()).toBe(1);
+    expect(probed).toHaveLength(1);
+  });
+
+  it('keeps an address it cannot reach for the next network change, and writes nothing meanwhile', async () => {
+    const reachable: string[] = [];
+    const { store, sockets, probed, writes } = setup(reachable);
+    online(sockets, 'wss://mac', ['wss://mac', 'wss://tailnet.example']);
+    await settle();
+    expect(writes()).toBe(0);
+    reachable.push('wss://tailnet.example/');
+    store.syncAddresses('network');
+    await settle();
+    expect(probed).toHaveLength(2);
+    expect(store.machines[0]!.addresses).toEqual(['wss://mac/', 'wss://tailnet.example/']);
+  });
+
+  it('changes nothing for an agent that names no addresses', async () => {
+    const { store, sockets, probed } = setup([]);
+    sockets['wss://mac']!.open();
+    sockets['wss://mac']!.deliver({ type: 'authResult', ok: true, agent: { protocol: 1 } });
+    await settle();
+    expect(probed).toEqual([]);
+    expect(store.machines).toEqual([mac]);
+  });
+});
+
 describe('TarfaStore pairing', () => {
   const link = pairingLink('https://pwa.example', {
     urls: ['wss://box.example/abu'],
@@ -1806,6 +1859,21 @@ describe('TarfaStore update banner', () => {
     let reattached = 0;
     store.onReattach = () => (reattached += 1);
     store.setStatus('mac', 'offline');
+    store.setStatus('mac', 'connecting');
+    store.setStatus('mac', 'online');
+    expect(reattached).toBe(1);
+  });
+
+  // Rewriting an entry (an address adopted in the background) rebuilds its connection with no
+  // `offline` in between: the old session is gone all the same.
+  it('re-attaches the active terminal after its connection is rebuilt from online', () => {
+    const { store } = build([mac]);
+    store.start();
+    store.open(openWs);
+    let reattached = 0;
+    store.onReattach = () => (reattached += 1);
+    store.setStatus('mac', 'connecting');
+    store.setStatus('mac', 'online');
     store.setStatus('mac', 'connecting');
     store.setStatus('mac', 'online');
     expect(reattached).toBe(1);

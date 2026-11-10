@@ -187,6 +187,18 @@ describe('NoiseClientConnection', () => {
     ]);
   });
 
+  it('names the phone addresses and the addresses feature on the accepted authResult when it has them', async () => {
+    const socket = new FakeFrameSocket();
+    const gate = new FakeGate();
+    const conn = new NoiseClientConnection(socket, staticPrivate, { devices: gate, phoneAddresses: ['wss://a.example/x', 'wss://b.example'] });
+    const phone = await handshake(socket, gate);
+    conn.send({ type: 'authResult', ok: true });
+    const replies = socket.sent.slice(1).map((f) => phone.open(f)).filter((m): m is Uint8Array => m !== null);
+    expect(replies.map((m) => JSON.parse(new TextDecoder().decode(m)))).toEqual([
+      { type: 'authResult', ok: true, enrolled: true, agent: { protocol: 1, features: ['lastReply', 'addresses'], addresses: ['wss://a.example/x', 'wss://b.example'] } },
+    ]);
+  });
+
   it('reassembles a message larger than one frame', async () => {
     const { socket, conn, received, gate } = setup();
     const phone = await handshake(socket, gate);

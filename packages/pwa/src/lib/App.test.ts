@@ -29,7 +29,7 @@ function fakeStore(view: string) {
     open: vi.fn(), back: vi.fn(), goCreate: vi.fn(), goSettings: vi.fn(), goNewMachine: vi.fn(),
     addMachine: vi.fn(), removeMachine: vi.fn(), requestCreate: vi.fn(),
     attach: vi.fn(), sendInput: vi.fn(), resize: vi.fn(), closeActive: vi.fn(),
-    setKeyboardAnchor: vi.fn(), reconnectAll: vi.fn(), logConnectivity: vi.fn(),
+    setKeyboardAnchor: vi.fn(), reconnectAll: vi.fn(), syncAddresses: vi.fn(), logConnectivity: vi.fn(),
     refreshMachines: vi.fn(), openPairingLink: vi.fn((href: string) => href.includes('#pair?')),
     unattachedBrowserSessions: () => [] as { connectionId: string; name: string }[],
     openBrowserView: vi.fn(),
@@ -103,6 +103,7 @@ describe('App', () => {
     render(App, { props: { store: store as never } });
     document.dispatchEvent(new Event('visibilitychange'));
     expect(store.reconnectAll).toHaveBeenCalled();
+    expect(store.syncAddresses).toHaveBeenCalledWith('visible');
   });
 
   it('re-reads the machine entries when another page context of the app changes them, or on return', () => {
@@ -133,6 +134,7 @@ describe('App', () => {
     render(App, { props: { store: store as never } });
     window.dispatchEvent(new Event('online'));
     expect(store.reconnectAll).toHaveBeenCalled();
+    expect(store.syncAddresses).toHaveBeenCalledWith('network');
   });
 
   it('removes the reconnect listeners on unmount', () => {

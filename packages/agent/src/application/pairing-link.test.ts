@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateAgentKeys, parsePairingLink } from '@tarfa/secure-channel';
 import type { PairingStorePort } from '../ports/pairing-store-port';
-import { mintPairingLink, pairingName, type PairingDeps } from './pairing-link';
+import { announcedAddresses, mintPairingLink, pairingName, type PairingDeps } from './pairing-link';
 import { PAIRING_TTL_MS, type Pairing } from './pairing';
 
 const NOW = new Date('2026-09-26T12:00:00.000Z');
@@ -63,5 +63,17 @@ describe('pairingName', () => {
     expect(pairingName('local', 'box.example.net')).toBe('box');
     expect(pairingName('localhost', 'box')).toBe('box');
     expect(pairingName('', 'box')).toBe('box');
+  });
+});
+
+describe('announcedAddresses', () => {
+  it('announces the phone addresses a pairing link could carry, in order', () => {
+    expect(announcedAddresses(['wss://a.example/x', 'wss://b.example'])).toEqual(['wss://a.example/x', 'wss://b.example']);
+  });
+
+  it('announces nothing for a list `tarfa pair` would refuse', () => {
+    expect(announcedAddresses([])).toBeUndefined();
+    expect(announcedAddresses(['wss://a.example', 'http://b.example'])).toBeUndefined();
+    expect(announcedAddresses(['wss://a.example', 'wss://b.example', 'wss://c.example', 'wss://d.example', 'wss://e.example'])).toBeUndefined();
   });
 });

@@ -52,6 +52,7 @@ import { ensureUtf8Locale } from './infrastructure/ensure-utf8-locale';
 import { locateAgentEnv } from './infrastructure/agent-env-file';
 import { resolveCodexHome } from './infrastructure/codex-home';
 import { isEntrypoint, packageVersion } from './infrastructure/package-root';
+import { announcedAddresses } from './application/pairing-link';
 
 const ROSTER_POLL_MS = 3000;
 const agentVersion = packageVersion();
@@ -159,6 +160,7 @@ export async function main(): Promise<void> {
     log,
     rosterPollMs: ROSTER_POLL_MS,
     agentVersion,
+    phoneAddresses: announcedAddresses(config.phoneAddresses),
   });
   // A port another agent on this machine already holds (a second Linux user left on the default)
   // must not crash-loop this one: it goes on without its phone port, and says so.

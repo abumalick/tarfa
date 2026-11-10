@@ -269,6 +269,23 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     and applies at once. A link naming an address another key's entry
     holds is refused (`pairedMachine`), since it could point that entry elsewhere. IK pins the
     key, so a forged link can only redirect, never impersonate.
+  - **An entry's addresses follow its agent, one proven address at a time** (`core/address-sync.ts`).
+    Every accepted `authResult` names `agent.addresses` (the agent's `TARFA_PHONE_ADDRESSES`,
+    `announcedAddresses`: omitted unless `tarfa pair` would accept the whole list, so a missing or
+    empty list changes nothing) with the `addresses` feature. A listed address the entry lacks is
+    a candidate, dialed alone through `ConnectionManager.probe` with no pairing code, and adopted only
+    if it connects; one another key's entry holds is never a candidate. The entry becomes the
+    listed addresses first (agent's order, held or proven), then the unlisted held ones: **never
+    dropped on the agent's word**, only demoted, since a wrong list (a tailnet-only one) must not
+    strand a phone off the tailnet; an unlisted one leaves the tail only when a proven address
+    needs the slot (cap 4), and Settings removes one by hand. A round is single-flight per machine,
+    probes one candidate at a time and writes at most once, and only when the normalized list
+    changes (a write reconnects). Triggers: each session (after its handler, never inside it), the
+    browser's `online` and the app's foreground. **A failed candidate is kept in memory** (the agent
+    names it again every session) and is not dialed again by a session, by a foreground before
+    `FAILED_RETRY_MS` (5 min), only by `online` at once: no timer, no loop. A rebuilt connection
+    goes `online` → `connecting` with no `offline`, which the store counts as a drop, so the open
+    terminal re-attaches.
   - **One attempt walks the addresses inside the single connect chain** (`MachineConnection`,
     with the `generation` token as before), starting with the one that last reached `online` in
     this app session. The connection manager keeps that memory: a machine-list change rebuilds

@@ -31,6 +31,19 @@ describe('session channels on the wire', () => {
     expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1.5 } })).toEqual({ type: 'authResult', ok: true });
   });
 
+  it('keeps the addresses an agent names, and drops a malformed list without losing the rest', () => {
+    expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1, version: '1.2.3', addresses: ['wss://a.example'] } })).toEqual({
+      type: 'authResult',
+      ok: true,
+      agent: { protocol: 1, version: '1.2.3', addresses: ['wss://a.example'] },
+    });
+    expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1, version: '1.2.3', features: ['lastReply'], addresses: [1] } })).toEqual({
+      type: 'authResult',
+      ok: true,
+      agent: { protocol: 1, version: '1.2.3', features: ['lastReply'] },
+    });
+  });
+
   it('keeps the features an agent names, and drops a malformed list without losing the rest', () => {
     expect(parseAgentMessage({ type: 'authResult', ok: true, agent: { protocol: 1, version: '1.2.3', features: ['lastReply'] } })).toEqual({
       type: 'authResult',

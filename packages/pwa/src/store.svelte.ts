@@ -47,6 +47,7 @@ import { bytesToBase64 } from './core/base64';
 import { language, msg, setLanguage } from './i18n.svelte';
 import { ReadAloud, type ReadAloudState } from './core/read-aloud';
 import { replyLanguage } from './core/reply-language';
+import { AddressSync } from './core/address-sync';
 import type { SpeechPort } from './core/ports/speech';
 
 function phoneLanguages(): readonly string[] {
@@ -289,6 +290,13 @@ export class TarfaStore {
   // Machines seen offline since they were last online. Lets setStatus fire onReattach only on
   // a real drop-and-recover, not on the first connect (which has nothing stale to re-attach).
   private disconnected = new Set<string>();
+  // Adopts the addresses each agent names on its authResult, once each has connected.
+  private readonly addressSync = new AddressSync({
+    machines: () => this.deps.settings.list(),
+    probe: (config) => this.deps.manager.probe(config),
+    write: (config) => this.updateMachine(config.id, { addresses: config.addresses }),
+    now: () => Date.now(),
+  });
   // What each machine's agent says it answers beyond the protocol (authResult `features`).
   private agentFeatures = $state<Record<string, string[]>>({});
   // The open read-aloud player, mirrored from `readAloudPlayer` (null when closed).
@@ -428,12 +436,16 @@ export class TarfaStore {
     this.machines = this.deps.settings.list();
   }
 
-  setAgent(machineId: string, agent: { version?: string; features?: string[] } | undefined): void {
+  setAgent(machineId: string, agent: { version?: string; features?: string[]; addresses?: string[] } | undefined): void {
+    this.addressSync.announce(machineId, agent?.addresses);
+    void this.addressSync.run(machineId, 'session');
     this.agentFeatures = { ...this.agentFeatures, [machineId]: agent?.features ?? [] };
     this.agentTooOld = { ...this.agentTooOld, [machineId]: agentTooOld(agent?.version, this.deps.minAgentVersion ?? MIN_AGENT_VERSION) };
   }
 
   setStatus(machineId: string, status: ConnectionStatus): void {
+    // A connection rebuilt while online (its entry rewritten) says no `offline` first.
+    if (status === 'connecting' && this.statuses[machineId] === 'online') this.disconnected.add(machineId);
     this.statuses[machineId] = status;
     if (status === 'connecting') {
       this.deps.connectionLog?.push(machineId, 'connect');
@@ -465,6 +477,12 @@ export class TarfaStore {
       }
     }
     this.recomputeGrace();
+  }
+
+  // The app came back to the foreground, or the browser regained the network: a moment the
+  // phone may reach an address it could not before (Tailscale switched on).
+  syncAddresses(trigger: 'visible' | 'network'): void {
+    void this.addressSync.runAll(trigger);
   }
 
   // Reconnect every enabled machine that is idle-offline (the home Reconnect button, plus app

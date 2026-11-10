@@ -112,6 +112,8 @@ export interface FakeAgent {
   claudeVoice: boolean;
   // Claude's last reply per workspace id, as the agent keeps it from the Stop hook (mutable).
   lastReplies: Record<string, string>;
+  // The TARFA_PHONE_ADDRESSES an accepted session names (mutable; none until a spec sets them).
+  phoneAddresses: string[] | undefined;
   close: () => Promise<void>;
 }
 
@@ -166,6 +168,7 @@ export async function startFakeAgent(
   const pairings = new FilePairingStore(join(home, 'pairing.json'));
   let upgrades = 0;
   let claudeVoice = false;
+  let phoneAddresses: string[] | undefined;
   const lastReplies: Record<string, string> = {};
   const sessions = new Set<NoiseClientConnection>();
   {
@@ -471,7 +474,18 @@ export async function startFakeAgent(
       },
       broadcastDeviceEnrolled() {},
     };
-    const gate = startDeviceGate({ keys, server, store, pairings, log: () => undefined, rosterPollMs: 60_000 });
+    // Read at each socket, as a spec may set the addresses once the port is known.
+    const gate = startDeviceGate({
+      keys,
+      server,
+      store,
+      pairings,
+      log: () => undefined,
+      rosterPollMs: 60_000,
+      get phoneAddresses() {
+        return phoneAddresses;
+      },
+    });
     const listener = await startPhoneListener({
       port: 0,
       gate,
@@ -494,6 +508,12 @@ export async function startFakeAgent(
       },
       get claudeVoice() {
         return claudeVoice;
+      },
+      get phoneAddresses() {
+        return phoneAddresses;
+      },
+      set phoneAddresses(list: string[] | undefined) {
+        phoneAddresses = list;
       },
       set claudeVoice(on: boolean) {
         claudeVoice = on;
