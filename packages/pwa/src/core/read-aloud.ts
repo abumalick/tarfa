@@ -9,7 +9,8 @@ export const CHARS_PER_SECOND = 15;
 // utterance after a browser start waits on the speech engine's own start (measured: 4.2 s).
 export const START_TIMEOUT_MS = 12_000;
 
-export type ReadAloudState = 'idle' | 'playing' | 'paused' | 'ended';
+// `loading`: the ElevenLabs player waiting for its clip (the device voice never is).
+export type ReadAloudState = 'idle' | 'loading' | 'playing' | 'paused' | 'ended';
 
 // The speeds the player offers; 1 is the voice's own.
 export const READ_ALOUD_RATES = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;

@@ -43,6 +43,8 @@ function fakeStore(view: string) {
     deviceNotices: [],
     dismissDeviceNotice: vi.fn(),
     dictationKeySources: () => [] as string[],
+    readAloudVoice: { source: 'device', voice: null },
+    elevenLabsCatalogMachine: null,
   };
 }
 

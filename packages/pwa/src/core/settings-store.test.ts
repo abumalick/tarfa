@@ -71,6 +71,14 @@ describe('SettingsStore', () => {
     expect(store.readAloudRate()).toBe(1);
   });
 
+  it('keeps the read-aloud voice, the device one until another is picked', () => {
+    const storage = memStorage();
+    const store = new SettingsStore(storage);
+    expect(store.readAloudVoice()).toEqual({ source: 'device', voice: null });
+    store.setReadAloudVoice({ source: 'elevenlabs', voice: { id: 'v1', name: 'Ann' } });
+    expect(new SettingsStore(storage).readAloudVoice()).toEqual({ source: 'elevenlabs', voice: { id: 'v1', name: 'Ann' } });
+  });
+
   it('follows the phone language until one is picked, and persists the pick', () => {
     const storage = memStorage();
     expect(new SettingsStore(storage).languageChoice()).toBe('auto');

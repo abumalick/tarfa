@@ -1,5 +1,6 @@
 import type { StoragePort } from './ports/storage';
 import { READ_ALOUD_RATES } from './read-aloud';
+import { parseReadAloudVoice, type ReadAloudVoiceChoice } from './read-aloud-voice';
 import type { FilterMode } from './project-folders';
 import { parseAgentKey } from './agent-key';
 import { normalizeAddress } from './machine-addresses';
@@ -42,6 +43,7 @@ const TERMINAL_FONT_SIZE_KEY = 'tarfa.terminalFontSize';
 const SHARE_LINKS_KEY = 'tarfa.shareLinks';
 const GROUP_BY_PROJECT_KEY = 'tarfa.groupByProject';
 const READ_ALOUD_RATE_KEY = 'tarfa.readAloudRate';
+const READ_ALOUD_VOICE_KEY = 'tarfa.readAloudVoice';
 const LANGUAGE_KEY = 'tarfa.language';
 // Read by no build since dictation keys moved to the machines; only deleted.
 const ELEVENLABS_API_KEY = 'tarfa.elevenLabsApiKey';
@@ -209,6 +211,15 @@ export class SettingsStore {
 
   setReadAloudRate(rate: number): void {
     this.storage.write(READ_ALOUD_RATE_KEY, String(rate));
+  }
+
+  // Which voice reads a reply: the phone's, or ElevenLabs with the voice picked in Settings.
+  readAloudVoice(): ReadAloudVoiceChoice {
+    return parseReadAloudVoice(this.storage.read(READ_ALOUD_VOICE_KEY));
+  }
+
+  setReadAloudVoice(choice: ReadAloudVoiceChoice): void {
+    this.storage.write(READ_ALOUD_VOICE_KEY, JSON.stringify(choice));
   }
 
   // The app's language; unset (or unknown) follows the phone.

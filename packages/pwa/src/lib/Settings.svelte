@@ -10,6 +10,7 @@
   import PairMachine from './PairMachine.svelte';
   import MachineDetail from './MachineDetail.svelte';
   import DictationPresets from './DictationPresets.svelte';
+  import ReadAloudVoices from './ReadAloudVoices.svelte';
   import { PROVIDER_NAMES } from '../core/dictation-setup';
   import { STATUS_LABEL, describeConnectionError } from './machine-status';
   import { isAndroid } from './android-input';
@@ -188,6 +189,8 @@
       <p class="hint">{msg().settings.presetsHint}</p>
       <DictationPresets {store} />
     </div>
+
+    <ReadAloudVoices {store} />
 
     {#if canShareLinks}
       <p class="group">{msg().settings.terminalLinks}</p>

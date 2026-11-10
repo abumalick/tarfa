@@ -51,6 +51,18 @@ import { ReadAloud, type ReadAloudState } from './core/read-aloud';
 import { replyLanguage } from './core/reply-language';
 import { AddressSync } from './core/address-sync';
 import type { SpeechPort } from './core/ports/speech';
+import type { AudioOutput } from './core/ports/audio-output';
+import type { ListedVoice, TextToSpeech, VoiceCatalog } from './core/ports/text-to-speech';
+import { AudioReadAloud, type AudioReadAloudFailure } from './core/audio-read-aloud';
+import {
+  DEFAULT_ELEVENLABS_VOICE,
+  DEFAULT_READ_ALOUD_VOICE,
+  effectiveSource,
+  elevenLabsVoice,
+  type ElevenLabsVoice,
+  type ReadAloudSource,
+  type ReadAloudVoiceChoice,
+} from './core/read-aloud-voice';
 
 function phoneLanguages(): readonly string[] {
   return globalThis.navigator?.languages ?? [];
@@ -237,6 +249,8 @@ export class TarfaStore {
   addingPreset = $state(false);
   // The machine page, and its key field, Settings opens from the mic's setup explanation.
   dictationKeyFocus = $state<{ machineId: string; provider: DictationProvider } | null>(null);
+  // Set by the 🔊 menu's "Choose a voice…": Settings scrolls to its read-aloud section.
+  readAloudFocus = $state(false);
   // What became of the last key each machine page sent, per machine and provider.
   dictationKeySaves = $state<Record<string, Partial<Record<DictationProvider, DictationKeySave>>>>({});
   // Project-folder filter on the home list, persisted via settings (loaded in start()).
@@ -320,7 +334,12 @@ export class TarfaStore {
   // any other failure, which the install steps cover.
   readAloudVoiceHelp = $state<'silent' | 'failed' | null>(null);
   readAloudRate = $state(1);
+  // Which voice reads, as picked (the badge shows `readAloudSource`, what a tap will use).
+  readAloudVoice = $state<ReadAloudVoiceChoice>(DEFAULT_READ_ALOUD_VOICE);
   private readonly readAloudPlayer: ReadAloud | null = null;
+  private readonly audioPlayer: AudioReadAloud | null = null;
+  // The reading under way: which player, and its text, for falling back to the phone's voice.
+  private reading: { with: ReadAloudSource; text: string; lang: string } | null = null;
   private pendingReply: { machineId: string; workspaceId: string; cancel: () => void } | null = null;
   // Push-to-talk dictation state, mirrored from the SpeechToText controller for the UI.
   dictationState = $state<DictationState>('idle');
@@ -362,6 +381,9 @@ export class TarfaStore {
       logMeta?: { ua?: string; shell?: string };
       // The phone's own voice, for reading replies aloud; absent where the browser has none.
       speech?: SpeechPort | null;
+      // ElevenLabs reading: the provider and the <audio> element it plays through.
+      tts?: (TextToSpeech & VoiceCatalog) | null;
+      audio?: AudioOutput | null;
       // The oldest agent version this app accepts without a notice; tests inject their own.
       minAgentVersion?: string;
       // Milliseconds since the app was launched (navigation start); logged once as `boot` when
@@ -390,6 +412,18 @@ export class TarfaStore {
           this.readAloudPlayer?.stop();
           this.readAloudNotice = code === 'no-start' ? msg().readAloud.voiceSilent : msg().readAloud.voiceFailed(code);
           this.readAloudVoiceHelp = code === 'synthesis-failed' ? 'failed' : 'silent';
+        },
+      });
+    }
+    if (deps.tts && deps.audio) {
+      this.audioPlayer = new AudioReadAloud(deps.tts, deps.audio, () => this.syncReadAloud(), {
+        tick: (fn, ms) => {
+          const id = setInterval(fn, ms);
+          return () => clearInterval(id);
+        },
+        onError: (kind) => this.elevenLabsFailed(kind),
+        onVoiceGone: () => {
+          this.readAloudNotice = msg().readAloud.voiceGone(elevenLabsVoice(this.readAloudVoice).name, DEFAULT_ELEVENLABS_VOICE.name);
         },
       });
     }
@@ -427,6 +461,8 @@ export class TarfaStore {
     this.groupByProject = this.deps.settings.groupByProject();
     this.readAloudRate = this.deps.settings.readAloudRate();
     this.readAloudPlayer?.setRate(this.readAloudRate);
+    this.audioPlayer?.setRate(this.readAloudRate);
+    this.readAloudVoice = this.deps.settings.readAloudVoice();
     this.languageChoice = this.deps.settings.languageChoice();
     setLanguage(resolveLanguage(this.languageChoice, phoneLanguages()));
     this.terminalFontSize = this.deps.settings.terminalFontSize();
@@ -631,7 +667,7 @@ export class TarfaStore {
         pending.cancel();
         this.pendingReply = null;
         if (message.text === null) this.readAloudNotice = msg().readAloud.nothingToRead;
-        else this.readAloudPlayer?.start(message.text, replyLanguage(message.text, language()));
+        else this.readReply(message.text, replyLanguage(message.text, language()));
         return;
       }
       case 'detached':
@@ -966,7 +1002,31 @@ export class TarfaStore {
 
   get canReadAloud(): boolean {
     const active = this.active;
-    return !!this.readAloudPlayer && !!active && runsClaude(active.command) && (this.agentFeatures[active.machineId] ?? []).includes(AGENT_FEATURES.lastReply);
+    const canSpeak = !!this.readAloudPlayer || this.readAloudSource === 'elevenlabs';
+    return canSpeak && !!active && runsClaude(active.command) && (this.agentFeatures[active.machineId] ?? []).includes(AGENT_FEATURES.lastReply);
+  }
+
+  // What a 🔊 tap reads with now: ElevenLabs only when picked and the attached machine holds a key.
+  get readAloudSource(): ReadAloudSource {
+    return effectiveSource(this.readAloudVoice, !!this.audioPlayer && !!this.dictationKey('elevenlabs'));
+  }
+
+  // Whether the 🔊 menu may offer ElevenLabs at all (the browser can play its audio).
+  get canReadWithElevenLabs(): boolean {
+    return !!this.audioPlayer;
+  }
+
+  setReadAloudSource(source: ReadAloudSource): void {
+    this.saveReadAloudVoice({ ...this.readAloudVoice, source });
+  }
+
+  setElevenLabsVoice(voice: ElevenLabsVoice | null): void {
+    this.saveReadAloudVoice({ ...this.readAloudVoice, voice });
+  }
+
+  private saveReadAloudVoice(choice: ReadAloudVoiceChoice): void {
+    this.readAloudVoice = choice;
+    this.deps.settings.setReadAloudVoice(choice);
   }
 
   // Asks the active workspace's agent for Claude's last reply, which the player reads once it
@@ -975,8 +1035,9 @@ export class TarfaStore {
     const active = this.active;
     if (!this.canReadAloud || !active) return;
     this.closeReadAloud();
-    // After the close, whose cancel would drop it.
+    // After the close, whose cancel would drop it. Both voices: the phone's is the fallback.
     this.deps.speech?.unlock();
+    if (this.readAloudSource === 'elevenlabs') this.deps.audio?.unlock();
     const cancel = this.startTimer(() => {
       this.pendingReply = null;
       this.readAloudNotice = msg().readAloud.noAnswer;
@@ -985,25 +1046,58 @@ export class TarfaStore {
     this.send(active.machineId, { type: 'lastReply', workspaceId: active.id });
   }
 
+  // The key is read once, here: nothing after the request needs it, so a reading goes on when the
+  // machine drops and its keys with it.
+  private readReply(text: string, lang: string): void {
+    const key = this.dictationKey('elevenlabs');
+    if (this.readAloudSource === 'elevenlabs' && this.audioPlayer && key) {
+      this.reading = { with: 'elevenlabs', text, lang };
+      this.audioPlayer.start(text, lang, { key, voice: elevenLabsVoice(this.readAloudVoice) });
+      return;
+    }
+    this.reading = { with: 'device', text, lang };
+    this.readAloudPlayer?.start(text, lang);
+  }
+
+  private elevenLabsFailed(kind: AudioReadAloudFailure): void {
+    const reading = this.reading;
+    const reason = msg().readAloud.failures[kind];
+    if (!this.readAloudPlayer || !reading) {
+      this.reading = null;
+      this.readAloudNotice = msg().readAloud.elevenLabsFailedAlone(reason);
+      return;
+    }
+    this.reading = { ...reading, with: 'device' };
+    this.readAloudNotice = msg().readAloud.elevenLabsFailed(reason);
+    this.readAloudPlayer.start(reading.text, reading.lang);
+  }
+
+  private get currentPlayer(): ReadAloud | AudioReadAloud | null {
+    return this.reading?.with === 'elevenlabs' ? this.audioPlayer : this.readAloudPlayer;
+  }
+
   toggleReadAloud(): void {
-    this.readAloudPlayer?.toggle();
+    this.currentPlayer?.toggle();
   }
 
   setReadAloudRate(rate: number): void {
     this.readAloudRate = rate;
     this.deps.settings.setReadAloudRate(rate);
     this.readAloudPlayer?.setRate(rate);
+    this.audioPlayer?.setRate(rate);
   }
 
   skipReadAloud(seconds: number): void {
-    this.readAloudPlayer?.skip(seconds);
+    this.currentPlayer?.skip(seconds);
   }
 
   closeReadAloud(): void {
     this.cancelPendingReply();
     this.readAloudNotice = null;
     this.readAloudVoiceHelp = null;
+    this.reading = null;
     if (this.readAloudPlayer && this.readAloudPlayer.state !== 'idle') this.readAloudPlayer.stop();
+    if (this.audioPlayer && this.audioPlayer.state !== 'idle') this.audioPlayer.stop();
   }
 
   private cancelPendingReply(): void {
@@ -1017,8 +1111,42 @@ export class TarfaStore {
   }
 
   private syncReadAloud(): void {
-    const player = this.readAloudPlayer;
+    const player = this.currentPlayer;
     this.readAloud = !player || player.state === 'idle' ? null : { state: player.state, position: player.position, duration: player.duration };
+  }
+
+  // The ElevenLabs account Settings lists voices from: the open workspace's machine if it holds a
+  // key, else the first machine that does. Listing spends no credit, so no billing rule is at stake.
+  private catalogKey(): { key: string; machine: string } | null {
+    const active = this.active ? this.machines.find((m) => m.id === this.active!.machineId) : undefined;
+    const candidates = active ? [active, ...this.machines] : this.machines;
+    for (const m of candidates) {
+      const key = this.agentDictationKeys[m.id]?.elevenlabs;
+      if (key) return { key, machine: m.name };
+    }
+    return null;
+  }
+
+  get elevenLabsCatalogMachine(): string | null {
+    return this.catalogKey()?.machine ?? null;
+  }
+
+  async listElevenLabsVoices(signal?: AbortSignal): Promise<ListedVoice[]> {
+    const source = this.catalogKey();
+    if (!source || !this.deps.tts) return [];
+    return this.deps.tts.listVoices(source.key, signal);
+  }
+
+  previewElevenLabsVoice(url: string, signal?: AbortSignal): Promise<Blob> {
+    if (!this.deps.tts) return Promise.reject(new Error('no ElevenLabs'));
+    return this.deps.tts.preview(url, signal);
+  }
+
+  // From the 🔊 menu: Settings, at its read-aloud section.
+  openReadAloudSettings(): void {
+    this.back();
+    this.readAloudFocus = true;
+    this.view = 'settings';
   }
 
   back(): void {

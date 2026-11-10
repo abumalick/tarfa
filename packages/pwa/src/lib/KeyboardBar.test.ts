@@ -564,3 +564,70 @@ describe('KeyboardBar in French', () => {
     expect(screen.getByRole('button', { name: 'Coller' })).toBeInTheDocument();
   });
 });
+
+describe('KeyboardBar read-aloud voices', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const speaker = () => screen.getByRole('button', { name: 'Listen to the last reply' });
+  const menu = () => screen.queryByRole('listbox', { name: 'Read aloud with' });
+  const model = { source: 'elevenlabs' as const, voiceName: 'George', elevenLabsMissing: null };
+
+  it('reads on a tap, from its click', async () => {
+    const onReadAloud = vi.fn();
+    render(KeyboardBar, { props: { ...base, onReadAloud, readAloudMenu: model, readAloudBadge: 'EL' } });
+    pointer(speaker(), 'pointerdown', 100, 100);
+    pointer(speaker(), 'pointerup', 100, 100);
+    expect(onReadAloud).not.toHaveBeenCalled();
+    await fireEvent.click(speaker());
+    expect(onReadAloud).toHaveBeenCalledTimes(1);
+    expect(speaker()).toHaveTextContent('EL');
+  });
+
+  it('opens the voices on a long press, without reading', async () => {
+    const onReadAloud = vi.fn();
+    render(KeyboardBar, { props: { ...base, onReadAloud, readAloudMenu: model } });
+    pointer(speaker(), 'pointerdown', 100, 100);
+    await vi.advanceTimersByTimeAsync(HOLD_MS);
+    pointer(speaker(), 'pointerup', 100, 100);
+    await fireEvent.click(speaker());
+    expect(menu()).toBeInTheDocument();
+    expect(onReadAloud).not.toHaveBeenCalled();
+    // The next tap reads again.
+    pointer(speaker(), 'pointerdown', 100, 100);
+    await fireEvent.click(speaker());
+    expect(onReadAloud).toHaveBeenCalledTimes(1);
+  });
+
+  it('picks a voice from the menu', async () => {
+    const onSelectReadAloud = vi.fn();
+    render(KeyboardBar, { props: { ...base, onReadAloud: vi.fn(), readAloudMenu: model, onSelectReadAloud } });
+    pointer(speaker(), 'pointerdown', 100, 100);
+    await vi.advanceTimersByTimeAsync(HOLD_MS);
+    await fireEvent.click(screen.getByRole('option', { name: /Device voice/ }));
+    expect(onSelectReadAloud).toHaveBeenCalledWith('device');
+    expect(menu()).toBeNull();
+  });
+
+  it('disables ElevenLabs without a key, saying why, and offers to add one', async () => {
+    const onSetElevenLabsKey = vi.fn();
+    render(KeyboardBar, {
+      props: { ...base, onReadAloud: vi.fn(), readAloudMenu: { ...model, source: 'device', elevenLabsMissing: 'No key here' }, onSetElevenLabsKey },
+    });
+    pointer(speaker(), 'pointerdown', 100, 100);
+    await vi.advanceTimersByTimeAsync(HOLD_MS);
+    expect(screen.getByRole('option', { name: /ElevenLabs · George/ })).toBeDisabled();
+    expect(screen.getByText('No key here')).toBeInTheDocument();
+    expect(screen.getByText(/charges credits/)).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Add an ElevenLabs key' }));
+    expect(onSetElevenLabsKey).toHaveBeenCalled();
+  });
+
+  it('has no menu and no badge where ElevenLabs cannot play', async () => {
+    render(KeyboardBar, { props: { ...base, onReadAloud: vi.fn(), readAloudBadge: '📱' } });
+    pointer(speaker(), 'pointerdown', 100, 100);
+    await vi.advanceTimersByTimeAsync(HOLD_MS);
+    expect(menu()).toBeNull();
+    expect(speaker()).toHaveTextContent(/^🔊$/);
+  });
+});

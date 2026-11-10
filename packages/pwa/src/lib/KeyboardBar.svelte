@@ -3,7 +3,7 @@
   // for the keyboard bar's scroll-vs-type ambiguity: lower rejects more genuine taps, higher
   // lets more scroll gestures type. 10px is the usual touch slop.
   export const TAP_SLOP_PX = 10;
-  // How long the mic must be held to open the dictation presets instead of recording.
+  // How long the mic (or 🔊) must be held to open its menu instead of acting.
   export const HOLD_MS = 500;
 </script>
 
@@ -27,6 +27,8 @@
   import { startKeyRepeat } from '../core/key-repeat';
   import { startGesture, moveGesture, type PadState, type PadDirection } from '../core/cursor-pad';
   import DictationMenu from './DictationMenu.svelte';
+  import ReadAloudMenu, { type ReadAloudMenuModel } from './ReadAloudMenu.svelte';
+  import type { ReadAloudSource } from '../core/read-aloud-voice';
   import { msg } from '../i18n.svelte';
   import { currentPreset, hasUsablePreset, type DictationPreset, type PresetKeys } from '../core/dictation-presets';
 
@@ -45,6 +47,11 @@
     onSetupDictation,
     onPickFile,
     onReadAloud,
+    readAloudBadge,
+    readAloudMenu,
+    onSelectReadAloud = () => {},
+    onSetElevenLabsKey = () => {},
+    onChooseVoice = () => {},
     ctrl = $bindable('off'),
     alt = $bindable('off'),
     meta = $bindable('off'),
@@ -68,6 +75,12 @@
     onPickFile?: (file: File) => void;
     // Shown only when the attached machine's agent can send the last reply (see store.canReadAloud).
     onReadAloud?: () => void;
+    // What a 🔊 tap reads with, and the long press's voice menu (absent: no menu).
+    readAloudBadge?: string;
+    readAloudMenu?: ReadAloudMenuModel;
+    onSelectReadAloud?: (source: ReadAloudSource) => void;
+    onSetElevenLabsKey?: () => void;
+    onChooseVoice?: () => void;
     ctrl?: ModifierState;
     alt?: ModifierState;
     meta?: ModifierState;
@@ -160,6 +173,18 @@
   let mic = $state<HTMLButtonElement | null>(null);
   let presetAnchor = $state<{ bottom: number; right: number } | null>(null);
 
+  // The 🔊 acts on its click, the event its iOS unlock was proven on; a hold opens the menu and
+  // swallows the click that may follow. Reset on the next press, since iOS may send none.
+  let speaker = $state<HTMLButtonElement | null>(null);
+  let voiceAnchor = $state<{ bottom: number; right: number } | null>(null);
+  let voiceHeld = false;
+  function openVoices() {
+    const rect = speaker?.getBoundingClientRect();
+    if (!rect) return;
+    voiceHeld = true;
+    voiceAnchor = { bottom: window.innerHeight - rect.top + 4, right: Math.max(4, window.innerWidth - rect.right) };
+  }
+
   function openPresets() {
     const rect = mic?.getBoundingClientRect();
     if (!menuPreset || !rect) return;
@@ -179,7 +204,8 @@
   // usually a scroll, and a keystroke already on the wire cannot be taken back. Any
   // travel past TAP_SLOP_PX — or a `pointercancel`, which is what WebKit sends (often
   // with no pointermove at all) once its scroller claims the gesture — cancels the key.
-  // With `hold`, keeping the key down for HOLD_MS calls it instead of `fire`.
+  // With `hold`, keeping the key down for HOLD_MS calls it instead of `fire`; a key with a
+  // `hold` and no `fire` keeps acting on its own click.
   type PressParams = { fire?: () => void; repeat?: boolean; hold?: () => void };
   function press(node: HTMLElement, params: PressParams = {}) {
     let current = params;
@@ -190,11 +216,11 @@
     const arm = (e: Event) => {
       e.preventDefault();
       node.classList.add('pressed');
-      if (!current.fire) return;
+      if (!current.fire && !current.hold) return;
       const { clientX, clientY } = e as PointerEvent;
       origin = { x: clientX, y: clientY };
       fired = false;
-      suppressClick = true;
+      if (current.fire) suppressClick = true;
       if (current.hold) {
         holdTimer = setTimeout(() => {
           fired = true;
@@ -348,7 +374,32 @@
     >{dictation === 'transcribing' ? '⏳' : dictation === 'error' ? '⚠️' : '🎤'}{#if preset}<span class="badge" aria-hidden="true">{preset.badge}</span>{/if}</button>
   {/if}
   {#if onReadAloud}
-    <button type="button" aria-label={msg().readAloud.listen} use:press onclick={() => onReadAloud()}>🔊</button>
+    <button
+      type="button"
+      class="speaker"
+      aria-label={msg().readAloud.listen}
+      bind:this={speaker}
+      use:press={{ hold: readAloudMenu ? openVoices : undefined }}
+      oncontextmenu={(e) => e.preventDefault()}
+      onpointerdown={() => (voiceHeld = false)}
+      onclick={() => {
+        if (voiceHeld) {
+          voiceHeld = false;
+          return;
+        }
+        onReadAloud();
+      }}
+      >🔊{#if readAloudBadge && readAloudMenu}<span class="badge" aria-hidden="true">{readAloudBadge}</span>{/if}</button>
+  {/if}
+  {#if voiceAnchor && readAloudMenu}
+    <ReadAloudMenu
+      model={readAloudMenu}
+      anchor={voiceAnchor}
+      onSelect={onSelectReadAloud}
+      onSetKey={onSetElevenLabsKey}
+      onChooseVoice={onChooseVoice}
+      onClose={() => (voiceAnchor = null)}
+    />
   {/if}
   {#if presetAnchor && menuPreset}
     <DictationMenu
@@ -471,13 +522,13 @@
     border-color: var(--danger, #e5484d);
     animation: mic-pulse 1s ease-in-out infinite;
   }
-  .mic {
+  .mic, .speaker {
     position: relative;
     -webkit-touch-callout: none;
     user-select: none;
     -webkit-user-select: none;
   }
-  .mic .badge {
+  .mic .badge, .speaker .badge {
     position: absolute;
     right: 2px;
     bottom: 1px;

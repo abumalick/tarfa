@@ -39,6 +39,11 @@ function fakeStore(overrides: Record<string, unknown> = {}) {
     languageChoice: 'auto',
     dictationKeyFocus: null as { machineId: string; provider: string } | null,
     setLanguageChoice: vi.fn(),
+    readAloudVoice: { source: 'device', voice: null },
+    readAloudFocus: false,
+    elevenLabsCatalogMachine: null,
+    setReadAloudSource: vi.fn(),
+    setElevenLabsVoice: vi.fn(),
     ...overrides,
   };
 }

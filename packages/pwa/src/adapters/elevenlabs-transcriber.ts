@@ -1,5 +1,6 @@
 import type { Transcriber } from '../core/ports/transcriber';
 import { msg } from '../i18n.svelte';
+import { elevenLabsFailure } from './elevenlabs-errors';
 
 export const SCRIBE_ENDPOINT = 'https://api.elevenlabs.io/v1/speech-to-text';
 export const SCRIBE_MODEL_ID = 'scribe_v2';
@@ -68,22 +69,9 @@ function audioFileName(mimeType: string): string {
   return 'audio.webm';
 }
 
-// Map an ElevenLabs error response to a message the user can act on. Out-of-credit comes
-// back as a 401 whose body reports a quota status, so the body is inspected before falling
-// back to the plain 401 "invalid key" reading.
 async function errorMessage(res: Response): Promise<string> {
-  const status = await quotaOrKeyStatus(res);
-  if (res.status === 402 || /quota|credit|exceed/i.test(status)) return msg().dictation.elevenLabsQuota;
-  if (res.status === 401) return msg().dictation.invalidKey('ElevenLabs');
+  const failure = await elevenLabsFailure(res);
+  if (failure === 'quota') return msg().dictation.elevenLabsQuota;
+  if (failure === 'key' || failure === 'permission') return msg().dictation.invalidKey('ElevenLabs');
   return msg().dictation.transcriptionFailedHttp(res.status);
-}
-
-async function quotaOrKeyStatus(res: Response): Promise<string> {
-  try {
-    const body = (await res.json()) as { detail?: { status?: unknown } };
-    const status = body?.detail?.status;
-    return typeof status === 'string' ? status : '';
-  } catch {
-    return '';
-  }
 }

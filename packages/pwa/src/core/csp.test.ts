@@ -26,6 +26,13 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(directive('media-src')).toContain('blob:');
   });
 
+  // Read-aloud fetches ElevenLabs' speech and voice samples, and plays them as blobs: no remote
+  // media host is ever needed.
+  it('lets read-aloud reach ElevenLabs and play its clips from blobs alone', () => {
+    expect(directive('connect-src')).toContain('https:');
+    expect(directive('media-src')).toEqual(["'self'", 'blob:']);
+  });
+
   it('loads no remote image', () => {
     expect(directive('img-src')).not.toContain('https:');
   });

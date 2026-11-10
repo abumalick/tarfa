@@ -502,7 +502,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   (`docs/SETUP-MACHINE.md`, step 11): `alsa-utils`, the user in `audio`, `snd-aloop` loaded at
   boot, a `~/.asoundrc` whose default capture is `plughw:Loopback,1` (Claude records from the
   default device), and `/voice` on in hold mode.
-- **🔊 reads Claude's last reply with the phone's own voice; no provider, no cost.** The agent
+- **🔊 reads Claude's last reply with the phone's own voice (free), or with ElevenLabs.** The agent
   keeps each workspace's `last_assistant_message` from the `Stop`/`StopFailure` payload in memory
   (`application/last-replies.ts`, capped at 64 000 characters, dropped with the workspace's state,
   never logged), and answers `lastReply` with it, or `null`. Claude workspaces only (`runsClaude`).
@@ -547,6 +547,41 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   - The player and its notice float over the terminal's bottom (`.term` is the positioned box),
     never inside the keyboard bar, which clips. Leaving the workspace stops the voice; the machine
     dropping only cancels a request still waiting, since a reading under way needs no connection.
+    When both show (an ElevenLabs failure while the phone reads on), the notice sits above the player.
+  - **A long press on 🔊 picks the voice** (`ReadAloudMenu`, the mic's `HOLD_MS` and fixed
+    positioning): "Device voice" or "ElevenLabs · <voice>", remembered as `tarfa.readAloudVoice`
+    (`core/read-aloud-voice.ts`); the badge shows what a tap will use (`readAloudSource`).
+    **ElevenLabs reads only with the attached machine's key** (`store.dictationKey('elevenlabs')`,
+    the dictation rule): without one the entry is disabled with the reason and "Add an ElevenLabs
+    key" opens that machine's page, and a tap reads with the phone. The menu and Settings say once
+    that ElevenLabs charges credits per character. **The 🔊 still acts on its `click`**, the event
+    its iOS unlock was proven on: `press` arms a `hold` with no `fire`, and a flag swallows the
+    click after a hold (reset on the next `pointerdown`, since iOS may send no click).
+  - **ElevenLabs synthesises the whole reply in one request and plays it as one clip**
+    (`core/audio-read-aloud.ts`, `adapters/elevenlabs-speech.ts`, `adapters/html-audio.ts`): Flash
+    v2.5 (half Multilingual v2's credits, and it takes `language_code`, which Multilingual v2 ignores,
+    so the voice follows `replyLanguage`), MP3, the speakable text (no code fences billed). Pause,
+    ±10 s, speed (`playbackRate`, re-set after each load, since a load resets it) and the clock are
+    the element's own and exact. By sentence would start sooner and cost less when the user stops
+    early, but brings back the estimated clock, can fail mid-reading, and needs the key after the
+    machine drops (a reading under way must not, and the key is dropped with the connection): the
+    key is read once, when the reply arrives. Measured: 500 characters answer in 1.9 s, 3,000 in
+    3.7 s; the player shows a loading state meanwhile. **Over `ELEVENLABS_MAX_CHARS` (10,000) the
+    tap reads with the phone instead**, which also bounds what one tap spends. A late clip after a
+    stop, a back or a second tap is dropped by a generation token, and the request aborted.
+  - **Any ElevenLabs failure falls back to the phone's voice from the start, with a notice saying
+    why** (no credits arrives as a 401 with a quota status, `adapters/elevenlabs-errors.ts`, shared
+    with Scribe; a key without Text to Speech access says so), never silently, and never naming the
+    key. A chosen voice the account lacks (a voice picked from another machine's account) reads with
+    the default, George (premade, verified for English, French and Arabic), and says so.
+  - **The tap unlocks both voices**: `SpeechPort.unlock` (the fallback speaks later) and a silent WAV
+    played on the one reused `<audio>` element, which iOS then lets play the clip that arrives after
+    the gesture. A blob, never a `data:` URL, which the CSP's `media-src 'self' blob:` refuses.
+  - **Settings → Read aloud picks the ElevenLabs voice** (`ReadAloudVoices`, reached from the menu's
+    "Choose a voice…"): it lists `GET /v2/voices` on request with the open workspace's machine's key,
+    else the first machine holding one, naming it (listing spends no credit), with a ▶ sample
+    fetched from the voice's `preview_url` into a blob (ElevenLabs serves them with CORS), so the CSP
+    needs no media host.
 - **Connection-event log — a client→agent diagnostic that survives drops.** The PWA records
   connection lifecycle events (`connect`/`online`/`close`/`manual-reconnect` per machine —
   `manual-reconnect` = the user tapped Reconnect, `auto-reconnect` = a foreground/`online`

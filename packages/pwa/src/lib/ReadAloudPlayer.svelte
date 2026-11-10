@@ -33,6 +33,8 @@
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   };
   const playing = $derived(player.state === 'playing');
+  // ElevenLabs is synthesising the reply: nothing to pause or skip yet.
+  const loading = $derived(player.state === 'loading');
   const canSkip = $derived(player.state === 'playing' || player.state === 'paused');
 </script>
 
@@ -45,13 +47,13 @@
     </div>
   {/if}
   <button type="button" aria-label={msg().readAloud.back} disabled={!canSkip} onpointerdown={keepFocus} onclick={() => onSkip(-10)}>↺10</button>
-  <button type="button" class="main" aria-label={playing ? msg().readAloud.pause : msg().readAloud.play} onpointerdown={keepFocus} onclick={onToggle}
+  <button type="button" class="main" class:loading aria-label={loading ? msg().readAloud.loading : playing ? msg().readAloud.pause : msg().readAloud.play} disabled={loading} onpointerdown={keepFocus} onclick={onToggle}
     ><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-      {#if playing}<rect x="3" y="2" width="3.5" height="12" rx="1" /><rect x="9.5" y="2" width="3.5" height="12" rx="1" />{:else}<path d="M4 2.5v11a1 1 0 0 0 1.5.86l9-5.5a1 1 0 0 0 0-1.72l-9-5.5A1 1 0 0 0 4 2.5z" />{/if}
+      {#if loading}<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="26 12" />{:else if playing}<rect x="3" y="2" width="3.5" height="12" rx="1" /><rect x="9.5" y="2" width="3.5" height="12" rx="1" />{:else}<path d="M4 2.5v11a1 1 0 0 0 1.5.86l9-5.5a1 1 0 0 0 0-1.72l-9-5.5A1 1 0 0 0 4 2.5z" />{/if}
     </svg></button>
   <button type="button" aria-label={msg().readAloud.forward} disabled={!canSkip} onpointerdown={keepFocus} onclick={() => onSkip(10)}>10↻</button>
   <button type="button" class="speed" aria-label={msg().readAloud.speedIs(String(rate))} aria-expanded={speedOpen} onpointerdown={keepFocus} onclick={() => (speedOpen = !speedOpen)}>{rate}×</button>
-  <span class="time" aria-hidden="true">{clock(player.state === 'ended' ? player.duration : player.position)} / {clock(player.duration)}</span>
+  <span class="time" aria-hidden="true">{#if loading}…{:else}{clock(player.state === 'ended' ? player.duration : player.position)} / {clock(player.duration)}{/if}</span>
   <button type="button" class="close" aria-label={msg().readAloud.close} onpointerdown={keepFocus} onclick={onClose}>✕</button>
 </div>
 
@@ -96,6 +98,12 @@
     place-items: center;
   }
   .main svg { fill: currentColor; }
+  .main.loading svg { animation: spin 1s linear infinite; }
+  .main:disabled { opacity: 1; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .main.loading svg { animation: none; }
+  }
   .close { background: transparent; }
   .speed { font-size: 12px; padding: 0 0.4rem; }
   .speeds {

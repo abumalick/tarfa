@@ -8,6 +8,7 @@ import { WorkspaceAggregator } from './core/workspace-aggregator';
 import { SettingsStore, type MachineConfig } from './core/settings-store';
 import { DEFAULT_PRESETS } from './core/dictation-presets';
 import { UnreadableDeviceKeyError } from './core/ports/device-identity';
+import { SynthesisError } from './core/ports/text-to-speech';
 import type { StoragePort } from './core/ports/storage';
 import type { Socket } from './core/ports/socket';
 import type { CacheLike } from './core/shared-file';
@@ -2526,6 +2527,102 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       store.open({ ...ws, command: 'bash' });
       store.setAgent('mac', { features: ['lastReply'] });
       expect(store.canReadAloud).toBe(false);
+    });
+
+    describe('with ElevenLabs', () => {
+      function fakeElevenLabs() {
+        const requests: Array<{ text: string; key: string; voiceId: string; lang: string; resolve: (b: Blob) => void; reject: (e: unknown) => void }> = [];
+        const audio = {
+          unlocks: 0,
+          events: null as null | { ready: (d: number) => void; end: () => void; error: () => void },
+          load(_clip: Blob, events: { ready: (d: number) => void; end: () => void; error: () => void }) {
+            this.events = events;
+          },
+          play: () => undefined,
+          pause: () => undefined,
+          seek: () => undefined,
+          time: () => 0,
+          setRate: () => undefined,
+          clear() {
+            this.events = null;
+          },
+          unlock() {
+            this.unlocks++;
+          },
+        };
+        const tts = {
+          synthesize: (text: string, r: { key: string; voiceId: string; lang: string }) =>
+            new Promise<Blob>((resolve, reject) => requests.push({ text, ...r, resolve, reject })),
+          listVoices: async (key: string) => [{ id: 'v1', name: `listed with ${key}`, description: '', previewUrl: null }],
+          preview: async () => new Blob(),
+        };
+        return { requests, audio, tts };
+      }
+
+      function setUp(choice: 'device' | 'elevenlabs' = 'elevenlabs', withKey = true) {
+        const speech = fakeSpeech();
+        const el = fakeElevenLabs();
+        const built = buildKeyed({ speech: speech.port, tts: el.tts, audio: el.audio });
+        built.store.open(ws);
+        built.store.setAgent('mac', { features: ['lastReply', 'dictationKeys'] });
+        if (withKey) built.deliver({ type: 'dictationKeys', elevenlabs: 'test-tts-key' });
+        built.store.setReadAloudSource(choice);
+        return { ...built, speech, el };
+      }
+
+      it('reads with ElevenLabs when picked and the machine holds a key, unlocking both voices', async () => {
+        const { store, deliver, speech, el } = setUp();
+        expect(store.readAloudSource).toBe('elevenlabs');
+        store.startReadAloud();
+        expect(el.audio.unlocks).toBe(1);
+        deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Le travail est fait et les tests sont verts.' });
+        expect(el.requests).toHaveLength(1);
+        expect(el.requests[0]).toMatchObject({ key: 'test-tts-key', voiceId: 'JBFqnCBsd6RMkjVDRZzb', lang: 'fr' });
+        expect(store.readAloud?.state).toBe('loading');
+        el.requests[0]!.resolve(new Blob(['mp3']));
+        await settle();
+        el.audio.events!.ready(12);
+        expect(store.readAloud).toEqual({ state: 'playing', position: 0, duration: 12 });
+        expect(speech.spoken).toEqual([]);
+      });
+
+      it('uses the voice picked in Settings, and remembers the choice', () => {
+        const { store, deliver, el, settings } = setUp();
+        store.setElevenLabsVoice({ id: 'v1', name: 'Ann' });
+        expect(settings.readAloudVoice()).toEqual({ source: 'elevenlabs', voice: { id: 'v1', name: 'Ann' } });
+        store.startReadAloud();
+        deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Done.' });
+        expect(el.requests[0]!.voiceId).toBe('v1');
+      });
+
+      it('reads with the phone where the machine holds no key', () => {
+        const { store, deliver, speech, el } = setUp('elevenlabs', false);
+        expect(store.readAloudSource).toBe('device');
+        store.startReadAloud();
+        expect(el.audio.unlocks).toBe(0);
+        deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Done.' });
+        expect(el.requests).toHaveLength(0);
+        expect(speech.spoken).toEqual(['Done.']);
+      });
+
+      it('falls back to the phone voice with a notice when ElevenLabs fails', async () => {
+        const { store, deliver, speech, el } = setUp();
+        store.startReadAloud();
+        deliver({ type: 'lastReply', workspaceId: 'perch-a', text: 'Done.' });
+        el.requests[0]!.reject(new SynthesisError('quota', 401));
+        await settle();
+        expect(speech.spoken).toEqual(['Done.']);
+        expect(store.readAloud?.state).toBe('playing');
+        expect(store.readAloudNotice).toContain('out of credits');
+        expect(store.readAloudNotice).not.toContain('test-tts-key');
+      });
+
+      it('lists voices with a machine key from Settings, naming the machine', async () => {
+        const { store } = setUp();
+        store.back();
+        expect(store.elevenLabsCatalogMachine).toBe('Mac');
+        expect((await store.listElevenLabsVoices())[0]!.name).toBe('listed with test-tts-key');
+      });
     });
 
     it('reads with a voice for the language the reply is written in', () => {

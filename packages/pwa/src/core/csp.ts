@@ -3,7 +3,9 @@
 // the app's own bundle ever runs here: not an agent-supplied blob (which inherits this policy),
 // not markup in a rendered document.
 // - connect-src: machines are wherever their owners put them (a tailnet host, Funnel, a proxy),
-//   so any https/wss host, plus loopback for a hand-run agent and the e2e. ElevenLabs is https too.
+//   so any https/wss host, plus loopback for a hand-run agent and the e2e. ElevenLabs (dictation,
+//   read-aloud and its voice samples) is https too.
+// - media-src: read-aloud and its samples are fetched, then played from blob: URLs.
 // - img-src keeps a document's remote images from reporting when and where it was opened.
 // - style-src needs 'unsafe-inline': xterm injects <style> elements and Svelte sets style attributes.
 export const CONTENT_SECURITY_POLICY = [

@@ -18,6 +18,7 @@
   import SharedFileConfirm from './SharedFileConfirm.svelte';
   import CopyOffer from './CopyOffer.svelte';
   import ReadAloudPlayer from './ReadAloudPlayer.svelte';
+  import { READ_ALOUD_BADGES, elevenLabsVoice } from '../core/read-aloud-voice';
   import VoiceHelp from './VoiceHelp.svelte';
   import DictationSetup from './DictationSetup.svelte';
   import { setupOptions } from '../core/dictation-setup';
@@ -496,8 +497,10 @@
         rate={store.readAloudRate}
         onRate={(r) => store.setReadAloudRate(r)}
       />
-    {:else if store.readAloudNotice}
-      <div class="read-aloud-notice" role="status">
+    {/if}
+    {#if store.readAloudNotice}
+      <!-- Above the player when both show: an ElevenLabs failure says so while the phone reads. -->
+      <div class="read-aloud-notice" class:above={!!store.readAloud} role="status">
         <span>{store.readAloudNotice}</span>
         {#if store.readAloudVoiceHelp}
           <button type="button" class="help" onclick={() => (voiceHelpOpen = true)}>{msg().readAloud.howToFix}</button>
@@ -564,6 +567,17 @@
     onSetupDictation={() => (dictationSetupOpen = true)}
     onPickFile={pickFile}
     onReadAloud={store.canReadAloud ? () => store.startReadAloud() : undefined}
+    readAloudBadge={READ_ALOUD_BADGES[store.readAloudSource]}
+    readAloudMenu={store.canReadWithElevenLabs
+      ? {
+          source: store.readAloudSource,
+          voiceName: elevenLabsVoice(store.readAloudVoice).name,
+          elevenLabsMissing: store.dictationKey('elevenlabs') ? null : msg().readAloud.noKeyHere,
+        }
+      : undefined}
+    onSelectReadAloud={(source) => store.setReadAloudSource(source)}
+    onSetElevenLabsKey={() => store.openDictationKeySettings('elevenlabs')}
+    onChooseVoice={() => store.openReadAloudSettings()}
 
     bind:ctrl
     bind:alt
@@ -714,6 +728,7 @@
     font-size: 0.9rem;
     touch-action: manipulation;
   }
+  .read-aloud-notice.above { bottom: 76px; }
   .read-aloud-notice span { flex: 1; }
   .read-aloud-notice button {
     min-width: 36px;
