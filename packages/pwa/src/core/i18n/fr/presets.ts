@@ -24,6 +24,9 @@ export const presets: Messages['presets'] = {
   prompt: 'Prompt',
   fallback: 'Repli',
   firstAvailable: 'Premier préréglage disponible',
+  scribeModel: 'Modèle Scribe',
+  languages: 'Langues',
+  languagesHint: 'Codes ISO, langue principale en premier (elle oriente la transcription), par ex. « fr, en, ar ». Vide : détectée.',
   fallbackHint: 'Utilisé hors des espaces de travail Claude Code et quand Claude affiche une question ou un menu.',
   save: 'Enregistrer le préréglage',
   cancel: 'Annuler',
@@ -32,5 +35,6 @@ export const presets: Messages['presets'] = {
     badge: (max) => `Le badge doit compter de 1 à ${max} caractères`,
     model: 'Saisissez un identifiant de modèle OpenRouter',
     prompt: 'Saisissez un prompt',
+    languages: 'Les langues sont des codes ISO de 2 ou 3 lettres, comme fr ou en',
   },
 };

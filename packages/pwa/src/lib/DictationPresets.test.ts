@@ -5,7 +5,7 @@ import DictationPresets from './DictationPresets.svelte';
 import { DEFAULT_CLEANUP_PROMPT, DEFAULT_PRESETS, type DictationPreset } from '../core/dictation-presets';
 
 // Most cases edit a list without the default Claude voice entry, as a user who removed it has.
-const withoutClaude = DEFAULT_PRESETS.filter((p) => p.provider !== 'claude');
+const withoutClaude = DEFAULT_PRESETS.filter((p) => ['scribe', 'clean', 'fast'].includes(p.id));
 const byId = (id: string) => DEFAULT_PRESETS.find((p) => p.id === id)!;
 
 function fakeStore(presets: DictationPreset[] = [...withoutClaude], extra: { currentPreset?: DictationPreset; addingPreset?: boolean } = {}) {
@@ -83,6 +83,39 @@ describe('DictationPresets', () => {
     await fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'openrouter' } });
     expect(screen.getByLabelText('Model')).toBeInTheDocument();
     expect(screen.getByLabelText('Prompt').tagName).toBe('TEXTAREA');
+  });
+
+  it('picks the Scribe model, and takes languages for v3 only', async () => {
+    const store = fakeStore();
+    render(DictationPresets, { props: { store: store as never } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit Scribe' }));
+    expect(screen.getByLabelText('Scribe model')).toHaveValue('scribe_v2');
+    expect(screen.queryByLabelText('Languages')).toBeNull();
+    await fireEvent.change(screen.getByLabelText('Scribe model'), { target: { value: 'scribe_v3' } });
+    await fireEvent.input(screen.getByLabelText('Languages'), { target: { value: 'FR, en ar' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
+    expect(saved(store)[0]).toEqual({ id: 'scribe', name: 'Scribe', badge: 'EL', provider: 'elevenlabs', model: 'scribe_v3', languages: ['fr', 'en', 'ar'] });
+  });
+
+  it('shows a v3 preset with its model and languages, and refuses a bad code', async () => {
+    const v3: DictationPreset = { id: 'm', name: 'Multi', badge: 'E3', provider: 'elevenlabs', model: 'scribe_v3', languages: ['fr', 'en'] };
+    const store = fakeStore([v3]);
+    render(DictationPresets, { props: { store: store as never } });
+    expect(screen.getByRole('button', { name: 'Edit Multi' })).toHaveTextContent('Scribe v3 · fr, en');
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit Multi' }));
+    expect(screen.getByLabelText('Languages')).toHaveValue('fr, en');
+    await fireEvent.input(screen.getByLabelText('Languages'), { target: { value: 'french' } });
+    expect(screen.getByRole('button', { name: 'Save preset' })).toBeDisabled();
+    expect(screen.getByText(/2- or 3-letter ISO codes/)).toBeInTheDocument();
+  });
+
+  it('saves a v3 preset with no languages as auto-detect', async () => {
+    const store = fakeStore();
+    render(DictationPresets, { props: { store: store as never } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit Scribe' }));
+    await fireEvent.change(screen.getByLabelText('Scribe model'), { target: { value: 'scribe_v3' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
+    expect(saved(store)[0]).toEqual({ id: 'scribe', name: 'Scribe', badge: 'EL', provider: 'elevenlabs', model: 'scribe_v3' });
   });
 
   it('will not save an invalid preset, and says why', async () => {

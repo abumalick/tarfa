@@ -477,7 +477,7 @@ describe('KeyboardBar dictation presets', () => {
     pointer(setup, 'pointerup', 100, 100);
     await fireEvent.click(setup);
     expect(menu()).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /Scribe/ })).toBeDisabled();
+    expect(screen.getByRole('option', { name: /^EL Scribe/ })).toBeDisabled();
     expect(onSetupDictation).not.toHaveBeenCalled();
   });
 

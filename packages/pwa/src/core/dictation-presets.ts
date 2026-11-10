@@ -3,8 +3,12 @@ import { msg } from '../i18n.svelte';
 // A dictation preset is one way of turning a recording into text: ElevenLabs Scribe as is, or
 // an OpenRouter model that hears the audio and follows a prompt. Presets are the user's own
 // (Settings); the app ships only the neutral defaults below.
+// Scribe v3 also takes the languages the speaker may use (the first one steers the transcript)
+// and is asked for numbers as digits; v2 refuses both fields. No `model` means v2.
+export type ScribeModel = 'scribe_v2' | 'scribe_v3';
+
 export type DictationPreset =
-  | { id: string; name: string; badge: string; provider: 'elevenlabs' }
+  | { id: string; name: string; badge: string; provider: 'elevenlabs'; model?: 'scribe_v3'; languages?: string[] }
   | { id: string; name: string; badge: string; provider: 'openrouter'; model: string; prompt: string }
   // Claude Code's own /voice on the machine: the agent plays the audio into its virtual mic.
   // `fallbackId` names the preset the mic uses where Claude voice cannot run (outside Claude
@@ -32,6 +36,7 @@ Rules:
 export const DEFAULT_PRESETS: readonly DictationPreset[] = [
   { id: 'claude', name: 'Claude voice', badge: 'CV', provider: 'claude', fallbackId: 'scribe' },
   { id: 'scribe', name: 'Scribe', badge: 'EL', provider: 'elevenlabs' },
+  { id: 'scribe-v3', name: 'Scribe v3', badge: 'E3', provider: 'elevenlabs', model: 'scribe_v3' },
   {
     id: 'clean',
     name: 'Clean up',
@@ -52,6 +57,13 @@ export const DEFAULT_PRESETS: readonly DictationPreset[] = [
 
 export const MAX_BADGE_CHARS = 3;
 
+const LANGUAGE_CODE = /^[a-z]{2,3}$/;
+
+// The editor's free text ("fr, en ar") as the ordered codes it names.
+export function parseLanguages(text: string): string[] {
+  return [...new Set(text.toLowerCase().split(/[\s,]+/).filter(Boolean))];
+}
+
 export function presetError(p: DictationPreset): string | null {
   if (!p.name.trim()) return msg().presets.errors.name;
   const badge = [...p.badge.trim()].length;
@@ -60,6 +72,7 @@ export function presetError(p: DictationPreset): string | null {
     if (!p.model.trim()) return msg().presets.errors.model;
     if (!p.prompt.trim()) return msg().presets.errors.prompt;
   }
+  if (p.provider === 'elevenlabs' && p.languages?.some((code) => !LANGUAGE_CODE.test(code))) return msg().presets.errors.languages;
   return null;
 }
 
@@ -69,7 +82,13 @@ function asPreset(value: unknown): DictationPreset | null {
   if (typeof v.id !== 'string' || !v.id || typeof v.name !== 'string' || typeof v.badge !== 'string') return null;
   const base = { id: v.id, name: v.name, badge: v.badge };
   let preset: DictationPreset;
-  if (v.provider === 'elevenlabs') preset = { ...base, provider: 'elevenlabs' };
+  if (v.provider === 'elevenlabs') {
+    const languages = Array.isArray(v.languages) && v.languages.every((l) => typeof l === 'string') ? (v.languages as string[]) : [];
+    preset =
+      v.model === 'scribe_v3'
+        ? { ...base, provider: 'elevenlabs', model: 'scribe_v3', ...(languages.length ? { languages } : {}) }
+        : { ...base, provider: 'elevenlabs' };
+  }
   else if (v.provider === 'claude')
     preset = { ...base, provider: 'claude', ...(typeof v.fallbackId === 'string' && v.fallbackId ? { fallbackId: v.fallbackId } : {}) };
   else if (v.provider === 'openrouter' && typeof v.model === 'string' && typeof v.prompt === 'string')
@@ -141,4 +160,11 @@ export function currentPreset(
     if (fallback) return fallback;
   }
   return usable.find((p) => p.id === id) ?? usable[0] ?? presets.find((p) => p.id === id) ?? presets[0]!;
+}
+
+// What a Scribe request needs from the preset a dictation started with.
+export function scribeOptions(p: DictationPreset): { model: ScribeModel; languages: string[] } {
+  return p.provider === 'elevenlabs' && p.model === 'scribe_v3'
+    ? { model: 'scribe_v3', languages: p.languages ?? [] }
+    : { model: 'scribe_v2', languages: [] };
 }

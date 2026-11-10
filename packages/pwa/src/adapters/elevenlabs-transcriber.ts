@@ -1,20 +1,21 @@
+import type { ScribeModel } from '../core/dictation-presets';
 import type { Transcriber } from '../core/ports/transcriber';
 import { msg } from '../i18n.svelte';
 import { elevenLabsFailure } from './elevenlabs-errors';
 
 export const SCRIBE_ENDPOINT = 'https://api.elevenlabs.io/v1/speech-to-text';
-export const SCRIBE_MODEL_ID = 'scribe_v2';
 
 // Transcribes audio via ElevenLabs Scribe directly from the browser. The API key and the
 // keyterm vocabulary are read lazily on each call (so a key entered after construction, or a
-// vocabulary that arrives with a later reconnect, is picked up). Language is left unset so
-// Scribe auto-detects. The request is bounded by a timeout so a hung network call surfaces as
-// an error the UI can leave and retry, rather than leaving dictation stuck "transcribing"
+// vocabulary that arrives with a later reconnect, is picked up), and so are the model and
+// languages of the preset the dictation started with. With no language set, Scribe
+// auto-detects. The request is bounded by a timeout so a hung network call surfaces as an error the UI can leave and retry, rather than leaving dictation stuck "transcribing"
 // forever.
 export class ElevenLabsTranscriber implements Transcriber {
   constructor(
     private readonly getKey: () => string | null,
     private readonly getKeyterms: () => string[] = () => [],
+    private readonly getScribe: () => { model: ScribeModel; languages: string[] } = () => ({ model: 'scribe_v2', languages: [] }),
     private readonly fetchFn: typeof fetch = (...args) => fetch(...args),
     private readonly timeoutMs = 30_000,
   ) {}
@@ -25,9 +26,18 @@ export class ElevenLabsTranscriber implements Transcriber {
 
     const form = new FormData();
     form.append('file', audio, audioFileName(audio.type));
-    form.append('model_id', SCRIBE_MODEL_ID);
-    // Drop filler words, false starts and non-speech sounds at the source (scribe_v2 only).
+    const { model, languages } = this.getScribe();
+    form.append('model_id', model);
+    // Drop filler words, false starts and non-speech sounds at the source.
     form.append('no_verbatim', 'true');
+    // scribe_v2 refuses these with a 400. Secondary codes need a main one (alone they fail with
+    // a 500), and the main one steers the whole transcript, so the first listed is the main one.
+    if (model === 'scribe_v3') {
+      form.append('numbers_format', 'digits');
+      const [main, ...others] = languages;
+      if (main) form.append('language_code', main);
+      for (const code of others) form.append('secondary_language_codes', code);
+    }
     // Defaults to true server-side, which types "(baby crying)" into the terminal.
     form.append('tag_audio_events', 'false');
     // One part per term is how the API takes a list; the agent already validated and capped

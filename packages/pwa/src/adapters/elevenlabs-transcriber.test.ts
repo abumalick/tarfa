@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ElevenLabsTranscriber, SCRIBE_ENDPOINT, SCRIBE_MODEL_ID } from './elevenlabs-transcriber';
+import { ElevenLabsTranscriber, SCRIBE_ENDPOINT } from './elevenlabs-transcriber';
 import { setLanguage } from '../i18n.svelte';
 
+const v2 = () => ({ model: 'scribe_v2' as const, languages: [] });
 const audio = new Blob(['x'], { type: 'audio/webm' });
 
 function okResponse(text: string): Response {
@@ -11,14 +12,14 @@ function okResponse(text: string): Response {
 describe('ElevenLabsTranscriber', () => {
   it('throws when no API key is configured, without calling fetch', async () => {
     const fetchFn = vi.fn();
-    const t = new ElevenLabsTranscriber(() => null, () => [], fetchFn);
+    const t = new ElevenLabsTranscriber(() => null, () => [], v2, fetchFn);
     await expect(t.transcribe(audio)).rejects.toThrow('No ElevenLabs key on this machine');
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
   it('posts the audio with the key header and scribe model, returning the transcript', async () => {
     const fetchFn = vi.fn().mockResolvedValue(okResponse('hello'));
-    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], fetchFn);
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], v2, fetchFn);
 
     const text = await t.transcribe(audio);
 
@@ -28,15 +29,54 @@ describe('ElevenLabsTranscriber', () => {
     expect(init.method).toBe('POST');
     expect(init.headers['xi-api-key']).toBe('sk_live');
     const body = init.body as FormData;
-    expect(body.get('model_id')).toBe(SCRIBE_MODEL_ID);
+    expect(body.get('model_id')).toBe('scribe_v2');
     expect(body.get('no_verbatim')).toBe('true');
     expect(body.get('file')).toBeInstanceOf(Blob);
+  });
+
+  // Measured: scribe_v2 answers 400 to secondary_language_codes, so v2 must not carry v3's fields.
+  it('sends no v3-only field for scribe_v2', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(okResponse('ok'));
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], () => ({ model: 'scribe_v2', languages: ['fr', 'en'] }), fetchFn);
+    await t.transcribe(audio);
+    const body = fetchFn.mock.calls[0]![1].body as FormData;
+    expect(body.get('numbers_format')).toBeNull();
+    expect(body.get('language_code')).toBeNull();
+    expect(body.getAll('secondary_language_codes')).toEqual([]);
+  });
+
+  it('asks scribe_v3 for digits and leaves the language to detection when none is set', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(okResponse('ok'));
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], () => ({ model: 'scribe_v3', languages: [] }), fetchFn);
+    await t.transcribe(audio);
+    const body = fetchFn.mock.calls[0]![1].body as FormData;
+    expect(body.get('model_id')).toBe('scribe_v3');
+    expect(body.get('numbers_format')).toBe('digits');
+    expect(body.get('no_verbatim')).toBe('true');
+    expect(body.get('language_code')).toBeNull();
+  });
+
+  // Measured: secondary codes without a language_code fail with a 500, so the first is the main one.
+  it('sends the first v3 language as the main one and the rest as secondary, read at call time', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(okResponse('ok'));
+    let languages = ['fr', 'en', 'ar'];
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], () => ({ model: 'scribe_v3', languages }), fetchFn);
+    await t.transcribe(audio);
+    let body = fetchFn.mock.calls[0]![1].body as FormData;
+    expect(body.get('language_code')).toBe('fr');
+    expect(body.getAll('secondary_language_codes')).toEqual(['en', 'ar']);
+
+    languages = ['en'];
+    await t.transcribe(audio);
+    body = fetchFn.mock.calls[1]![1].body as FormData;
+    expect(body.get('language_code')).toBe('en');
+    expect(body.getAll('secondary_language_codes')).toEqual([]);
   });
 
   // Without this the API annotates background noise, and "(baby crying)" lands in the terminal.
   it('turns audio-event tagging off', async () => {
     const fetchFn = vi.fn().mockResolvedValue(okResponse('ok'));
-    await new ElevenLabsTranscriber(() => 'sk_live', () => [], fetchFn).transcribe(audio);
+    await new ElevenLabsTranscriber(() => 'sk_live', () => [], v2, fetchFn).transcribe(audio);
     const body = fetchFn.mock.calls[0]![1].body as FormData;
     expect(body.get('tag_audio_events')).toBe('false');
   });
@@ -45,7 +85,7 @@ describe('ElevenLabsTranscriber', () => {
   it('sends each keyterm as its own part, read at call time', async () => {
     const fetchFn = vi.fn().mockResolvedValue(okResponse('ok'));
     let terms = ['Tarfa'];
-    const t = new ElevenLabsTranscriber(() => 'sk_live', () => terms, fetchFn);
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => terms, v2, fetchFn);
 
     await t.transcribe(audio);
     expect((fetchFn.mock.calls[0]![1].body as FormData).getAll('keyterms')).toEqual(['Tarfa']);
@@ -62,14 +102,14 @@ describe('ElevenLabsTranscriber', () => {
 
   it('omits keyterms entirely when no machine sent a vocabulary', async () => {
     const fetchFn = vi.fn().mockResolvedValue(okResponse('ok'));
-    await new ElevenLabsTranscriber(() => 'sk_live', () => [], fetchFn).transcribe(audio);
+    await new ElevenLabsTranscriber(() => 'sk_live', () => [], v2, fetchFn).transcribe(audio);
     expect((fetchFn.mock.calls[0]![1].body as FormData).getAll('keyterms')).toEqual([]);
   });
 
   // Safari records mp4, Chromium webm — the upload's name must not contradict the bytes.
   it('names the upload after the recorded format', async () => {
     const fetchFn = vi.fn().mockResolvedValue(okResponse('ok'));
-    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], fetchFn);
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], v2, fetchFn);
 
     await t.transcribe(new Blob(['x'], { type: 'audio/mp4' }));
     expect((fetchFn.mock.calls[0]![1].body as FormData).get('file')).toBeInstanceOf(File);
@@ -85,7 +125,7 @@ describe('ElevenLabsTranscriber', () => {
       status: 401,
       json: () => Promise.resolve({ detail: { status: 'quota_exceeded', message: 'no credits' } }),
     } as unknown as Response);
-    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], fetchFn);
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], v2, fetchFn);
     await expect(t.transcribe(audio)).rejects.toThrow('ElevenLabs quota exceeded');
   });
 
@@ -95,13 +135,13 @@ describe('ElevenLabsTranscriber', () => {
       status: 401,
       json: () => Promise.resolve({ detail: { status: 'invalid_api_key' } }),
     } as unknown as Response);
-    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], fetchFn);
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], v2, fetchFn);
     await expect(t.transcribe(audio)).rejects.toThrow('Invalid ElevenLabs key');
   });
 
   it('reports a generic failure with the status for other errors', async () => {
     const fetchFn = vi.fn().mockResolvedValue({ ok: false, status: 500 } as Response);
-    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], fetchFn);
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], v2, fetchFn);
     await expect(t.transcribe(audio)).rejects.toThrow('Transcription failed (HTTP 500)');
   });
 
@@ -112,13 +152,13 @@ describe('ElevenLabsTranscriber', () => {
           init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
         }),
     );
-    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], fetchFn as unknown as typeof fetch, 5);
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], v2, fetchFn as unknown as typeof fetch, 5);
     await expect(t.transcribe(audio)).rejects.toThrow('timed out');
   });
 
   it('returns an empty string when the response has no text field', async () => {
     const fetchFn = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) } as unknown as Response);
-    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], fetchFn);
+    const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], v2, fetchFn);
     expect(await t.transcribe(audio)).toBe('');
   });
 });
@@ -127,7 +167,7 @@ describe('ElevenLabsTranscriber in French', () => {
   it('asks for the key in French', async () => {
     setLanguage('fr');
     try {
-      const t = new ElevenLabsTranscriber(() => null, () => [], vi.fn());
+      const t = new ElevenLabsTranscriber(() => null, () => [], v2, vi.fn());
       await expect(t.transcribe(audio)).rejects.toThrow('Aucune clé ElevenLabs sur cette machine');
     } finally {
       setLanguage('en');

@@ -22,6 +22,7 @@ import { htmlAudio } from './adapters/html-audio';
 import { isIOSWebKit } from './lib/terminal-link';
 import { OpenRouterTranscriber } from './adapters/openrouter-transcriber';
 import { PresetTranscriber } from './core/preset-transcriber';
+import { scribeOptions } from './core/dictation-presets';
 import { ClaudeVoiceRecorder, ClaudeVoiceTranscriber } from './core/claude-voice';
 import { PresetRecorder } from './core/preset-recorder';
 import { WakeLockRecorder } from './core/wake-lock-recorder';
@@ -153,6 +154,7 @@ store = new TarfaStore({
     elevenlabs: new ElevenLabsTranscriber(
       () => store.dictationKey('elevenlabs'),
       () => store.keyterms(),
+      () => scribeOptions(dictationPreset()),
     ),
     openrouter: new OpenRouterTranscriber(
       () => store.dictationKey('openrouter'),

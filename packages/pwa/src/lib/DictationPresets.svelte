@@ -6,8 +6,10 @@
   import type { TarfaStore } from '../store.svelte';
   import {
     DEFAULT_CLEANUP_PROMPT,
+    parseLanguages,
     presetError,
     type DictationPreset,
+    type ScribeModel,
   } from '../core/dictation-presets';
   import { msg } from '../i18n.svelte';
 
@@ -20,8 +22,18 @@
     >;
   } = $props();
 
-  // `fallbackId` '' = the first preset that can run.
-  type Draft = { id: string; name: string; badge: string; provider: DictationPreset['provider']; model: string; prompt: string; fallbackId: string };
+  // `fallbackId` '' = the first preset that can run. `languages` is the field's text.
+  type Draft = {
+    id: string;
+    name: string;
+    badge: string;
+    provider: DictationPreset['provider'];
+    model: string;
+    prompt: string;
+    fallbackId: string;
+    scribeModel: ScribeModel;
+    languages: string;
+  };
 
   // index null = a new preset, appended on save.
   let editing = $state<{ index: number | null; draft: Draft; touched: boolean } | null>(null);
@@ -33,20 +45,30 @@
   const draftError = $derived(draftPreset ? presetError(draftPreset) : null);
 
   function toDraft(p: DictationPreset): Draft {
+    const base = { id: p.id, name: p.name, badge: p.badge, provider: p.provider };
     const fallbackId = p.provider === 'claude' ? (p.fallbackId ?? '') : '';
+    const scribeModel: ScribeModel = p.provider === 'elevenlabs' && p.model === 'scribe_v3' ? 'scribe_v3' : 'scribe_v2';
+    const languages = p.provider === 'elevenlabs' ? (p.languages ?? []).join(', ') : '';
     return p.provider === 'openrouter'
-      ? { ...p, fallbackId }
-      : { ...p, model: 'google/gemini-3.8-flash', prompt: DEFAULT_CLEANUP_PROMPT, fallbackId };
+      ? { ...base, model: p.model, prompt: p.prompt, fallbackId, scribeModel, languages }
+      : { ...base, model: 'google/gemini-3.8-flash', prompt: DEFAULT_CLEANUP_PROMPT, fallbackId, scribeModel, languages };
   }
 
   function toPreset(d: Draft): DictationPreset {
     const base = { id: d.id, name: d.name.trim(), badge: d.badge.trim() };
     if (d.provider === 'openrouter') return { ...base, provider: 'openrouter', model: d.model.trim(), prompt: d.prompt };
     if (d.provider === 'claude') return { ...base, provider: 'claude', ...(d.fallbackId ? { fallbackId: d.fallbackId } : {}) };
-    return { ...base, provider: 'elevenlabs' };
+    if (d.scribeModel === 'scribe_v2') return { ...base, provider: 'elevenlabs' };
+    const languages = parseLanguages(d.languages);
+    return { ...base, provider: 'elevenlabs', model: 'scribe_v3', ...(languages.length ? { languages } : {}) };
   }
 
-  const providerLabel = (provider: 'elevenlabs' | 'claude') => (provider === 'elevenlabs' ? 'ElevenLabs' : msg().presets.claudeVoiceLabel);
+  function providerLabel(p: DictationPreset): string {
+    if (p.provider === 'openrouter') return p.model;
+    if (p.provider === 'claude') return msg().presets.claudeVoiceLabel;
+    if (p.model !== 'scribe_v3') return 'ElevenLabs';
+    return p.languages?.length ? `Scribe v3 · ${p.languages.join(', ')}` : 'Scribe v3';
+  }
 
   function edit(index: number) {
     editing = { index, draft: toDraft(presets[index]!), touched: false };
@@ -55,7 +77,17 @@
   function add() {
     editing = {
       index: null,
-      draft: { id: crypto.randomUUID(), name: '', badge: '', provider: 'openrouter', model: 'google/gemini-3.8-flash', prompt: DEFAULT_CLEANUP_PROMPT, fallbackId: '' },
+      draft: {
+        id: crypto.randomUUID(),
+        name: '',
+        badge: '',
+        provider: 'openrouter',
+        model: 'google/gemini-3.8-flash',
+        prompt: DEFAULT_CLEANUP_PROMPT,
+        fallbackId: '',
+        scribeModel: 'scribe_v3',
+        languages: '',
+      },
       touched: false,
     };
   }
@@ -100,7 +132,7 @@
         <span class="badge">{preset.badge}</span>
         <span class="label">{preset.name}</span>
         {#if preset.id === inUseId}<span class="in-use">{msg().presets.inUse}</span>{/if}
-        <span class="provider">{preset.provider === 'openrouter' ? preset.model : providerLabel(preset.provider)}</span>
+        <span class="provider">{providerLabel(preset)}</span>
       </button>
       <button type="button" class="icon" aria-label={msg().presets.moveUp(preset.name)} disabled={i === 0} onclick={() => move(i, -1)}>↑</button>
       <button type="button" class="icon" aria-label={msg().presets.moveDown(preset.name)} disabled={i === presets.length - 1} onclick={() => move(i, 1)}>↓</button>
@@ -145,6 +177,19 @@
         <input id="preset-model" bind:value={editing.draft.model} placeholder="google/gemini-3.8-flash" autocapitalize="off" spellcheck="false" />
         <label for="preset-prompt">{msg().presets.prompt}</label>
         <textarea id="preset-prompt" rows="8" bind:value={editing.draft.prompt}></textarea>
+      {:else if editing.draft.provider === 'elevenlabs'}
+        <label for="preset-scribe-model">{msg().presets.scribeModel}</label>
+        <div class="select">
+          <select id="preset-scribe-model" bind:value={editing.draft.scribeModel}>
+            <option value="scribe_v2">Scribe v2</option>
+            <option value="scribe_v3">Scribe v3</option>
+          </select>
+        </div>
+        {#if editing.draft.scribeModel === 'scribe_v3'}
+          <label for="preset-languages">{msg().presets.languages}</label>
+          <input id="preset-languages" bind:value={editing.draft.languages} placeholder="fr, en" autocapitalize="off" autocomplete="off" spellcheck="false" />
+          <p class="hint">{msg().presets.languagesHint}</p>
+        {/if}
       {:else if editing.draft.provider === 'claude'}
         <label for="preset-fallback">{msg().presets.fallback}</label>
         <div class="select">

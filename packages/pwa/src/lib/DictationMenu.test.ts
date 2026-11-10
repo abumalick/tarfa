@@ -21,10 +21,11 @@ describe('DictationMenu', () => {
     expect(options.map((o) => o.textContent)).toEqual([
       expect.stringContaining('CV'),
       expect.stringContaining('EL'),
+      expect.stringContaining('E3'),
       expect.stringContaining('CL'),
       expect.stringContaining('⚡'),
     ]);
-    expect(screen.getByRole('option', { name: /Scribe/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: /^EL Scribe/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('option', { name: /Claude voice/ })).toHaveTextContent('not on this machine');
   });
 
@@ -33,7 +34,7 @@ describe('DictationMenu', () => {
     const clean = screen.getByRole('option', { name: /Clean up/ });
     expect(clean).toBeDisabled();
     expect(clean).toHaveTextContent('needs key');
-    expect(screen.getByRole('option', { name: /Scribe/ })).not.toHaveTextContent('needs key');
+    expect(screen.getByRole('option', { name: /^EL Scribe/ })).not.toHaveTextContent('needs key');
   });
 
   it('selects and closes', async () => {
@@ -49,7 +50,7 @@ describe('DictationMenu', () => {
     const onAdd = vi.fn();
     const onClose = vi.fn();
     render(DictationMenu, { props: { ...props, onAdd, onClose } });
-    expect(screen.getAllByRole('option')).toHaveLength(4);
+    expect(screen.getAllByRole('option')).toHaveLength(5);
     await fireEvent.click(screen.getByRole('button', { name: 'Add preset…' }));
     expect(onAdd).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();

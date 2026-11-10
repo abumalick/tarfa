@@ -22,6 +22,9 @@ export const presets = {
   prompt: 'Prompt',
   fallback: 'Fallback',
   firstAvailable: 'First available preset',
+  scribeModel: 'Scribe model',
+  languages: 'Languages',
+  languagesHint: 'ISO codes, main language first (it steers the transcript), e.g. "fr, en, ar". Empty: detected.',
   fallbackHint: 'Used outside Claude Code workspaces and while Claude shows a question or menu.',
   save: 'Save preset',
   cancel: 'Cancel',
@@ -30,5 +33,6 @@ export const presets = {
     badge: (max: number) => `The badge must be 1 to ${max} characters`,
     model: 'Enter an OpenRouter model id',
     prompt: 'Enter a prompt',
+    languages: 'Languages are 2- or 3-letter ISO codes, like fr or en',
   },
 };

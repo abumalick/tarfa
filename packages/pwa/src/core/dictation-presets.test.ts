@@ -5,6 +5,8 @@ import {
   currentPreset,
   hasUsablePreset,
   needsKey,
+  parseLanguages,
+  scribeOptions,
   parsePresets,
   unavailableHint,
   presetError,
@@ -25,8 +27,10 @@ const custom: DictationPreset = {
 };
 
 describe('DEFAULT_PRESETS', () => {
-  it('ships Claude voice, Scribe, Clean up and Fast, in that order', () => {
-    expect(DEFAULT_PRESETS.map((p) => p.id)).toEqual(['claude', 'scribe', 'clean', 'fast']);
+  it('ships Claude voice, Scribe, Scribe v3, Clean up and Fast, in that order', () => {
+    expect(DEFAULT_PRESETS.map((p) => p.id)).toEqual(['claude', 'scribe', 'scribe-v3', 'clean', 'fast']);
+    expect(preset('scribe')).not.toHaveProperty('model');
+    expect(preset('scribe-v3')).toMatchObject({ provider: 'elevenlabs', model: 'scribe_v3' });
     expect(preset('claude')).toMatchObject({ provider: 'claude', fallbackId: 'scribe' });
   });
 
@@ -193,5 +197,44 @@ describe('presetError in French', () => {
     } finally {
       setLanguage('en');
     }
+  });
+});
+
+describe('Scribe v3 presets', () => {
+  const v3: DictationPreset = { id: 'v3', name: 'Multi', badge: 'E3', provider: 'elevenlabs', model: 'scribe_v3', languages: ['fr', 'en', 'ara'] };
+
+  it('survive a stored round trip with their model and languages', () => {
+    expect(parsePresets(JSON.stringify([v3, scribe]))).toEqual([v3, scribe]);
+  });
+
+  it('drop languages from a v2 preset, which the API would refuse', () => {
+    expect(parsePresets(JSON.stringify([{ ...scribe, languages: ['fr'] }]))).toEqual([scribe]);
+  });
+
+  it('read an unknown model as v2', () => {
+    expect(parsePresets(JSON.stringify([{ ...scribe, model: 'scribe_v9' }]))).toEqual([scribe]);
+  });
+
+  it('refuse a language that is not an ISO 639 code', () => {
+    expect(presetError({ ...v3, languages: ['french'] })).not.toBeNull();
+    expect(presetError({ ...v3, languages: ['f'] })).not.toBeNull();
+    expect(presetError(v3)).toBeNull();
+    expect(parsePresets(JSON.stringify([{ ...v3, languages: ['french'] }, scribe]))).toEqual([scribe]);
+  });
+});
+
+describe('parseLanguages', () => {
+  it('splits on commas and spaces, lowercases and drops repeats, keeping the order', () => {
+    expect(parseLanguages(' FR, en  ar,fr ')).toEqual(['fr', 'en', 'ar']);
+    expect(parseLanguages('')).toEqual([]);
+  });
+});
+
+describe('scribeOptions', () => {
+  it('asks v3 with its languages, and v2 for anything else', () => {
+    expect(scribeOptions({ id: 'm', name: 'M', badge: 'M', provider: 'elevenlabs', model: 'scribe_v3', languages: ['fr', 'en'] })).toEqual({ model: 'scribe_v3', languages: ['fr', 'en'] });
+    expect(scribeOptions(preset('scribe-v3'))).toEqual({ model: 'scribe_v3', languages: [] });
+    expect(scribeOptions(scribe)).toEqual({ model: 'scribe_v2', languages: [] });
+    expect(scribeOptions(clean)).toEqual({ model: 'scribe_v2', languages: [] });
   });
 });
