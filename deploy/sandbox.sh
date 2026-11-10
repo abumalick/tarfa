@@ -248,7 +248,7 @@ wait_pwa_ready() { # <root>
   return 1
 }
 
-pair_link() { # <root>  mint a pairing link, one use, ten minutes
+pair_link() { # <root>  mint a pairing link, one use, twenty minutes
   in_sandbox "$1" pnpm --filter @tarfa/cli exec tsx src/cli.ts pair | grep -oE 'http://127\.0\.0\.1:[0-9]+/#pair\?[^[:space:]]+' | head -n 1
 }
 

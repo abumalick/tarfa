@@ -246,7 +246,7 @@ install from the browser menu). Then pair:
 - **Android:** open the link anywhere; it goes straight into the installed app. Chrome asks once
   whether the app may reach your local network (a tailnet address): allow it.
 
-A code works once, for 10 minutes; `tarfa pair` makes another. Only a `tarfa pair` code adds a
+A code works once, for 20 minutes; `tarfa pair` makes another. Only a `tarfa pair` code adds a
 phone:
 
 ```bash
