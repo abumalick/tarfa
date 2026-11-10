@@ -38,7 +38,7 @@ export interface DeviceKeyInfo {
 }
 import { SpeechToText, type DictationState } from './core/speech-to-text';
 import { mergeKeyterms } from './core/keyterms';
-import { DEFAULT_PRESETS, currentPreset, type DictationPreset, type PresetKeys } from './core/dictation-presets';
+import { DEFAULT_PRESETS, currentPreset, type DictationPreset, type DictationProvider, type PresetKeys } from './core/dictation-presets';
 import type { AudioRecorder } from './core/ports/audio-recorder';
 import type { Transcriber } from './core/ports/transcriber';
 import type { VoiceLink } from './core/claude-voice';
@@ -230,6 +230,8 @@ export class TarfaStore {
   currentPresetId = $state<string | null>(null);
   // Set by the mic menu's "Add preset…": Settings opens a new preset's form, then clears it.
   addingPreset = $state(false);
+  // The key field Settings scrolls to when opened from the mic's setup explanation.
+  dictationKeyFocus = $state<DictationProvider | null>(null);
   // Project-folder filter on the home list, persisted via settings (loaded in start()).
   // Two independent selections — the live one is whichever `folderFilterMode` names — so
   // focusing on a project for a moment doesn't discard a hide set once.
@@ -1260,6 +1262,12 @@ export class TarfaStore {
   addDictationPreset(): void {
     this.back();
     this.addingPreset = true;
+    this.view = 'settings';
+  }
+
+  openDictationKeySettings(provider: DictationProvider): void {
+    this.back();
+    this.dictationKeyFocus = provider;
     this.view = 'settings';
   }
 

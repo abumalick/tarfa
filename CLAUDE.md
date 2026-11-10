@@ -355,8 +355,15 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   `HOLD_MS`) on the mic opens the presets; its badge shows the current one; Settings edits them
   and holds both keys. **Only a preset whose provider has a key can be used**: the current
   preset is the chosen one if it has its key, else the first that does (`currentPreset`), a
-  keyless one is disabled in the menu, and with no usable preset at all (no key, and no Claude
-  voice here) the mic is not rendered.
+  keyless one is disabled in the menu. **With no usable preset at all the mic stays** (no badge,
+  "Set up dictation"): a tap opens `DictationSetup`, whose entries come from the user's own list
+  (`core/dictation-setup.ts`, so it never offers a key no preset uses): Claude voice, worded "if
+  this machine runs Linux" with the setup guide on `main` when the agent says `claudeVoice: false`
+  (macOS, no loopback and an old agent look alike) or with the reason when it says true, and each
+  missing key with its how-to (`KeyHelp`: key page, a hedged cost with the pricing link, where to
+  paste) and a jump to its Settings field (`openDictationKeySettings`). Settings has the same
+  how-to beside each key field. The long press still opens the menu. A bar with no setup handler
+  (the browser view) has no mic.
   Things not to "simplify":
   - **The defaults live in code until the user edits the list** (`DEFAULT_PRESETS`, nothing
     seeded into `tarfa.dictationPresets`), so an update can replace a model id OpenRouter has
