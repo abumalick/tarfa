@@ -27,7 +27,8 @@ export interface TmuxPort {
   // `storedCommand` is what `@tarfa_command` records when it differs from the command launched
   // (a spawn launches with its brief, but unpark must resume without it). `codexThread` is
   // recorded as `@tarfa_codex_thread`.
-  createSession(input: { name: string; cwd: string; command: string; parent?: string; storedCommand?: string; codexThread?: string }): Promise<void>;
+  // `env` is set in the session's own environment, which its first pane starts with.
+  createSession(input: { name: string; cwd: string; command: string; parent?: string; storedCommand?: string; codexThread?: string; env?: Record<string, string> }): Promise<void>;
   killSession(name: string): Promise<void>;
   hasSession(name: string): Promise<boolean>;
   // The pid of the session's first pane, or null when the session is gone. Optional for the

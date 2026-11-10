@@ -364,6 +364,7 @@ describe('tarfa setup (fake service and Tailscale)', () => {
     let unit: string | null = null;
     let served: Record<string, unknown> = {};
     const io: CliIo = {
+      loginShell: async () => '',
       setup: {
         installKind: kind,
         service: {
@@ -1351,6 +1352,7 @@ describe('tarfa ls / spawn / peek (fake tmux)', () => {
     const { tmux, created } = fakeTmux({ '%7': 'perch-aaaaaa' });
     const threads: unknown[] = [];
     const codex = {
+      home: async () => '/srv/codex',
       versions: async () => ({ cli: '0.166.0', appServer: '0.166.0' }),
       createThread: async (input: unknown) => {
         threads.push(input);
@@ -1359,7 +1361,7 @@ describe('tarfa ls / spawn / peek (fake tmux)', () => {
     };
     await run(['spawn', '--child', '--cli', 'codex', home], { ...env, TMUX_PANE: '%7' }, home, io(tmux, { stdin: async () => 'b', codex }));
     expect(threads).toMatchObject([{ firstMessage: 'b' }]);
-    expect(created[0]).toMatchObject({ command: 'codex resume th-9', parent: 'perch-aaaaaa', codexThread: 'th-9' });
+    expect(created[0]).toMatchObject({ command: 'codex resume th-9', parent: 'perch-aaaaaa', codexThread: 'th-9', env: { CODEX_HOME: '/srv/codex' } });
   });
 
   // Codex under its daemon runs tools outside the pane, with the TMUX_PANE of whichever pane

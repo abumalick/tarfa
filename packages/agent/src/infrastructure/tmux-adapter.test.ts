@@ -74,6 +74,19 @@ describe('TmuxAdapter (real tmux)', () => {
     expect(await adapter.hasSession(name)).toBe(false);
   });
 
+  it('starts the pane with the environment it is given', async () => {
+    const adapter = new TmuxAdapter();
+    const name = `${PREFIX}env-${Date.now()}`;
+    created.push(name);
+    await adapter.createSession({ name, cwd: tmpdir(), command: 'printf "%s" "$CODEX_HOME"; sleep 30', env: { CODEX_HOME: '/srv/my codex' } });
+    let out = '';
+    for (let i = 0; i < 50 && !out.includes('/srv'); i++) {
+      out = (await exec('tmux', ['capture-pane', '-p', '-t', `=${name}:`])).stdout;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(out).toContain('/srv/my codex');
+  });
+
   // On its own server: a re-tag acts on every session the server holds.
   it('lists a session an older agent tagged @perch_*, and re-tags it @tarfa_* once', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tarfa-retag-'));

@@ -6,12 +6,13 @@ const DIR = '/home/u/.tarfa/spawn';
 function makeDeps(overrides: Partial<SpawnWorkspaceDeps> = {}) {
   const files = new Map<string, string>();
   const tmux = {
-    createSession: vi.fn(async (_input: { name: string; cwd: string; command: string; parent?: string; storedCommand?: string; codexThread?: string }) => {}),
+    createSession: vi.fn(async (_input: { name: string; cwd: string; command: string; parent?: string; storedCommand?: string; codexThread?: string; env?: Record<string, string> }) => {}),
     setPaneTitle: vi.fn(async (_name: string, _title: string) => {}),
     hasSession: vi.fn(async (_name: string) => true),
   };
   const sleep = vi.fn(async (_ms: number) => {});
   const codex = {
+    home: vi.fn(async () => '/srv/codex'),
     versions: vi.fn(async () => ({ cli: '0.166.0', appServer: '0.166.0' })),
     createThread: vi.fn(async (_input: { cwd: string; model?: string; developerInstructions?: string; firstMessage: string }) => 'th-1'),
   };
@@ -246,6 +247,12 @@ describe('spawnWorkspace', () => {
       expect(thread.developerInstructions).toContain('escalated');
       expect(thread.developerInstructions).toContain('[Tarfa message — from your ORCHESTRATOR]');
       expect(created(tmux)).toMatchObject({ name: 'perch-a1b2c3', cwd: '/w/proj', parent: 'perch-p00001', codexThread: 'th-1' });
+    });
+
+    it('starts the pane under the CODEX_HOME the thread was created in', async () => {
+      const { deps, tmux } = makeDeps();
+      await spawnWorkspace(deps, { projectPath: '/w/proj', brief: 'b', cli: 'codex' });
+      expect(created(tmux).env).toEqual({ CODEX_HOME: '/srv/codex' });
     });
 
     // Any -c / --enable / --search / --no-daemon makes the TUI hold the thread itself.

@@ -592,6 +592,7 @@ function codexSpawn(env: Record<string, string | undefined>, home: string, io: C
   let codexHome: Promise<string> | undefined;
   const resolve = () => (codexHome ??= resolveCodexHome(env, home, io.loginShell));
   return {
+    home: resolve,
     versions: async () => codexVersions(loginShell(undefined, { CODEX_HOME: await resolve() }))(),
     createThread: async (input) => new CodexAppServer({ codexHome: await resolve() }).createThread(input),
   };

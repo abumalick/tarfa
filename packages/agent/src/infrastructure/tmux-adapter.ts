@@ -173,9 +173,10 @@ export class TmuxAdapter implements TmuxPort {
     return set;
   }
 
-  async createSession(input: { name: string; cwd: string; command: string; parent?: string; storedCommand?: string; codexThread?: string }): Promise<void> {
+  async createSession(input: { name: string; cwd: string; command: string; parent?: string; storedCommand?: string; codexThread?: string; env?: Record<string, string> }): Promise<void> {
+    const env = Object.entries(input.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
     try {
-      await this.tmux(['new-session', '-d', '-s', input.name, '-c', input.cwd, input.command]);
+      await this.tmux(['new-session', '-d', '-s', input.name, '-c', input.cwd, ...env, input.command]);
     } catch (err) {
       if (((err as { stderr?: string }).stderr ?? '').includes('duplicate session')) throw new DuplicateSessionError(input.name);
       throw err;

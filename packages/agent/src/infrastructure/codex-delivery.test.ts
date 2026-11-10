@@ -104,7 +104,7 @@ describe('CodexDelivery', () => {
   });
 
   it('reports a daemon that is not running', async () => {
-    const { delivery } = fake({ loadedThrows: new CodexAppServerDown() });
-    expect(await delivery.deliver(target, 'hi')).toEqual({ ok: false, reason: 'the Codex app server is not running' });
+    const { delivery } = fake({ loadedThrows: new CodexAppServerDown('/h/.codex/s.sock') });
+    expect(await delivery.deliver(target, 'hi')).toEqual({ ok: false, reason: 'the Codex app server is not running (no socket at /h/.codex/s.sock)' });
   });
 });

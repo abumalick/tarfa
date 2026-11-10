@@ -251,8 +251,10 @@ Where Codex is installed (its home exists: `$CODEX_HOME`, else `~/.codex`), the 
 merges UserPromptSubmit/PreToolUse/PostToolUse/PermissionRequest/Stop hooks into its `hooks.json`.
 The agent and the CLI find that home the way Codex does: `CODEX_HOME` from agent.env or the
 environment, else the one the login shell sets (`$SHELL -lc`, as the panes' `codex` sees it), else
-`~/.codex`. A `CODEX_HOME` exported only in `.zshrc` is invisible to a login shell: export it in
-`.zshenv`/`.profile`, or set it in agent.env too. The agent reads it once at startup (its log says
+`~/.codex`. Export it in `.zshenv`/`.profile`, where a login shell, the tmux server and so every
+pane see it; one exported only in `.zshrc` is invisible to a login shell. A value in agent.env alone
+reaches the agent, `tarfa send` and a `tarfa spawn --cli codex` pane (spawn sets it on the session),
+but not a Codex opened from the app's form, whose pane has the tmux server's environment. The agent reads it once at startup (its log says
 `Codex home …`), so a change needs a restart.
 Codex runs none of them until they are trusted: open Codex, run `/hooks` and trust them. Trust
 is keyed on a hash of each hook, so re-trust after re-running `install-hooks` changes them.

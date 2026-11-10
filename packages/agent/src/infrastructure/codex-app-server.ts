@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { WebSocket } from 'ws';
 
 export class CodexAppServerDown extends Error {
-  constructor() {
-    super('the Codex app server is not running');
+  constructor(socketPath: string) {
+    super(`the Codex app server is not running (no socket at ${socketPath})`);
   }
 }
 
@@ -157,7 +157,7 @@ export class CodexAppServer {
   // address holds, however deep CODEX_HOME is; a link to nothing means no daemon.
   private async call<T>(run: (c: Connection) => Promise<T>): Promise<T> {
     const target = await realpath(this.socketPath).catch((err: NodeJS.ErrnoException) => {
-      throw err.code === 'ENOENT' ? new CodexAppServerDown() : err;
+      throw err.code === 'ENOENT' ? new CodexAppServerDown(this.socketPath) : err;
     });
     return new Promise<T>((resolve, reject) => {
       const ws = new WebSocket(`ws+unix://${target}:/`, { perMessageDeflate: false });
@@ -179,7 +179,7 @@ export class CodexAppServer {
       }, this.timeoutMs);
       ws.once('error', (err: NodeJS.ErrnoException) => {
         const down = err.code === 'ENOENT' || err.code === 'ECONNREFUSED';
-        settle(() => reject(down ? new CodexAppServerDown() : err));
+        settle(() => reject(down ? new CodexAppServerDown(this.socketPath) : err));
       });
       ws.once('close', () => settle(() => reject(new Error('the Codex app server closed the connection'))));
       ws.once('open', () => {

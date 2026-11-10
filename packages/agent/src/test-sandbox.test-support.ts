@@ -20,6 +20,8 @@ export default async function setup(): Promise<() => Promise<void>> {
   process.env.TMUX_TMPDIR = sandbox;
   delete process.env.TMUX;
   delete process.env.TMUX_PANE;
+  // A developer's own Codex home would take hooks the setup and apply tests install.
+  delete process.env.CODEX_HOME;
 
   // tmux exits once its last session is gone, so every test that killed its sessions left the
   // server exiting, and the next test's first tmux call reached it mid-exit: "server exited

@@ -127,12 +127,14 @@ async function spawnCodex(
   });
   // It lands unquoted in the pane's command line.
   if (!/^[0-9A-Za-z-]+$/.test(thread)) throw new Error(`the Codex app server named an unexpected thread id: ${thread}`);
+  // The tmux server's environment may name another Codex home, whose daemon has no such thread.
+  const codexHome = await deps.codex.home();
   const lockTitle = await titleLock(deps, title);
   // Exactly this: any -c, --enable, --search or --no-daemon makes the TUI hold the thread
   // in-process, where the daemon (and so `tarfa send`) cannot reach it.
   const command = `codex resume ${thread}`;
   const id = await createWithFreshId(deps.ids, cwd, (id) =>
-    deps.tmux.createSession({ name: id, cwd, command, codexThread: thread, ...(parent ? { parent: parent.id } : {}) }),
+    deps.tmux.createSession({ name: id, cwd, command, codexThread: thread, env: { CODEX_HOME: codexHome }, ...(parent ? { parent: parent.id } : {}) }),
   );
   return finishLaunch(deps, id, title, lockTitle, ` (Codex thread ${thread})`);
 }
