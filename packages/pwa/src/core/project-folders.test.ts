@@ -21,6 +21,8 @@ const machine = (id: string, defaultPath?: string): MachineConfig => ({
   defaultPath,
 });
 
+const keyedMachines = [{ ...machine('m', '/home/u/workspace'), agentKey: generateAgentKeys().x25519.publicKey }];
+
 describe('projectFolderLabel', () => {
   it('shows the path relative to the machine default', () => {
     const machines = [machine('m', '/home/u/workspace')];
@@ -185,6 +187,46 @@ describe('filterWorkspaces', () => {
   it('returns empty when every folder is hidden', () => {
     const all = new Set(['tarfa', 'foo', 'bar', 'bar-archive']);
     expect(filterWorkspaces(list, machines, all, 'hide')).toEqual([]);
+  });
+});
+
+describe('the filter goes by the orchestrator, never its children', () => {
+  const machines = [machine('m', '/home/u/workspace')];
+  const parent = ws({ id: 'p', machineId: 'm', projectPath: '/home/u/workspace/acme/radio' });
+  const child = ws({ id: 'c', machineId: 'm', projectPath: '/home/u/workspace/beta/site', parentId: 'p' });
+  const other = ws({ id: 'o', machineId: 'm', projectPath: '/home/u/workspace/beta/site' });
+  const list = [parent, child, other];
+  const ids = (out: Workspace[]) => out.map((w) => w.id);
+
+  it("keeps a child working in another folder when its orchestrator's folder is shown", () => {
+    expect(ids(filterWorkspaces(list, machines, new Set(['acme']), 'only'))).toEqual(['p', 'c']);
+  });
+
+  it("drops a child in the shown folder whose orchestrator is elsewhere", () => {
+    expect(ids(filterWorkspaces(list, machines, new Set(['beta']), 'only'))).toEqual(['o']);
+  });
+
+  it("keeps a child in a hidden folder while its orchestrator's folder is not hidden", () => {
+    expect(ids(filterWorkspaces(list, machines, new Set(['beta']), 'hide'))).toEqual(['p', 'c']);
+  });
+
+  it('hides the child with its orchestrator', () => {
+    expect(ids(filterWorkspaces(list, machines, new Set(['acme']), 'hide'))).toEqual(['o']);
+  });
+
+  it('filters a child by its own folder when its orchestrator is parked', () => {
+    const parked = [{ ...parent, status: 'parked' as const }, child, other];
+    expect(ids(filterWorkspaces(parked, machines, new Set(['acme']), 'only'))).toEqual(['p']);
+    expect(ids(filterWorkspaces(parked, machines, new Set(['beta']), 'only'))).toEqual(['c', 'o']);
+  });
+
+  it("counts a child in its orchestrator's folder", () => {
+    const folders = deriveProjectFolders([parent, child], machines);
+    expect(folders.map((f) => [f.key, f.count])).toEqual([['acme/radio', 2]]);
+  });
+
+  it('prunes a folder that holds only nested children', () => {
+    expect(pruneStaleFilter(new Set(['beta']), [parent, child], keyedMachines, ['m'])).toEqual([]);
   });
 });
 
