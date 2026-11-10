@@ -882,7 +882,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     lock). Only `closed` refuses it. **It is spent by the first
     `auth` that presents it, enrolled device or not**, and bound to that device's key (`usedBy`):
     an already-enrolled device needs no code, but one it left live would admit whoever else holds
-    the link for ten minutes. The binding device presenting it again is not a second use; any
+    the link for twenty minutes. The binding device presenting it again is not a second use; any
     other is refused.
   - **Device ids are 48 bits, so a key is the real name.** Enrolment refuses a key whose id is
     already in the roster (enrolled or revoked), and `tarfa devices revoke/forget` take the full

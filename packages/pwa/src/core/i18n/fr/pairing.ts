@@ -20,5 +20,5 @@ export const pairing: Messages['pairing'] = {
   orPaste: "Ou collez un lien d’association",
   pair: 'Associer',
   hintBefore: 'Lancez ',
-  hintAfter: ' sur la machine pour obtenir un code. Il sert une fois, pendant 10 minutes ou la durée donnée par --ttl.',
+  hintAfter: ' sur la machine pour obtenir un code. Il sert une fois, pendant 20 minutes ou la durée donnée par --ttl.',
 };

@@ -568,7 +568,7 @@ async function readStdin(ttyError: string): Promise<string> {
 }
 
 const RELAYS_GONE = 'relays are gone: tarfa setup sets a machine up for phones, and tarfa pair pairs one';
-const PAIR_USAGE = 'usage: tarfa pair [--pwa <PWA origin>] [--ttl <minutes, 1-10, default 10>]';
+const PAIR_USAGE = `usage: tarfa pair [--pwa <PWA origin>] [--ttl <minutes, 1-${PAIRING_TTL_MS / 60_000}, default ${PAIRING_TTL_MS / 60_000}>]`;
 
 function takeOption(args: string[], name: string, usage: string, Failure: new (message: string) => Error = Error): string | undefined {
   const at = args.indexOf(name);
