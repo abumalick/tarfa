@@ -365,6 +365,16 @@ rm -f "${T}/root/building-1.lock"
 set +e; out="$(TARFA_SANDBOX_MAX=abc sb up --worktree "${CAP_WT[1]}")"; rc=$?; set -e
 check "a limit that is not a number: refused" "1" "${rc}"
 check "and says so" "yes" "$(printf '%s' "${out}" | has 'TARFA_SANDBOX_MAX must be a number' /dev/stdin)"
+set +e; out="$(TARFA_SANDBOX_MAX=1 sb up --worktree "${CAP_WT[1]}")"; set -e
+check "the refusal points at gc" "yes" "$(printf '%s' "${out}" | has 'pnpm sandbox gc' /dev/stdin)"
+check "the refusal never says to take a peer down" "no" "$(printf '%s' "${out}" | has 'down one of them' /dev/stdin)"
+: > "${T}/active"
+sb up --worktree "${CAP_WT[0]}" > /dev/null
+echo "tarfa-sb-$(slug_of "${CAP_WT[0]}")-agent" > "${T}/active"
+check "a sandbox made over a stopped one keeps its lock file" "yes" "$([ -e "${T}/root/$(slug_of "${CAP_WT[0]}").lock" ] && echo yes || echo no)"
+rm -f "${T}/root/$(slug_of "${CAP_WT[0]}").lock"
+set +e; out="$(TARFA_SANDBOX_MAX=1 sb up --worktree "${CAP_WT[1]}")"; rc=$?; set -e
+check "a live sandbox with no lock file still counts" "1 yes" "${rc} $(printf '%s' "${out}" | has "$(slug_of "${CAP_WT[0]}")" /dev/stdin)"
 check "the default is 4" "yes" "$(grep -qF 'TARFA_SANDBOX_MAX:-4' "${HERE}/sandbox.sh" && echo yes || echo no)"
 : > "${T}/active"
 

@@ -108,8 +108,11 @@ Codex is not set up in sandboxes yet: its login and the trust its hooks need are
   sandbox path to find one.
 - The units cap the agent at 4 GB and the preview at 1 GB; workspaces run in their own scopes,
   outside that cap, as real ones do. So `up` refuses a fifth sandbox while four are up
-  (`TARFA_SANDBOX_MAX` changes the limit) and names the running ones. Inside a sandbox, run one
-  Claude session at a time and wrap test runs and builds in `heavy` where it exists.
+  (`TARFA_SANDBOX_MAX` changes the limit) and names the running ones. Those are usually other
+  agents': never take one down. Wait for one to finish, run `pnpm sandbox gc` to clear dead
+  ones, or ask the maintainer; for a UI-only change, the fake-agent e2e needs no sandbox.
+  Inside a sandbox, run one Claude session at a time and wrap test runs and builds in `heavy`
+  where it exists.
 
 ## Checking the tool itself
 

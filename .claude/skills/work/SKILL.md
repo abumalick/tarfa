@@ -73,7 +73,9 @@ pnpm sandbox rebuild             # after a code change (workspaces survive)
 Pick **Sonnet** in the create form for a Claude workspace. Take screenshots of what the
 user should look at and send them, with one line saying what to check, the way the user asked
 to be reached. Keep the sandbox up until the verdict, in case they ask for more;
-`pnpm worktree:remove` takes it down.
+`pnpm worktree:remove` takes it down. If `up` refuses because the limit is reached, the
+sandboxes it names are other agents': never take one down. Wait, run `pnpm sandbox gc` for
+dead ones, or ask the user.
 
 **Staging and the phone, only for what needs the device:** the Android keyboard, iOS
 Safari or install, voice and the mic, read-aloud, the share target, links handed to other

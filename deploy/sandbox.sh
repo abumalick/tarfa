@@ -276,7 +276,9 @@ cmd_down() { # <root>
   fi
   systemctl --user stop "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" 2>/dev/null || true
   systemctl --user reset-failed "tarfa-sb-${slug}-agent" "tarfa-sb-${slug}-pwa" 2>/dev/null || true
-  rm -rf "${root}" "${BASE}/${slug}.lock"
+  # The lock file stays: whoever holds it (an up replacing this sandbox) would otherwise hold a
+  # deleted file nobody else can see.
+  rm -rf "${root}"
   echo "sandbox ${slug} is down"
 }
 
@@ -361,19 +363,19 @@ cmd_up() { # <worktree>
     fi
     cmd_down "${root}" > /dev/null
   fi
-  # By lock, not manifest: a sandbox still being built holds its lock long before its agent starts.
-  # Two ups at once then count each other, which errs toward refusing.
-  local l s m live=()
-  for l in "${BASE}"/*.lock; do
-    [ -f "${l}" ] || continue
-    s="$(basename "${l}" .lock)"; m="${BASE}/${s}/manifest.json"
+  # Locks as well as manifests: a sandbox still being built holds its lock long before its agent
+  # starts. Two ups at once then count each other, which errs toward refusing.
+  local s m live=()
+  for s in $( { for m in "${BASE}"/*.lock "${BASE}"/*/manifest.json; do [ -e "${m}" ] || continue
+                case "${m}" in *.lock) basename "${m}" .lock ;; *) basename "$(dirname "${m}")" ;; esac; done; } | sort -u); do
+    m="${BASE}/${s}/manifest.json"
     [ "${s}" != "${slug}" ] || continue
-    if ( exec 8> "${l}"; ! flock -n 8 ); then live+=("${s} (being made)")
+    if [ -e "${BASE}/${s}.lock" ] && ( exec 8> "${BASE}/${s}.lock"; ! flock -n 8 ); then live+=("${s} (being made)")
     elif [ -f "${m}" ] && sb_unit_active "$(jq -r .units.agent "${m}")"; then live+=("${s} ($(jq -r .worktree "${m}"))")
     fi
   done
   if [ "${#live[@]}" -ge "${MAX_SANDBOXES}" ]; then
-    die "${#live[@]} sandboxes are already up (the limit is ${MAX_SANDBOXES}, TARFA_SANDBOX_MAX): $(printf '%s, ' "${live[@]}" | sed 's/, $//'). pnpm sandbox down one of them first"
+    die "${#live[@]} sandboxes are already up (the limit is ${MAX_SANDBOXES}, TARFA_SANDBOX_MAX): $(printf '%s, ' "${live[@]}" | sed 's/, $//'). They may be other agents': wait for one to finish, run pnpm sandbox gc to clear dead ones, or ask the maintainer"
   fi
 
   umask 077
