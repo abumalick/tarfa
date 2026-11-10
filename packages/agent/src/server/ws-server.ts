@@ -25,7 +25,7 @@ import type { ConnectUpstream } from '../ports/browser-stream-port';
 import type { HiddenFoldersPort } from '../ports/hidden-folders-port';
 import type { LaunchersPort } from '../ports/launchers-port';
 import type { KeytermsPort } from '../ports/keyterms-port';
-import type { DictationKeysPort } from '../ports/dictation-keys-port';
+import type { DictationKeysPort, DictationKeysWriter } from '../ports/dictation-keys-port';
 import type { ClientLogPort } from '../ports/client-log-port';
 import type { WorkspaceLogPort } from '../ports/workspace-log-port';
 import type { ParkedStorePort } from '../ports/parked-store-port';
@@ -74,7 +74,7 @@ export interface WsServerDeps {
   launchers: LaunchersPort;
   detectInstalled: (names: string[]) => Promise<string[]>;
   keyterms: KeytermsPort;
-  dictationKeys?: DictationKeysPort;
+  dictationKeys?: DictationKeysPort & DictationKeysWriter;
   clientLog: ClientLogPort;
   // Optional: where every hook event and its decision is recorded (applyHookEvent).
   hookEventLog?: HookEventLogPort;

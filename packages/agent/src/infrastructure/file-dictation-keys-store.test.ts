@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileDictationKeysStore } from './file-dictation-keys-store';
@@ -27,7 +27,7 @@ describe('FileDictationKeysStore', () => {
   });
 
   it('writes the file 0600 and reads it back', async () => {
-    await store().save({ elevenlabs: 'test-key-1' });
+    expect(await store().update(() => ({ elevenlabs: 'test-key-1' }))).toEqual({ ok: true });
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(await store().read()).toEqual({ elevenlabs: 'test-key-1' });
   });
@@ -51,5 +51,19 @@ describe('FileDictationKeysStore', () => {
     expect(await store().load()).toEqual({ keys: {} });
     await writeFile(file, 'nope test-key-1', { mode: 0o600 });
     expect(await store().load()).toEqual({ problem: `${file} is malformed` });
+  });
+
+  it('keeps both of two updates made at once', async () => {
+    await Promise.all([
+      store().update((keys) => ({ ...keys, elevenlabs: 'test-key-1' })),
+      store().update((keys) => ({ ...keys, openrouter: 'test-key-2' })),
+    ]);
+    expect(await store().read()).toEqual({ elevenlabs: 'test-key-1', openrouter: 'test-key-2' });
+  });
+
+  it('leaves a malformed file alone on an update and says why', async () => {
+    await writeFile(file, 'nope', { mode: 0o600 });
+    expect(await store().update(() => ({ elevenlabs: 'test-key-1' }))).toEqual({ problem: `${file} is malformed` });
+    expect(await readFile(file, 'utf8')).toBe('nope');
   });
 });

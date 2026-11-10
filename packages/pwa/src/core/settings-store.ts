@@ -43,6 +43,7 @@ const SHARE_LINKS_KEY = 'tarfa.shareLinks';
 const GROUP_BY_PROJECT_KEY = 'tarfa.groupByProject';
 const READ_ALOUD_RATE_KEY = 'tarfa.readAloudRate';
 const LANGUAGE_KEY = 'tarfa.language';
+// Read by no build since dictation keys moved to the machines; only deleted.
 const ELEVENLABS_API_KEY = 'tarfa.elevenLabsApiKey';
 const OPENROUTER_API_KEY = 'tarfa.openRouterApiKey';
 const DICTATION_PRESETS_KEY = 'tarfa.dictationPresets';
@@ -231,26 +232,11 @@ export class SettingsStore {
     this.storage.write(TERMINAL_FONT_SIZE_KEY, String(clampFontSize(size)));
   }
 
-  // The ElevenLabs API key for client-side speech-to-text. App-global, stored on-device
-  // only (never sent to the agent, never committed). An empty value clears it.
-  elevenLabsApiKey(): string | null {
-    const raw = this.storage.read(ELEVENLABS_API_KEY);
-    return raw ? raw : null;
-  }
-
-  setElevenLabsApiKey(key: string): void {
-    this.storage.write(ELEVENLABS_API_KEY, key);
-  }
-
-  // The OpenRouter API key, for dictation presets that run an OpenRouter model. Same rules as
-  // the ElevenLabs key.
-  openRouterApiKey(): string | null {
-    const raw = this.storage.read(OPENROUTER_API_KEY);
-    return raw ? raw : null;
-  }
-
-  setOpenRouterApiKey(key: string): void {
-    this.storage.write(OPENROUTER_API_KEY, key);
+  // Keys a build before machine-held keys stored on the device. A dictation now uses only the
+  // key its machine holds, so they are deleted rather than left readable at rest.
+  forgetDeviceDictationKeys(): void {
+    this.storage.remove(ELEVENLABS_API_KEY);
+    this.storage.remove(OPENROUTER_API_KEY);
   }
 
   // The user's dictation presets, or the built-in defaults while they have not edited them.

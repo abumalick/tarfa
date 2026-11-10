@@ -12,7 +12,7 @@ describe('ElevenLabsTranscriber', () => {
   it('throws when no API key is configured, without calling fetch', async () => {
     const fetchFn = vi.fn();
     const t = new ElevenLabsTranscriber(() => null, () => [], fetchFn);
-    await expect(t.transcribe(audio)).rejects.toThrow('Set ElevenLabs key in Settings');
+    await expect(t.transcribe(audio)).rejects.toThrow("Set an ElevenLabs key on this machine's page in Settings");
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
@@ -128,7 +128,7 @@ describe('ElevenLabsTranscriber in French', () => {
     setLanguage('fr');
     try {
       const t = new ElevenLabsTranscriber(() => null, () => [], vi.fn());
-      await expect(t.transcribe(audio)).rejects.toThrow('Saisissez la clé ElevenLabs dans les Réglages');
+      await expect(t.transcribe(audio)).rejects.toThrow('Saisissez une clé ElevenLabs sur la page de cette machine dans les Réglages');
     } finally {
       setLanguage('en');
     }

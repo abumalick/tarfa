@@ -6,6 +6,8 @@
   import { parseAddressLines } from '../core/machine-addresses';
   import StatusDot from './StatusDot.svelte';
   import ConfirmRemove from './ConfirmRemove.svelte';
+  import MachineDictationKeys from './MachineDictationKeys.svelte';
+  import type { DictationProvider } from '../core/dictation-presets';
   import { STATUS_LABEL, describeConnectionError } from './machine-status';
   import { msg } from '../i18n.svelte';
 
@@ -13,10 +15,25 @@
     store,
     machine,
     onClose,
+    focusKey = null,
   }: {
-    store: Pick<TarfaStore, 'statuses' | 'lastConnectionError' | 'updateMachine' | 'removeMachine' | 'reconnectMachine' | 'agentTooOld'>;
+    store: Pick<
+      TarfaStore,
+      | 'statuses'
+      | 'lastConnectionError'
+      | 'updateMachine'
+      | 'removeMachine'
+      | 'reconnectMachine'
+      | 'agentTooOld'
+      | 'keyRoute'
+      | 'machineHasDictationKey'
+      | 'dictationKeySaves'
+      | 'setMachineDictationKey'
+    >;
     machine: MachineConfig;
     onClose: () => void;
+    // The key field to open at, from the mic's setup explanation.
+    focusKey?: DictationProvider | null;
   } = $props();
 
   // The form edits a copy taken when the page opens; untrack marks these as initial values.
@@ -124,6 +141,8 @@
 
     <button type="submit" class="primary">{msg().settings.save}</button>
   </form>
+
+  <MachineDictationKeys {store} {machine} {focusKey} />
 
   <div class="danger-zone">
     <button type="button" class="danger" onclick={() => (confirming = true)}>{msg().settings.removeMachine}</button>

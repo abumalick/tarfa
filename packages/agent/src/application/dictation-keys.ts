@@ -1,3 +1,5 @@
+import type { DictationKeysWriter } from '../ports/dictation-keys-port';
+
 // The dictation provider keys an operator stores on the agent machine, for every phone paired
 // with it. Nothing here may put a key, or the file's text, into an error: errors reach logs and
 // the phone.
@@ -45,4 +47,21 @@ export function withKey(keys: DictationKeys, provider: DictationProvider, key: s
 export function withoutKey(keys: DictationKeys, provider: DictationProvider): DictationKeys {
   const { [provider]: _removed, ...rest } = keys;
   return rest;
+}
+
+// Stores (`raw`) or removes (`null`) one provider's key, for `tarfa dictation-key` and for a
+// phone's setDictationKey alike. An error is fixed wording and never holds the key.
+export async function changeDictationKey(
+  store: DictationKeysWriter,
+  provider: DictationProvider,
+  raw: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  let key: string | null = null;
+  if (raw !== null) {
+    const checked = checkKey(raw);
+    if (!checked.ok) return checked;
+    key = checked.key;
+  }
+  const result = await store.update((keys) => (key === null ? withoutKey(keys, provider) : withKey(keys, provider, key)));
+  return 'problem' in result ? { ok: false, error: result.problem } : { ok: true };
 }

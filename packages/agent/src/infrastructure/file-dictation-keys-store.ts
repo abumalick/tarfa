@@ -1,13 +1,16 @@
 import { readFile, stat } from 'node:fs/promises';
 import { parseDictationKeys, type DictationKeys } from '../application/dictation-keys';
 import { exposedFiles } from '../application/private-files';
-import type { DictationKeysPort } from '../ports/dictation-keys-port';
+import type { DictationKeysPort, DictationKeysWriter } from '../ports/dictation-keys-port';
 import { atomicWrite } from './atomic-write';
+import { withFileLock } from './file-lock';
+
+const STALE_LOCK_MS = 10_000;
 
 // ~/.tarfa/dictation-keys.json, read fresh on every request so `tarfa dictation-key set` reaches
 // the next phone that connects with no restart. The startup check sees only a file that existed
 // then, so each read checks the mode itself.
-export class FileDictationKeysStore implements DictationKeysPort {
+export class FileDictationKeysStore implements DictationKeysPort, DictationKeysWriter {
   constructor(
     private readonly path: string,
     private readonly report: (problem: string) => void = () => {},
@@ -42,7 +45,12 @@ export class FileDictationKeysStore implements DictationKeysPort {
     return loaded.keys;
   }
 
-  async save(keys: DictationKeys): Promise<void> {
-    await atomicWrite(this.path, `${JSON.stringify(keys, null, 2)}\n`, 0o600);
+  async update(change: (keys: DictationKeys) => DictationKeys): Promise<{ ok: true } | { problem: string }> {
+    return withFileLock(this.path, STALE_LOCK_MS, async () => {
+      const loaded = await this.load();
+      if ('problem' in loaded) return { problem: loaded.problem };
+      await atomicWrite(this.path, `${JSON.stringify(change(loaded.keys), null, 2)}\n`, 0o600);
+      return { ok: true as const };
+    });
   }
 }

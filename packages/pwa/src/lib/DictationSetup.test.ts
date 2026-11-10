@@ -17,33 +17,42 @@ describe('DictationSetup', () => {
     expect(screen.queryByRole('link', { name: 'Machine setup guide' })).toBeNull();
   });
 
-  it('opens Settings at the key, or that provider’s how-to', async () => {
+  it("opens this machine's page at the key, or that provider’s how-to, with the operator's command beside", async () => {
     const onOpenSettings = vi.fn();
-    render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'openrouter' }], onOpenSettings, onClose: vi.fn() } });
+    render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'openrouter', route: 'page' }], onOpenSettings, onClose: vi.fn() } });
+    expect(screen.getByText(/on this machine's page in Settings/)).toBeInTheDocument();
+    expect(screen.getByText('tarfa dictation-key set openrouter')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'How to get an OpenRouter key' }));
     expect(screen.getByRole('dialog', { name: 'Get an OpenRouter key' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open the API keys page' })).toHaveAttribute('href', PROVIDER_LINKS.openrouter.keys);
-    await fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+    expect(screen.getByText(/stored on the machine/)).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: "Open this machine's page" }));
     expect(onOpenSettings).toHaveBeenCalledWith('openrouter');
   });
 
-  it('shows the command that stores a key on the machine, per provider still missing one', () => {
-    render(DictationSetup, { props: { options: [{ kind: 'machine', providers: ['elevenlabs', 'openrouter'] }], onOpenSettings: vi.fn(), onClose: vi.fn() } });
-    expect(screen.getByRole('heading', { name: 'A key on this machine' })).toBeInTheDocument();
+  it('gives only the command, and the update note, where the agent takes no key from the phone', () => {
+    render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'elevenlabs', route: 'cli' }], onOpenSettings: vi.fn(), onClose: vi.fn() } });
     expect(screen.getByText('tarfa dictation-key set elevenlabs')).toBeInTheDocument();
-    expect(screen.getByText('tarfa dictation-key set openrouter')).toBeInTheDocument();
+    expect(screen.getByText(/Update this machine's agent/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Open this machine's page/ })).toBeNull();
+  });
+
+  it('asks for an agent update where the machine keeps no keys at all', () => {
+    render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'elevenlabs', route: 'update' }], onOpenSettings: vi.fn(), onClose: vi.fn() } });
+    expect(screen.getByText(/Update this machine's agent/)).toBeInTheDocument();
+    expect(screen.queryByText(/tarfa dictation-key/)).toBeNull();
   });
 
   it('closes on Escape', async () => {
     const onClose = vi.fn();
-    render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'elevenlabs' }], onOpenSettings: vi.fn(), onClose } });
+    render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'elevenlabs', route: 'page' }], onOpenSettings: vi.fn(), onClose } });
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
   });
 
   it('closes on a tap on the scrim, but not on a click left over from the tap that opened it', async () => {
     const onClose = vi.fn();
-    const { container } = render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'elevenlabs' }], onOpenSettings: vi.fn(), onClose } });
+    const { container } = render(DictationSetup, { props: { options: [{ kind: 'key', provider: 'elevenlabs', route: 'page' }], onOpenSettings: vi.fn(), onClose } });
     const scrim = container.querySelector('.scrim')!;
     await fireEvent.click(scrim);
     expect(onClose).not.toHaveBeenCalled();

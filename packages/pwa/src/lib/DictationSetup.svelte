@@ -20,7 +20,9 @@
 {#if helpFor}
   <HelpPanel title={msg().dictation.keyHelp.title(PROVIDER_NAMES[helpFor])} testid="key-help" {onClose}>
     <KeyHelp provider={helpFor} />
-    <button type="button" class="action" onclick={() => helpFor && onOpenSettings(helpFor)}>{t.openSettings}</button>
+    {#if options.some((o) => o.kind === 'key' && o.provider === helpFor && o.route === 'page')}
+      <button type="button" class="action" onclick={() => helpFor && onOpenSettings(helpFor)}>{t.openSettings}</button>
+    {/if}
     <button type="button" class="action" onclick={() => (helpFor = null)}>{t.back}</button>
   </HelpPanel>
 {:else}
@@ -29,13 +31,7 @@
     <ul>
       {#each options as option (option.kind === 'key' ? option.provider : option.kind)}
         <li>
-          {#if option.kind === 'machine'}
-            <h3>{t.machineTitle}</h3>
-            <p>{t.machine}</p>
-            {#each option.providers as provider (provider)}
-              <code>tarfa dictation-key set {provider}</code>
-            {/each}
-          {:else if option.kind === 'claude'}
+          {#if option.kind === 'claude'}
             <h3>Claude voice</h3>
             {#if option.state === 'setup'}
               <p>{t.claudeSetup}</p>
@@ -47,9 +43,18 @@
             {@const provider = option.provider}
             <h3>{PROVIDER_NAMES[provider]}</h3>
             <p>{t[provider]}</p>
+            {#if option.route === 'update'}
+              <p class="dim">{t.keyUpdateAgent}</p>
+            {:else}
+              <p class="dim">{option.route === 'page' ? t.keyOnPage : t.keyCliOnly}</p>
+              <code>tarfa dictation-key set {provider}</code>
+              {#if option.route === 'cli'}<p class="dim">{t.keyUpdateAgent}</p>{/if}
+            {/if}
             <div class="pair">
               <button type="button" class="action" aria-label={t.howToGetKeyFor(PROVIDER_NAMES[provider])} onclick={() => (helpFor = provider)}>{t.howToGetKey}</button>
-              <button type="button" class="action" aria-label={t.openSettingsFor(PROVIDER_NAMES[provider])} onclick={() => onOpenSettings(provider)}>{t.openSettings}</button>
+              {#if option.route === 'page'}
+                <button type="button" class="action" aria-label={t.openSettingsFor(PROVIDER_NAMES[provider])} onclick={() => onOpenSettings(provider)}>{t.openSettings}</button>
+              {/if}
             </div>
           {/if}
         </li>
@@ -60,6 +65,7 @@
 
 <style>
   p { margin: 0 0 0.5rem; }
+  .dim { color: var(--text-dim); font-size: 0.82rem; }
   ul {
     list-style: none;
     margin: 0;

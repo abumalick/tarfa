@@ -1,4 +1,5 @@
-import type { DictationKeysPort } from '../ports/dictation-keys-port';
+import type { DictationKeysPort, DictationKeysWriter } from '../ports/dictation-keys-port';
+import type { DictationKeys } from '../application/dictation-keys';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ConnectionHandler, type ConnectionHandlerDeps } from './connection-handler';
 import { ViewerRegistry } from './viewer-registry';
@@ -190,7 +191,7 @@ function baseDeps() {
     launchers: fakeLaunchers(),
     detectInstalled: async (names: string[]) => names.filter((n) => n === 'claude'),
     keyterms: { list: async (): Promise<string[]> => [] },
-    dictationKeys: undefined as DictationKeysPort | undefined,
+    dictationKeys: undefined as (DictationKeysPort & DictationKeysWriter) | undefined,
     workspaceLog: { append: async () => {} } as WorkspaceLogPort,
     forgetWorkspace: (_id: string): Workspace | undefined => undefined,
     dropWorkspaceState: undefined as ((id: string) => void) | undefined,
@@ -593,7 +594,7 @@ describe('ConnectionHandler control routing', () => {
 
   it('answers getDictationKeys with the keys the operator stored', async () => {
     const deps = baseDeps();
-    deps.dictationKeys = { read: async () => ({ elevenlabs: 'test-key-1' }) };
+    deps.dictationKeys = { read: async () => ({ elevenlabs: 'test-key-1' }), update: async () => ({ ok: true }) };
     new ConnectionHandler(f.conn, deps);
     f.emit({ type: 'auth', token: '' });
     f.emit({ type: 'getDictationKeys' });
@@ -610,12 +611,92 @@ describe('ConnectionHandler control routing', () => {
         reads++;
         return { elevenlabs: 'test-key-1' };
       },
+      update: async () => {
+        reads++;
+        return { ok: true };
+      },
     };
     new ConnectionHandler(stranger.conn, deps);
     stranger.emit({ type: 'getDictationKeys' });
+    stranger.emit({ type: 'setDictationKey', provider: 'elevenlabs', key: 'test-key-2' });
     await new Promise((r) => setTimeout(r, 0));
     expect(reads).toBe(0);
     expect(stranger.sent.map((m) => m.type)).not.toContain('dictationKeys');
+    expect(stranger.sent.map((m) => m.type)).not.toContain('dictationKeySet');
+  });
+
+  function keysStore(initial: DictationKeys = {}) {
+    const box = { keys: initial };
+    return {
+      box,
+      read: async () => box.keys,
+      update: async (change: (keys: DictationKeys) => DictationKeys) => {
+        box.keys = change(box.keys);
+        return { ok: true as const };
+      },
+    };
+  }
+
+  it('stores a key a phone sends and answers dictationKeySet without echoing it', async () => {
+    const deps = baseDeps();
+    const store = keysStore({ openrouter: 'test-key-2' });
+    deps.dictationKeys = store;
+    new ConnectionHandler(f.conn, deps);
+    f.emit({ type: 'auth', token: '' });
+    f.emit({ type: 'setDictationKey', provider: 'elevenlabs', key: ' test-key-1 ' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(store.box.keys).toEqual({ openrouter: 'test-key-2', elevenlabs: 'test-key-1' });
+    expect(f.sent).toContainEqual({ type: 'dictationKeySet', provider: 'elevenlabs', ok: true });
+    expect(JSON.stringify(f.sent)).not.toContain('test-key-1');
+  });
+
+  it('removes a key on null', async () => {
+    const deps = baseDeps();
+    const store = keysStore({ elevenlabs: 'test-key-1' });
+    deps.dictationKeys = store;
+    new ConnectionHandler(f.conn, deps);
+    f.emit({ type: 'auth', token: '' });
+    f.emit({ type: 'setDictationKey', provider: 'elevenlabs', key: null });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(store.box.keys).toEqual({});
+    expect(f.sent).toContainEqual({ type: 'dictationKeySet', provider: 'elevenlabs', ok: true });
+  });
+
+  it('refuses a bad key in its reply, with the fixed wording only', async () => {
+    const deps = baseDeps();
+    const store = keysStore();
+    deps.dictationKeys = store;
+    new ConnectionHandler(f.conn, deps);
+    f.emit({ type: 'auth', token: '' });
+    f.emit({ type: 'setDictationKey', provider: 'openrouter', key: 'two secret-words' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(store.box.keys).toEqual({});
+    expect(f.sent).toContainEqual({ type: 'dictationKeySet', provider: 'openrouter', ok: false, error: 'a key holds no whitespace' });
+    expect(JSON.stringify(f.sent)).not.toContain('secret-words');
+  });
+
+  it('answers a failed write in its reply, not as a generic error', async () => {
+    const deps = baseDeps();
+    deps.dictationKeys = {
+      read: async () => ({}),
+      update: async () => {
+        throw new Error('EACCES test-key-1');
+      },
+    };
+    new ConnectionHandler(f.conn, deps);
+    f.emit({ type: 'auth', token: '' });
+    f.emit({ type: 'setDictationKey', provider: 'elevenlabs', key: 'test-key-1' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.sent).toContainEqual({ type: 'dictationKeySet', provider: 'elevenlabs', ok: false, error: 'the keys file could not be written' });
+    expect(f.sent.map((m) => m.type)).not.toContain('error');
+  });
+
+  it('refuses a key when the agent keeps no keys file', async () => {
+    new ConnectionHandler(f.conn, baseDeps());
+    f.emit({ type: 'auth', token: '' });
+    f.emit({ type: 'setDictationKey', provider: 'elevenlabs', key: 'test-key-1' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.sent).toContainEqual({ type: 'dictationKeySet', provider: 'elevenlabs', ok: false, error: 'this agent keeps no dictation keys' });
   });
 
   it('answers readFile with fileContents for an allowed path', async () => {

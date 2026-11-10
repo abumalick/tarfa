@@ -44,7 +44,7 @@ import { loadOrCreateAgentKeys } from './infrastructure/agent-key-file';
 import { FileDeviceStore } from './infrastructure/file-device-store';
 import { FileDictationKeysStore } from './infrastructure/file-dictation-keys-store';
 import { readSecret } from './infrastructure/read-secret';
-import { checkKey, DICTATION_PROVIDERS, providerOf, withKey, withoutKey } from './application/dictation-keys';
+import { changeDictationKey, DICTATION_PROVIDERS, providerOf } from './application/dictation-keys';
 import { enrolmentMode, forgetDevice, revokeDevice, withEnrolmentMode, type Device, type DeviceRoster, type EnrolmentMode } from './application/device-roster';
 import encodeQR from 'qr';
 import { deviceFingerprint, generatePairingSecret, isMachineUrl, MAX_ADDRESSES, pairingCode, pairingLink, sanitizeDeviceName, type PairingLink } from '@tarfa/secure-channel';
@@ -1016,16 +1016,14 @@ async function dictationKey(store: FileDictationKeysStore, [action = 'status', n
   }
   const provider = name ? providerOf(name) : null;
   if (!provider || extra.length > 0) throw new UsageError(DICTATION_KEY_USAGE);
+  // Said before the key is typed; the update checks again under the lock.
   const loaded = await store.load();
   if ('problem' in loaded) throw new Error(loaded.problem);
-  if (action === 'remove') {
-    await store.save(withoutKey(loaded.keys, provider));
-    return `${provider}: removed; phones stop getting it at their next connect. Rotate it at the provider if a phone that had it is lost`;
-  }
-  const checked = checkKey(await secret(`${provider} key: `));
-  if (!checked.ok) throw new Error(checked.error);
-  await store.save(withKey(loaded.keys, provider, checked.key));
-  return `${provider}: stored; every phone paired with this machine gets it at its next connect`;
+  const result = await changeDictationKey(store, provider, action === 'remove' ? null : await secret(`${provider} key: `));
+  if (!result.ok) throw new Error(result.error);
+  return action === 'remove'
+    ? `${provider}: removed; phones stop getting it at their next connect. Rotate it at the provider if a phone that had it is lost`
+    : `${provider}: stored; every phone paired with this machine gets it at its next connect`;
 }
 
 const DEVICES_USAGE = [

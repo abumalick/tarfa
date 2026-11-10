@@ -12,6 +12,9 @@ function fakeStorage(initial: Record<string, string> = {}): StoragePort & { data
     write(key, value) {
       this.data[key] = value;
     },
+    remove(key) {
+      delete this.data[key];
+    },
   };
 }
 
@@ -43,6 +46,7 @@ describe('createStorageLogStore', () => {
       write: () => {
         throw new Error('QuotaExceeded');
       },
+      remove: () => undefined,
     };
     expect(() => createStorageLogStore(storage).save(state)).not.toThrow();
   });

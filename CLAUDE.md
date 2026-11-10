@@ -368,27 +368,44 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   Custom is kept). A remembered command runs as typed, with no model picker; `forgetLauncher`
   removes one. An agent that predates this never answers, and the PWA keeps the fixed
   Claude/Codex/Bash list. Needs an agent restart per machine.
-- **Dictation presets are on-device config; the keys may come from the agent.** The 🎤 records in the PWA
+- **Dictation presets are on-device config; the keys live only on the machines.** The 🎤 records in the PWA
   and sends the audio straight from the phone, either to ElevenLabs Scribe or to an OpenRouter
   model that hears it and follows the preset's prompt (`adapters/openrouter-transcriber.ts`);
   `PresetTranscriber` picks one per dictation from the current preset. A long press (500 ms,
-  `HOLD_MS`) on the mic opens the presets; its badge shows the current one; Settings edits them
-  and holds both typed keys. **A provider key is the typed one, else the attached workspace's
-  machine's** (`store.dictationKey`, `core/dictation-key-source.ts`; the transcribers and
-  `presetKeys` read only that). An operator stores one with `tarfa dictation-key set <provider>`
-  (stdin or an echo-off prompt, never argv) in `~/.tarfa/dictation-keys.json` (0600, in the startup
-  private-file check, and mode-checked again on every read since the file may appear later; a
-  malformed file reports a fixed message, since `JSON.parse`'s quotes the text). The agent
-  advertises `AGENT_FEATURES.dictationKeys`, and the PWA then sends `getDictationKeys` on each
-  accepted `authResult`; the handler answers `dictationKeys` only behind `authed`. Things not to
+  `HOLD_MS`) on the mic opens the presets; its badge shows the current one; Settings edits them.
+  **A provider key is the attached workspace's machine's, and nothing else** (`store.dictationKey`,
+  `core/dictation-key-source.ts`; the transcribers and `presetKeys` read only that). It is stored in
+  `~/.tarfa/dictation-keys.json` (0600, in the startup private-file check, and mode-checked again on
+  every read since the file may appear later; a malformed file reports a fixed message, since
+  `JSON.parse`'s quotes the text), by `tarfa dictation-key set <provider>` (stdin or an echo-off
+  prompt, never argv) or by a paired phone from the machine's page in Settings
+  (`MachineDictationKeys.svelte`): `setDictationKey { provider, key | null }`, answered
+  `dictationKeySet { provider, ok, error? }`, after which the phone asks `getDictationKeys` again. Both
+  paths run `changeDictationKey` (`application/dictation-keys.ts`: `checkKey` trims and refuses
+  whitespace inside or over 512 characters) and write under `withFileLock`, since the CLI and the agent
+  are different processes. The agent advertises `AGENT_FEATURES.dictationKeys` (it hands keys out) and
+  `AGENT_FEATURES.setDictationKey` (it takes one), and the PWA sends `getDictationKeys` on each
+  accepted `authResult`; the handler answers both only behind `authed`, and a failed write is a
+  `dictationKeySet` refusal with fixed wording, never the generic `error`. Things not to
   "simplify": **a request, not a field on `authResult.agent`** (a malformed field there would
   wipe `features` too, and the transport layer should read no secret file); **held in memory per
   machine, never in localStorage**, dropped when the machine goes offline, is removed, or stops
-  naming the feature, so a lost phone holds none at rest; **no cross-machine fallback** (machines
-  on one phone may have different operators, and each pays for its own workspaces' dictation;
-  with no workspace open, no agent key counts, and Settings names the machines that provide each
-  key instead); and **Save in Settings never writes the agent's key** (the typed state is
-  separate). When nothing can run, the mic's setup lists `tarfa dictation-key set <provider>` first for the providers still keyless, if the attached machine names the feature (`setupOptions`' `machine` kind). A revoked phone may still hold a key it fetched: the remedy is rotating it at the
+  naming the feature, so a lost phone holds none at rest; the build deletes the
+  `tarfa.elevenLabsApiKey`/`tarfa.openRouterApiKey` an older build typed into the device
+  (`SettingsStore.forgetDeviceDictationKeys`, at every `start`), so agents' keys must be set before
+  such a PWA ships; **the machine page shows only whether a key is set** (`••••••`), never binds the
+  held value to the field and clears the field after sending; **its key forms are apart from the
+  page's save form**, which closes the page and rewrites the entry, reconnecting the session the key
+  rides on; **a key saved on a page goes to that machine alone** (machines on one phone may have
+  different operators, and each pays for its own workspaces' dictation); **any enrolled phone of a
+  machine can overwrite or remove its keys**, accepted since it can already run anything in that
+  machine's terminals; and **no cross-machine fallback**: with no workspace open, `presetKeys`
+  counts a key some machine holds (as Claude voice does), and Settings names the machines that hold
+  each key. A page whose agent lacks `setDictationKey` asks for an agent update (with the
+  `tarfa dictation-key` lines when it still hands keys out). When nothing can run, the mic's setup
+  gives each keyless provider its route (`setupOptions`' `KeyRoute`: `page` opens that machine's page
+  at the field, beside the CLI line; `cli` the CLI line and the update note; `update` the note). A
+  revoked phone may still hold a key it fetched: the remedy is rotating it at the
   provider. **Only a preset whose provider has a key can be used**: the current
   preset is the chosen one if it has its key, else the first that does (`currentPreset`), a
   keyless one is disabled in the menu. **With no usable preset at all the mic stays** (no badge,
@@ -397,8 +414,9 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   this machine runs Linux" with the setup guide on `main` when the agent says `claudeVoice: false`
   (macOS, no loopback and an old agent look alike) or with the reason when it says true, and each
   missing key with its how-to (`KeyHelp`: key page, a hedged cost with the pricing link, where to
-  paste) and a jump to its Settings field (`openDictationKeySettings`). Settings has the same
-  how-to beside each key field. The long press still opens the menu. A bar with no setup handler
+  paste) and a jump to the attached machine's page (`openDictationKeySettings`, which sets
+  `dictationKeyFocus` to `{ machineId, provider }`). The machine page has the same how-to beside each
+  key field. The long press still opens the menu. A bar with no setup handler
   (the browser view) has no mic.
   Things not to "simplify":
   - **The defaults live in code until the user edits the list** (`DEFAULT_PRESETS`, nothing

@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { checkKey, parseDictationKeys, providerOf, withKey, withoutKey } from './dictation-keys';
+import { changeDictationKey, checkKey, parseDictationKeys, providerOf, withKey, withoutKey, type DictationKeys } from './dictation-keys';
+import type { DictationKeysWriter } from '../ports/dictation-keys-port';
+
+function fakeStore(initial: DictationKeys | { problem: string }): DictationKeysWriter & { keys: DictationKeys | null } {
+  const box = { keys: 'problem' in initial ? null : (initial as DictationKeys) };
+  return {
+    get keys() {
+      return box.keys;
+    },
+    async update(change) {
+      if ('problem' in initial) return { problem: initial.problem as string };
+      box.keys = change(box.keys ?? {});
+      return { ok: true };
+    },
+  };
+}
 
 describe('parseDictationKeys', () => {
   it('reads both providers', () => {
@@ -48,5 +63,32 @@ describe('withKey / withoutKey', () => {
     const both = withKey(withKey({}, 'elevenlabs', 'a'), 'openrouter', 'b');
     expect(both).toEqual({ elevenlabs: 'a', openrouter: 'b' });
     expect(withoutKey(both, 'elevenlabs')).toEqual({ openrouter: 'b' });
+  });
+});
+
+describe('changeDictationKey', () => {
+  it('stores a checked key beside the other provider\'s', async () => {
+    const store = fakeStore({ elevenlabs: 'test-key-1' });
+    expect(await changeDictationKey(store, 'openrouter', '  test-key-2\n')).toEqual({ ok: true });
+    expect(store.keys).toEqual({ elevenlabs: 'test-key-1', openrouter: 'test-key-2' });
+  });
+
+  it('removes a key on null, and answers ok when there was none', async () => {
+    const store = fakeStore({ elevenlabs: 'test-key-1' });
+    expect(await changeDictationKey(store, 'elevenlabs', null)).toEqual({ ok: true });
+    expect(await changeDictationKey(store, 'openrouter', null)).toEqual({ ok: true });
+    expect(store.keys).toEqual({});
+  });
+
+  it('refuses a bad key without writing or echoing it', async () => {
+    const store = fakeStore({ elevenlabs: 'test-key-1' });
+    const result = await changeDictationKey(store, 'elevenlabs', 'bad key-secret');
+    expect(result).toEqual({ ok: false, error: 'a key holds no whitespace' });
+    expect(store.keys).toEqual({ elevenlabs: 'test-key-1' });
+  });
+
+  it('passes on the store\'s problem with the file', async () => {
+    const store = fakeStore({ problem: '/x/dictation-keys.json is malformed' });
+    expect(await changeDictationKey(store, 'elevenlabs', 'test-key-1')).toEqual({ ok: false, error: '/x/dictation-keys.json is malformed' });
   });
 });

@@ -8,8 +8,8 @@ describe('setupOptions', () => {
   it('offers Claude voice and both keys for the default presets, in preset order', () => {
     expect(setupOptions(DEFAULT_PRESETS, { ...none, claude: 'unavailable' })).toEqual([
       { kind: 'claude', state: 'setup' },
-      { kind: 'key', provider: 'elevenlabs' },
-      { kind: 'key', provider: 'openrouter' },
+      { kind: 'key', provider: 'elevenlabs', route: 'update' },
+      { kind: 'key', provider: 'openrouter', route: 'update' },
     ]);
   });
 
@@ -23,27 +23,25 @@ describe('setupOptions', () => {
       { id: 'a', name: 'A', badge: 'A', provider: 'openrouter', model: 'm', prompt: 'p' },
       { id: 'b', name: 'B', badge: 'B', provider: 'openrouter', model: 'm', prompt: 'p' },
     ];
-    expect(setupOptions(onlyOpenRouter, { ...none, claude: 'unavailable' })).toEqual([{ kind: 'key', provider: 'openrouter' }]);
+    expect(setupOptions(onlyOpenRouter, { ...none, claude: 'unavailable' })).toEqual([{ kind: 'key', provider: 'openrouter', route: 'update' }]);
   });
 
   it('leaves out a provider whose key is already there', () => {
     expect(setupOptions(DEFAULT_PRESETS, { elevenlabs: true, openrouter: false, claude: 'unavailable' })).toEqual([
       { kind: 'claude', state: 'setup' },
-      { kind: 'key', provider: 'openrouter' },
+      { kind: 'key', provider: 'openrouter', route: 'update' },
     ]);
   });
 
-  it('offers storing a key on the machine first when its agent takes one, for the providers still keyless', () => {
-    expect(setupOptions(DEFAULT_PRESETS, { elevenlabs: true, openrouter: false, claude: 'unavailable' }, true)).toEqual([
-      { kind: 'machine', providers: ['openrouter'] },
+  it('says how this machine takes each key', () => {
+    expect(setupOptions(DEFAULT_PRESETS, { elevenlabs: true, openrouter: false, claude: 'unavailable' }, 'page')).toEqual([
       { kind: 'claude', state: 'setup' },
-      { kind: 'key', provider: 'openrouter' },
+      { kind: 'key', provider: 'openrouter', route: 'page' },
     ]);
-  });
-
-  it('does not offer the machine when its agent cannot hand keys out, or no key is missing', () => {
-    expect(setupOptions(DEFAULT_PRESETS, { ...none, claude: 'unavailable' }, false).map((o) => o.kind)).not.toContain('machine');
-    const onlyClaude: DictationPreset[] = [{ id: 'cv', name: 'CV', badge: 'CV', provider: 'claude' }];
-    expect(setupOptions(onlyClaude, { ...none, claude: 'unavailable' }, true)).toEqual([{ kind: 'claude', state: 'setup' }]);
+    expect(setupOptions(DEFAULT_PRESETS, { elevenlabs: true, openrouter: false, claude: 'unavailable' }, 'cli')[1]).toEqual({
+      kind: 'key',
+      provider: 'openrouter',
+      route: 'cli',
+    });
   });
 });

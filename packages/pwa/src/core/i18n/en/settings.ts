@@ -18,11 +18,29 @@ export const settings = {
   openRouterKey: 'OpenRouter API key',
   saveKey: 'Save key',
   saved: 'Saved ✓',
-  elevenLabsHint: 'Stored on this device only. Used for speech-to-text in the terminal.',
-  // Under a key field, naming the machines whose operator stored that key with `tarfa dictation-key`.
-  keyFromMachines: (machines: string) => `Left empty, workspaces on ${machines} use the key their machine provides.`,
-  keyOverridesMachines: (machines: string) => `Used everywhere, instead of the key from ${machines}.`,
-  openRouterHint: "Stored on this device only. Recordings sent with an OpenRouter preset go to OpenRouter and the model's provider.",
+  // Where the device key fields were: keys now live on each machine.
+  keysOnMachines: 'API keys are stored on each machine: open one above to set its ElevenLabs or OpenRouter key.',
+  // Naming the machines that hold a key, for one provider.
+  keyFromMachines: (provider: string, machines: string) => `${provider}: set on ${machines}.`,
+  // The machine page's dictation card.
+  machineKeys: 'Dictation keys',
+  machineKeysHint:
+    'Stored on this machine (0600) and used by every phone paired with it when dictating into its workspaces. This phone holds them in memory only while connected; recordings go from it straight to the provider.',
+  machineKeysOverwrite: 'Any phone paired with this machine can replace or remove them.',
+  openRouterRecordings: "Recordings sent with an OpenRouter preset go to OpenRouter and the model's provider.",
+  machineKeySet: 'Set on this machine',
+  machineKeyNotSet: 'Not set',
+  removeKey: 'Remove',
+  keySaving: 'Saving…',
+  keySaved: (machine: string) => `Saved on ${machine} ✓`,
+  keyRemoved: (machine: string) => `Removed from ${machine}`,
+  keySaveFailed: (error: string) => `Not saved: ${error}`,
+  keySaveOffline: 'the machine went offline',
+  keySaveNoReply: 'the machine did not answer',
+  machineKeysOffline: 'Connect to this machine to see or change its keys.',
+  machineKeysUpdateAgent: "Update this machine's agent to store a key here.",
+  // An agent that hands out keys but cannot take one from the phone.
+  machineKeysCli: 'Until then, its operator can store one on the machine:',
   howToGetKey: 'How to get a key',
   presets: 'Presets',
   presetsHint: 'Hold the 🎤 in the terminal to switch between them.',

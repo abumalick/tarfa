@@ -32,7 +32,7 @@ afterEach(() => vi.useRealTimers());
 describe('OpenRouterTranscriber', () => {
   it('throws when no API key is configured, without calling fetch', async () => {
     const fetchFn = vi.fn();
-    await expect(transcriber(fetchFn, { key: null }).transcribe(audio)).rejects.toThrow('Set OpenRouter key in Settings');
+    await expect(transcriber(fetchFn, { key: null }).transcribe(audio)).rejects.toThrow("Set an OpenRouter key on this machine's page in Settings");
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

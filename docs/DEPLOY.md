@@ -272,9 +272,10 @@ To reach the phone port over the local network without Tailscale (a proxy with a
 see `docs/LAN.md`.
 
 ### Dictation keys for every paired phone
-Instead of typing an ElevenLabs or OpenRouter key into each phone's Settings, store it once on
-the machine. Every phone paired with that machine then dictates into that machine's workspaces
-with it:
+The ElevenLabs and OpenRouter keys a phone dictates with live on the machine, never on the phone.
+Every phone paired with that machine dictates into that machine's workspaces with them. Set one
+from a paired phone (Settings → the machine → Dictation keys: paste the key, Save key; Remove
+deletes it there), or from the machine's shell:
 ```sh
 tarfa dictation-key set elevenlabs          # asks for the key with echo off
 bw get password "<item>" | tarfa dictation-key set openrouter   # or pipe it in
@@ -283,16 +284,28 @@ tarfa dictation-key remove elevenlabs
 ```
 The key never goes on the command line (any local user can read a process's arguments). It is
 kept in `~/.tarfa/dictation-keys.json` (0600; the agent refuses to start while another user can
-read it, and sends no key from it after that). The agent reads the file on each request, so a
-change reaches a phone at its next connect, with no restart. Rules the phone follows:
-- **A key typed in the phone's Settings wins everywhere.** Leave the field empty to use the machine's key.
+read it, and sends no key from it after that). The CLI and the agent write it under one lock, so
+neither loses the other's change. The agent reads the file on each request, so a change reaches a
+phone at its next connect, with no restart. Rules the phone follows:
+- **The machine is the only source.** A phone stores no key of its own; a build from before this
+  deletes the keys it stored on the device at its first start.
 - **Only the attached workspace's machine's key is used**, never another machine's: one phone
-  may reach machines with different operators, and each pays for dictation into its own.
-- The phone keeps the key in memory for the session and never writes it to storage. A phone
-  that is lost or revoked may still hold a key it already fetched, and anything served from the
-  PWA's origin can read it (see `CLAUDE.md`, "the PWA's origin"). The remedy is to rotate the key
-  at the provider, then `tarfa dictation-key set` the new one.
-- An agent older than this feature sends nothing. The phone then uses only its typed keys.
+  may reach machines with different operators, and each pays for dictation into its own. A key
+  saved on a machine's page goes to that machine alone.
+- **Any phone paired with the machine can replace or remove its keys.** Accepted: that phone can
+  already run anything in the machine's terminals.
+- The phone keeps the key in memory for the session and never writes it to storage, and the
+  machine's page shows only whether a key is set. A phone that is lost or revoked may still hold
+  a key it already fetched, and anything served from the PWA's origin can read it (see
+  `CLAUDE.md`, "the PWA's origin"). The remedy is to rotate the key at the provider, then set the
+  new one.
+- An agent from before phones could set a key (no `setDictationKey` feature) still hands out what
+  `tarfa dictation-key` stored; its machine page asks for an agent update instead of offering a
+  field. An agent older still sends no key at all.
+
+**Rollout:** a PWA with this deletes the keys phones stored, so release the agent and run
+`tarfa update` on every machine, set each machine's keys (from its shell, since older PWAs
+have no field for it), then deploy the PWA.
 
 ## 4. Wire Claude Code hooks (each machine)
 The agent writes a hooks-only secret to `~/.tarfa/token` at each start (mode 600); the hook reads it.

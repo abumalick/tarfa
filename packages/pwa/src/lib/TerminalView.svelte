@@ -508,7 +508,7 @@
   </div>
   {#if dictationSetupOpen}
     <DictationSetup
-      options={setupOptions(store.dictationPresets, store.presetKeys, store.activeMachineTakesKeys)}
+      options={setupOptions(store.dictationPresets, store.presetKeys, store.activeKeyRoute)}
       onOpenSettings={(provider) => store.openDictationKeySettings(provider)}
       onClose={() => (dictationSetupOpen = false)}
     />

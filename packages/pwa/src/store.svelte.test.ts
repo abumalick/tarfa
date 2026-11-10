@@ -1,7 +1,7 @@
 import { generateAgentKeys, pairingLink } from '@tarfa/secure-channel';
 import { audioMediaType, imageMediaType, pdfMediaType } from '@tarfa/contracts';
 import { describe, it, expect, vi } from 'vitest';
-import { TarfaStore, VOICE_REPLY_MS } from './store.svelte';
+import { KEY_SAVE_REPLY_MS, TarfaStore, VOICE_REPLY_MS } from './store.svelte';
 import { setLanguage } from './i18n.svelte';
 import { ConnectionManager } from './core/connection-manager';
 import { WorkspaceAggregator } from './core/workspace-aggregator';
@@ -38,7 +38,13 @@ const prompts = { confirm: () => false, alert: () => undefined, newId: () => `id
 function memStorage(seed: unknown[] = []): StoragePort {
   const map = new Map<string, string>();
   if (seed.length) map.set('tarfa.machines', JSON.stringify(seed));
-  return { read: (k) => map.get(k) ?? null, write: (k, v) => void map.set(k, v) };
+  return { read: (k) => map.get(k) ?? null, write: (k, v) => void map.set(k, v), remove: (k) => void map.delete(k) };
+}
+
+// The keys a machine's agent hands this phone, as its getDictationKeys reply would.
+function machineKeys(store: TarfaStore, machineId: string, keys: { elevenlabs?: string; openrouter?: string }): void {
+  store.setAgent(machineId, { features: ['dictationKeys'] });
+  store.handleMessage(machineId, { type: 'dictationKeys', ...keys });
 }
 
 // A timer the test drives by hand, so grace-period transitions are deterministic.
@@ -568,7 +574,7 @@ describe('TarfaStore', () => {
 
     it('dictates with Claude voice by default where it works, else with Scribe', () => {
       const { store, sockets } = opened();
-      store.setElevenLabsApiKey('sk-el');
+      machineKeys(store, 'mac', { elevenlabs: 'sk-el' });
       expect(store.currentPreset.id).toBe('claude');
       sockets['wss://mac']!.deliver({ type: 'workspaces', workspaces: [], claudeVoice: false });
       expect(store.currentPreset.id).toBe('scribe');
@@ -576,7 +582,7 @@ describe('TarfaStore', () => {
 
     it('shows Claude voice in use outside a workspace only when some machine can run it', () => {
       const { store, sockets } = opened();
-      store.setElevenLabsApiKey('sk-el');
+      machineKeys(store, 'mac', { elevenlabs: 'sk-el' });
       store.back();
       expect(store.active).toBeNull();
       expect(store.currentPreset.id).toBe('claude');
@@ -2586,27 +2592,28 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       expect(store.dictationKey('elevenlabs')).toBe('test-key-1');
       expect(store.dictationKey('openrouter')).toBeNull();
       expect(store.presetKeys).toMatchObject({ elevenlabs: true, openrouter: false });
-      expect(settings.elevenLabsApiKey()).toBeNull();
+      expect(store.machineHasDictationKey('mac', 'elevenlabs')).toBe(true);
+      expect(store.machineHasDictationKey('mac', 'openrouter')).toBe(false);
+      expect(JSON.stringify(settings.list())).not.toContain('test-key-1');
     });
 
-    it('prefers a key typed on this device, and Save never stores the agent one', () => {
-      const { store, deliver } = buildKeyed();
-      store.setAgent('mac', { features: ['dictationKeys'] });
-      deliver({ type: 'dictationKeys', elevenlabs: 'test-key-1' });
-      store.open(ws);
-      store.setElevenLabsApiKey('typed-key');
-      expect(store.dictationKey('elevenlabs')).toBe('typed-key');
-      store.setElevenLabsApiKey('');
-      expect(store.dictationKey('elevenlabs')).toBe('test-key-1');
-      expect(store.elevenLabsApiKey).toBe('');
+    it('deletes the keys an older build stored on this device, and never uses them', () => {
+      const { store, storage } = build([mac]);
+      storage.write('tarfa.elevenLabsApiKey', 'sk-old');
+      storage.write('tarfa.openRouterApiKey', 'sk-or-old');
+      store.start();
+      expect(storage.read('tarfa.elevenLabsApiKey')).toBeNull();
+      expect(storage.read('tarfa.openRouterApiKey')).toBeNull();
+      expect(store.presetKeys).toMatchObject({ elevenlabs: false, openrouter: false });
     });
 
-    it('offers no agent key with no workspace open, but names the machines that provide one', () => {
+    it('offers no agent key with no workspace open, but counts the machines that provide one', () => {
       const { store, deliver } = buildKeyed();
       store.setAgent('mac', { features: ['dictationKeys'] });
       deliver({ type: 'dictationKeys', openrouter: 'test-key-2' });
       expect(store.dictationKey('openrouter')).toBeNull();
-      expect(store.presetKeys.openrouter).toBe(false);
+      expect(store.presetKeys.openrouter).toBe(true);
+      expect(store.presetKeys.elevenlabs).toBe(false);
       expect(store.dictationKeySources('openrouter')).toEqual(['Mac']);
       expect(store.dictationKeySources('elevenlabs')).toEqual([]);
     });
@@ -2634,14 +2641,71 @@ describe('TarfaStore machines carry the side channels inside the session', () =>
       expect(store.dictationKey('elevenlabs')).toBeNull();
     });
 
-    it("says whether the attached workspace's machine takes keys", () => {
+    it("says how the attached workspace's machine takes a key", () => {
       const { store } = buildKeyed();
-      store.setAgent('mac', { features: ['dictationKeys'] });
-      expect(store.activeMachineTakesKeys).toBe(false);
+      store.setAgent('mac', { features: ['dictationKeys', 'setDictationKey'] });
+      expect(store.activeKeyRoute).toBe('update');
       store.open(ws);
-      expect(store.activeMachineTakesKeys).toBe(true);
+      expect(store.activeKeyRoute).toBe('page');
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      expect(store.activeKeyRoute).toBe('cli');
       store.setAgent('mac', { features: [] });
-      expect(store.activeMachineTakesKeys).toBe(false);
+      expect(store.activeKeyRoute).toBe('update');
+    });
+
+    it('sends a key to that machine alone, then asks for its keys again on an ok', () => {
+      const { store, deliver, bySent } = buildKeyed();
+      store.setAgent('mac', { features: ['dictationKeys', 'setDictationKey'] });
+      store.setMachineDictationKey('mac', 'openrouter', 'test-key-3');
+      expect(bySent('setDictationKey')).toEqual([{ type: 'setDictationKey', provider: 'openrouter', key: 'test-key-3' }]);
+      expect(store.dictationKeySaves.mac?.openrouter).toEqual({ state: 'pending', removing: false });
+      const asked = bySent('getDictationKeys').length;
+      deliver({ type: 'dictationKeySet', provider: 'openrouter', ok: true });
+      expect(store.dictationKeySaves.mac?.openrouter).toEqual({ state: 'saved' });
+      expect(bySent('getDictationKeys')).toHaveLength(asked + 1);
+      deliver({ type: 'dictationKeys', openrouter: 'test-key-3' });
+      expect(store.machineHasDictationKey('mac', 'openrouter')).toBe(true);
+    });
+
+    it('removes a key with null, and words the agent refusal', () => {
+      const { store, deliver, bySent } = buildKeyed();
+      store.setAgent('mac', { features: ['dictationKeys', 'setDictationKey'] });
+      store.setMachineDictationKey('mac', 'elevenlabs', null);
+      expect(bySent('setDictationKey')).toEqual([{ type: 'setDictationKey', provider: 'elevenlabs', key: null }]);
+      deliver({ type: 'dictationKeySet', provider: 'elevenlabs', ok: true });
+      expect(store.dictationKeySaves.mac?.elevenlabs).toEqual({ state: 'removed' });
+      store.setMachineDictationKey('mac', 'elevenlabs', 'bad key');
+      const asked = bySent('getDictationKeys').length;
+      deliver({ type: 'dictationKeySet', provider: 'elevenlabs', ok: false, error: 'a key holds no whitespace' });
+      expect(store.dictationKeySaves.mac?.elevenlabs).toEqual({ state: 'failed', error: 'a key holds no whitespace' });
+      expect(bySent('getDictationKeys')).toHaveLength(asked);
+    });
+
+    it('sends nothing to an agent that does not take keys', () => {
+      const { store, bySent } = buildKeyed();
+      store.setAgent('mac', { features: ['dictationKeys'] });
+      store.setMachineDictationKey('mac', 'elevenlabs', 'test-key-1');
+      expect(bySent('setDictationKey')).toEqual([]);
+      expect(store.dictationKeySaves.mac?.elevenlabs).toBeUndefined();
+    });
+
+    it('fails a pending save when the machine drops, or after a silence', () => {
+      const timers: Array<{ fn: () => void; ms: number; live: boolean }> = [];
+      const startTimer = (fn: () => void, ms: number) => {
+        const t = { fn, ms, live: true };
+        timers.push(t);
+        return () => void (t.live = false);
+      };
+      const { store, deliver } = buildKeyed({ startTimer });
+      store.setAgent('mac', { features: ['dictationKeys', 'setDictationKey'] });
+      store.setMachineDictationKey('mac', 'elevenlabs', 'test-key-1');
+      timers.filter((t) => t.live && t.ms === KEY_SAVE_REPLY_MS).forEach((t) => t.fn());
+      expect(store.dictationKeySaves.mac?.elevenlabs).toEqual({ state: 'failed', error: 'the machine did not answer' });
+      deliver({ type: 'dictationKeySet', provider: 'elevenlabs', ok: true });
+      expect(store.dictationKeySaves.mac?.elevenlabs?.state).toBe('failed');
+      store.setMachineDictationKey('mac', 'openrouter', 'test-key-2');
+      store.setStatus('mac', 'offline');
+      expect(store.dictationKeySaves.mac?.openrouter).toEqual({ state: 'failed', error: 'the machine went offline' });
     });
 
     it('ignores keys from an agent that never named the feature', () => {
@@ -2827,8 +2891,7 @@ describe('TarfaStore dictation presets', () => {
   it('starts on the first preset, and remembers the one picked', () => {
     const { store, storage } = build();
     store.start();
-    store.setElevenLabsApiKey('sk-el');
-    store.setOpenRouterApiKey('sk-or');
+    machineKeys(store, 'mac', { elevenlabs: 'sk-el', openrouter: 'sk-or' });
     expect(store.currentPreset.id).toBe('scribe');
     store.selectPreset('clean');
     expect(store.currentPreset.id).toBe('clean');
@@ -2838,8 +2901,7 @@ describe('TarfaStore dictation presets', () => {
   it('saves an edited list, falling back to the first preset when the current one is gone', () => {
     const { store } = build();
     store.start();
-    store.setElevenLabsApiKey('sk-el');
-    store.setOpenRouterApiKey('sk-or');
+    machineKeys(store, 'mac', { elevenlabs: 'sk-el', openrouter: 'sk-or' });
     store.selectPreset('fast');
     const list = DEFAULT_PRESETS.filter((p) => p.id !== 'fast');
     store.saveDictationPresets(list);
@@ -2850,7 +2912,7 @@ describe('TarfaStore dictation presets', () => {
   it('uses a preset that has a key when the chosen one has none', () => {
     const { store } = build();
     store.start();
-    store.setOpenRouterApiKey('sk-or');
+    machineKeys(store, 'mac', { openrouter: 'sk-or' });
     expect(store.currentPreset.id).toBe('clean');
   });
 
@@ -2863,13 +2925,14 @@ describe('TarfaStore dictation presets', () => {
     expect(store.addingPreset).toBe(true);
   });
 
-  it('leaves the terminal for Settings at the key a setup explanation pointed to', () => {
-    const { store } = build();
+  it("leaves the terminal for the attached machine's page, at the key a setup explanation pointed to", () => {
+    const { store } = build([mac]);
     store.start();
+    store.open({ machineId: 'mac', id: 'w', name: 'w', projectPath: '/w', command: 'claude', createdAt: 0, lastActivityAt: 0, status: 'idle' as const });
     store.openDictationKeySettings('openrouter');
     expect(store.view).toBe('settings');
     expect(store.active).toBeNull();
-    expect(store.dictationKeyFocus).toBe('openrouter');
+    expect(store.dictationKeyFocus).toEqual({ machineId: 'mac', provider: 'openrouter' });
   });
 
   it('resets to the built-in defaults', () => {
@@ -2879,14 +2942,6 @@ describe('TarfaStore dictation presets', () => {
     store.resetDictationPresets();
     expect(store.dictationPresets).toEqual(DEFAULT_PRESETS);
     expect(storage.read('tarfa.dictationPresets')).toBe('');
-  });
-
-  it('keeps the OpenRouter key', () => {
-    const { store, storage } = build();
-    store.start();
-    store.setOpenRouterApiKey('sk-or-x');
-    expect(store.openRouterApiKey).toBe('sk-or-x');
-    expect(storage.read('tarfa.openRouterApiKey')).toBe('sk-or-x');
   });
 });
 

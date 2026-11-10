@@ -5,3 +5,10 @@ export interface DictationKeysPort {
   // none, or when the file cannot be trusted (malformed, or open to other users).
   read(): Promise<DictationKeys>;
 }
+
+export interface DictationKeysWriter {
+  // Applies `change` to the stored keys and writes them, never interleaved with another writer
+  // (the agent and the `tarfa` CLI are different processes). A file that cannot be trusted is
+  // left alone and its problem returned.
+  update(change: (keys: DictationKeys) => DictationKeys): Promise<{ ok: true } | { problem: string }>;
+}

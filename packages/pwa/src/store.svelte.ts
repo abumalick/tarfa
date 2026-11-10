@@ -40,6 +40,7 @@ import { SpeechToText, type DictationState } from './core/speech-to-text';
 import { mergeKeyterms } from './core/keyterms';
 import { DEFAULT_PRESETS, currentPreset, type DictationPreset, type DictationProvider, type PresetKeys } from './core/dictation-presets';
 import { dictationKey, dictationKeySources, type AgentDictationKeys } from './core/dictation-key-source';
+import type { KeyRoute } from './core/dictation-setup';
 import type { AudioRecorder } from './core/ports/audio-recorder';
 import type { Transcriber } from './core/ports/transcriber';
 import type { VoiceLink } from './core/claude-voice';
@@ -85,6 +86,12 @@ const RECONNECT_GRACE_MS = 25_000;
 // How long after the end of a Claude voice dictation the agent may take to answer before it
 // is taken not to support it: the last second of playback, the release and Claude's transcription.
 export const VOICE_REPLY_MS = 20_000;
+// How long a machine page waits for the agent to answer a key it sent.
+export const KEY_SAVE_REPLY_MS = 10_000;
+const DICTATION_KEY_PROVIDERS: DictationProvider[] = ['elevenlabs', 'openrouter'];
+
+// `removing` says which word an ok reply earns; `error` is the agent's wording or ours.
+export type DictationKeySave = { state: 'pending'; removing: boolean } | { state: 'saved' | 'removed' } | { state: 'failed'; error: string };
 // How long the phone waits for the agent's `lastReply` before saying it got no answer.
 export const READ_ALOUD_REPLY_MS = 8_000;
 
@@ -223,17 +230,15 @@ export class TarfaStore {
   languageChoice = $state<LanguageChoice>('auto');
   // Global terminal font size (zoom), persisted via settings (loaded in start()).
   terminalFontSize = $state(TERMINAL_FONT_DEFAULT);
-  // ElevenLabs API key for client-side dictation, persisted on-device (loaded in start()).
-  elevenLabsApiKey = $state('');
-  // OpenRouter API key for dictation presets that run an OpenRouter model; on-device too.
-  openRouterApiKey = $state('');
   // The dictation presets (the user's, or the built-in defaults) and the one the mic uses.
   dictationPresets = $state<DictationPreset[]>([...DEFAULT_PRESETS]);
   currentPresetId = $state<string | null>(null);
   // Set by the mic menu's "Add preset…": Settings opens a new preset's form, then clears it.
   addingPreset = $state(false);
-  // The key field Settings scrolls to when opened from the mic's setup explanation.
-  dictationKeyFocus = $state<DictationProvider | null>(null);
+  // The machine page, and its key field, Settings opens from the mic's setup explanation.
+  dictationKeyFocus = $state<{ machineId: string; provider: DictationProvider } | null>(null);
+  // What became of the last key each machine page sent, per machine and provider.
+  dictationKeySaves = $state<Record<string, Partial<Record<DictationProvider, DictationKeySave>>>>({});
   // Project-folder filter on the home list, persisted via settings (loaded in start()).
   // Two independent selections — the live one is whichever `folderFilterMode` names — so
   // focusing on a project for a moment doesn't discard a hide set once.
@@ -305,6 +310,7 @@ export class TarfaStore {
   // The dictation keys each machine's operator stored on it, asked for on every connect and kept
   // in memory only: a lost or revoked phone holds none at rest.
   private agentDictationKeys = $state<Record<string, AgentDictationKeys>>({});
+  private readonly keySaveTimers = new Map<string, () => void>();
   // The open read-aloud player, mirrored from `readAloudPlayer` (null when closed).
   readAloud = $state<{ state: ReadAloudState; position: number; duration: number } | null>(null);
   readAloudNotice = $state<string | null>(null);
@@ -423,8 +429,7 @@ export class TarfaStore {
     this.languageChoice = this.deps.settings.languageChoice();
     setLanguage(resolveLanguage(this.languageChoice, phoneLanguages()));
     this.terminalFontSize = this.deps.settings.terminalFontSize();
-    this.elevenLabsApiKey = this.deps.settings.elevenLabsApiKey() ?? '';
-    this.openRouterApiKey = this.deps.settings.openRouterApiKey() ?? '';
+    this.deps.settings.forgetDeviceDictationKeys();
     this.dictationPresets = this.deps.settings.dictationPresets();
     this.currentPresetId = this.deps.settings.currentPresetId();
     this.folderFilter = this.deps.settings.folderFilter();
@@ -472,6 +477,11 @@ export class TarfaStore {
       this.agentTooOld = { ...this.agentTooOld, [machineId]: false };
       this.agentFeatures = { ...this.agentFeatures, [machineId]: [] };
       this.dropDictationKeys(machineId);
+      for (const provider of DICTATION_KEY_PROVIDERS) {
+        if (this.dictationKeySaves[machineId]?.[provider]?.state === 'pending') {
+          this.settleKeySave(machineId, provider, { state: 'failed', error: msg().settings.keySaveOffline });
+        }
+      }
       // A reading already under way needs no connection; only a request waiting on this one is lost.
       if (this.pendingReply?.machineId === machineId) this.cancelPendingReply();
     } else if (status === 'online') {
@@ -656,6 +666,13 @@ export class TarfaStore {
         if (message.elevenlabs) keys.elevenlabs = message.elevenlabs;
         if (message.openrouter) keys.openrouter = message.openrouter;
         this.agentDictationKeys = { ...this.agentDictationKeys, [machineId]: keys };
+        return;
+      }
+      case 'dictationKeySet': {
+        const save = this.dictationKeySaves[machineId]?.[message.provider];
+        if (save?.state !== 'pending') return;
+        this.settleKeySave(machineId, message.provider, message.ok ? { state: save.removing ? 'removed' : 'saved' } : { state: 'failed', error: message.error ?? '' });
+        if (message.ok) this.send(machineId, { type: 'getDictationKeys' });
         return;
       }
       case 'keyterms':
@@ -1263,25 +1280,53 @@ export class TarfaStore {
     this.deps.settings.setTerminalFontSize(clamped);
   }
 
-  setElevenLabsApiKey(key: string): void {
-    this.elevenLabsApiKey = key;
-    this.deps.settings.setElevenLabsApiKey(key);
-  }
-
-  setOpenRouterApiKey(key: string): void {
-    this.openRouterApiKey = key;
-    this.deps.settings.setOpenRouterApiKey(key);
-  }
-
   // The key a dictation sends to its provider now: see core/dictation-key-source.ts.
   dictationKey(provider: DictationProvider): string | null {
-    const typed = provider === 'elevenlabs' ? this.elevenLabsApiKey : this.openRouterApiKey;
-    return dictationKey(provider, typed, this.active?.machineId ?? null, this.agentDictationKeys);
+    return dictationKey(provider, this.active?.machineId ?? null, this.agentDictationKeys);
   }
 
-  // Whether the attached workspace's machine hands out keys its operator stores there.
-  get activeMachineTakesKeys(): boolean {
-    return !!this.active && (this.agentFeatures[this.active.machineId] ?? []).includes(AGENT_FEATURES.dictationKeys);
+  // Which keys a machine holds, for its page: never the keys themselves.
+  machineHasDictationKey(machineId: string, provider: DictationProvider): boolean {
+    return !!this.agentDictationKeys[machineId]?.[provider];
+  }
+
+  // Stores (`key`) or removes (`null`) a key on that machine alone; the reply settles
+  // `dictationKeySaves`, and an ok one is followed by a fresh getDictationKeys.
+  setMachineDictationKey(machineId: string, provider: DictationProvider, key: string | null): void {
+    if (this.keyRoute(machineId) !== 'page' || this.statuses[machineId] !== 'online') return;
+    this.settleKeySave(machineId, provider, null);
+    const cancel = this.startTimer(() => {
+      if (this.dictationKeySaves[machineId]?.[provider]?.state === 'pending') {
+        this.settleKeySave(machineId, provider, { state: 'failed', error: msg().settings.keySaveNoReply });
+      }
+    }, KEY_SAVE_REPLY_MS);
+    this.keySaveTimers.set(`${machineId}\n${provider}`, cancel);
+    this.setKeySave(machineId, provider, { state: 'pending', removing: key === null });
+    this.send(machineId, { type: 'setDictationKey', provider, key });
+  }
+
+  private settleKeySave(machineId: string, provider: DictationProvider, next: DictationKeySave | null): void {
+    const timer = `${machineId}\n${provider}`;
+    this.keySaveTimers.get(timer)?.();
+    this.keySaveTimers.delete(timer);
+    this.setKeySave(machineId, provider, next);
+  }
+
+  private setKeySave(machineId: string, provider: DictationProvider, next: DictationKeySave | null): void {
+    const { [provider]: _old, ...others } = this.dictationKeySaves[machineId] ?? {};
+    this.dictationKeySaves = { ...this.dictationKeySaves, [machineId]: next ? { ...others, [provider]: next } : others };
+  }
+
+  // How the attached workspace's machine can be given a key (core/dictation-setup.ts).
+  get activeKeyRoute(): KeyRoute {
+    return this.active ? this.keyRoute(this.active.machineId) : 'update';
+  }
+
+  // How a machine takes a key, from what its connected agent says it answers.
+  keyRoute(machineId: string): KeyRoute {
+    const features = this.agentFeatures[machineId] ?? [];
+    if (features.includes(AGENT_FEATURES.setDictationKey)) return 'page';
+    return features.includes(AGENT_FEATURES.dictationKeys) ? 'cli' : 'update';
   }
 
   // The machines whose operator provides this key, for Settings to name.
@@ -1303,9 +1348,16 @@ export class TarfaStore {
   }
 
   get presetKeys(): PresetKeys {
+    // With no workspace open (Settings), what a workspace would get on some machine.
+    if (!this.active) {
+      const somewhere = (provider: DictationProvider) => Object.values(this.agentDictationKeys).some((keys) => !!keys[provider]);
+      return {
+        elevenlabs: somewhere('elevenlabs'),
+        openrouter: somewhere('openrouter'),
+        claude: Object.values(this.claudeVoiceOn).some(Boolean) ? 'ok' : 'unavailable',
+      };
+    }
     const keys = { elevenlabs: !!this.dictationKey('elevenlabs'), openrouter: !!this.dictationKey('openrouter') };
-    // With no workspace open (Settings), what a Claude Code workspace would get on some machine.
-    if (!this.active) return { ...keys, claude: Object.values(this.claudeVoiceOn).some(Boolean) ? 'ok' : 'unavailable' };
     const { machineId, command, asking } = this.active;
     const claude = !this.claudeVoiceOn[machineId] ? 'unavailable' : !runsClaude(command) ? 'not-claude' : asking ? 'asking' : 'ok';
     return { ...keys, claude };
@@ -1331,9 +1383,11 @@ export class TarfaStore {
     this.view = 'settings';
   }
 
+  // Opens the attached workspace's machine page at that key's field.
   openDictationKeySettings(provider: DictationProvider): void {
+    const machineId = this.active?.machineId;
     this.back();
-    this.dictationKeyFocus = provider;
+    this.dictationKeyFocus = machineId ? { machineId, provider } : null;
     this.view = 'settings';
   }
 

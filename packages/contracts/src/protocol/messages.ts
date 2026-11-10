@@ -76,6 +76,8 @@ export const machineStatsSchema = z.object({
 });
 export type MachineStats = z.infer<typeof machineStatsSchema>;
 
+export const dictationProviderSchema = z.enum(['elevenlabs', 'openrouter']);
+
 export const clientMessageSchema = z.discriminatedUnion('type', [
   // `token` carries a `tarfa pair` code for a new phone, or nothing (an enrolled key needs none).
   z.object({ type: z.literal('auth'), token: z.string() }),
@@ -94,6 +96,10 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('listKeyterms') }),
   // Asked only of an agent whose authResult lists AGENT_FEATURES.dictationKeys.
   z.object({ type: z.literal('getDictationKeys') }),
+  // Store (`key`) or remove (`null`) one of the machine's dictation keys, as `tarfa dictation-key`
+  // does. Sent only to an agent whose authResult lists AGENT_FEATURES.setDictationKey; the key is
+  // checked by the agent, which answers `dictationKeySet`.
+  z.object({ type: z.literal('setDictationKey'), provider: dictationProviderSchema, key: z.string().nullable() }),
   z.object({ type: z.literal('readFile'), path: z.string() }),
   z.object({ type: z.literal('attach'), workspaceId: z.string(), cols: dim, rows: dim }),
   z.object({ type: z.literal('detach'), workspaceId: z.string() }),
@@ -137,7 +143,12 @@ export type DetachReason = z.infer<typeof detachReasonSchema>;
 // it. Bumped only when a PWA must refuse an older agent.
 export const PROTOCOL_VERSION = 1;
 
-export const AGENT_FEATURES = { lastReply: 'lastReply', dictationKeys: 'dictationKeys', addresses: 'addresses' } as const;
+export const AGENT_FEATURES = {
+  lastReply: 'lastReply',
+  dictationKeys: 'dictationKeys',
+  setDictationKey: 'setDictationKey',
+  addresses: 'addresses',
+} as const;
 
 export const agentMessageSchema = z.discriminatedUnion('type', [
   // `credential` is what authenticated the session (`token` only from an agent from before token
@@ -189,6 +200,9 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
     elevenlabs: z.string().optional().catch(undefined),
     openrouter: z.string().optional().catch(undefined),
   }),
+  // The answer to setDictationKey. `error` is the agent's fixed wording of a refusal and never
+  // holds the key.
+  z.object({ type: z.literal('dictationKeySet'), provider: dictationProviderSchema, ok: z.boolean(), error: z.string().optional() }),
   // `files` is additive: older agents that predate it omit the field, so it defaults to []
   // (a strictly-required field would make the strict client parser silently drop their
   // dirEntries during a version-skewed rollout, hanging the browser on "Loading…").

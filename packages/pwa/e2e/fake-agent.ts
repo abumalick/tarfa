@@ -114,8 +114,12 @@ export interface FakeAgent {
   lastReplies: Record<string, string>;
   // The TARFA_PHONE_ADDRESSES an accepted session names (mutable; none until a spec sets them).
   phoneAddresses: string[] | undefined;
-  // The keys `tarfa dictation-key` stored on this machine, sent on getDictationKeys (mutable).
+  // The keys `tarfa dictation-key` stored on this machine, sent on getDictationKeys and changed by
+  // setDictationKey (mutable).
   dictationKeys: { elevenlabs?: string; openrouter?: string };
+  // Whether its authResult names setDictationKey (mutable, for sessions opened after; true).
+  // False plays an agent from before phones could store a key.
+  takesKeys: boolean;
   close: () => Promise<void>;
 }
 
@@ -173,6 +177,7 @@ export async function startFakeAgent(
   let phoneAddresses: string[] | undefined;
   const lastReplies: Record<string, string> = {};
   const dictationKeys: { elevenlabs?: string; openrouter?: string } = {};
+  let takesKeys = true;
   const sessions = new Set<NoiseClientConnection>();
   {
     const browserReceived: Array<{ session: string; message: Record<string, unknown> }> = [];
@@ -445,6 +450,20 @@ export async function startFakeAgent(
           case 'getDictationKeys':
             send({ type: 'dictationKeys', ...dictationKeys });
             break;
+          // Faithful to the agent's checks (trim, no whitespace inside, at most 512); never echoes the key.
+          case 'setDictationKey': {
+            const provider = msg.provider as 'elevenlabs' | 'openrouter';
+            if (msg.key === null) {
+              delete dictationKeys[provider];
+              send({ type: 'dictationKeySet', provider, ok: true });
+              break;
+            }
+            const key = String(msg.key).trim();
+            const error = key === '' ? 'no key given' : /\s/.test(key) ? 'a key holds no whitespace' : key.length > 512 ? 'a key is at most 512 characters' : null;
+            if (error === null) dictationKeys[provider] = key;
+            send({ type: 'dictationKeySet', provider, ok: error === null, ...(error === null ? {} : { error }) });
+            break;
+          }
           case 'lastReply':
             send({ type: 'lastReply', workspaceId: String(msg.workspaceId), text: lastReplies[String(msg.workspaceId)] ?? null });
             break;
@@ -470,7 +489,7 @@ export async function startFakeAgent(
     const server = {
       acceptPhoneSocket(socket: FrameSocket, staticPrivate: Uint8Array, options: NoiseClientConnectionOptions) {
         upgrades += 1;
-        const conn = new NoiseClientConnection(socket, staticPrivate, options);
+        const conn = new NoiseClientConnection(socket, staticPrivate, takesKeys ? options : { ...options, features: ['lastReply', 'dictationKeys'] });
         sessions.add(conn);
         conn.onClose(() => sessions.delete(conn));
         serve(noiseConn(conn));
@@ -526,6 +545,12 @@ export async function startFakeAgent(
       },
       lastReplies,
       dictationKeys,
+      get takesKeys() {
+        return takesKeys;
+      },
+      set takesKeys(on: boolean) {
+        takesKeys = on;
+      },
       created,
       received,
       sendOutput: (workspaceId, data) => {

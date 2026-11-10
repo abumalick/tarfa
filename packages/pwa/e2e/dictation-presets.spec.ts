@@ -6,6 +6,10 @@ let agent: FakeAgent;
 test.beforeAll(async () => {
   agent = await startFakeAgent();
 });
+test.beforeEach(() => {
+  delete agent.dictationKeys.elevenlabs;
+  delete agent.dictationKeys.openrouter;
+});
 test.afterAll(async () => {
   await agent.close();
 });
@@ -31,7 +35,7 @@ async function holdMic(page: Page) {
   await page.mouse.up();
 }
 
-test('with nothing set up, the mic explains how, down to the key field in Settings', async ({ page }) => {
+test("with nothing set up, the mic explains how, down to the key field on the machine's page", async ({ page }) => {
   await seedMachine(page, agent);
   await openTerminal(page);
   const setup = page.getByRole('toolbar', { name: 'Terminal keys' }).getByRole('button', { name: 'Set up dictation' });
@@ -52,9 +56,9 @@ test('with nothing set up, the mic explains how, down to the key field in Settin
   const help = page.getByRole('dialog', { name: 'Get an ElevenLabs key' });
   await expect(help).toContainText('$0.22 per hour');
   await expect(help.getByRole('link', { name: 'Open the API keys page' })).toHaveAttribute('href', 'https://elevenlabs.io/app/developers/api-keys');
-  await help.getByRole('button', { name: 'Open Settings' }).click();
+  await help.getByRole('button', { name: "Open this machine's page" }).click();
 
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Test' })).toBeVisible();
   await expect(page.getByLabel('ElevenLabs API key')).toBeInViewport();
 });
 
@@ -75,7 +79,7 @@ test('where the machine has Claude voice, the explanation says why this workspac
 });
 
 test('the mic shows the current preset, and a long press opens the presets on screen', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('tarfa.elevenLabsApiKey', 'sk-el-test'));
+  agent.dictationKeys.elevenlabs = 'sk-el-test';
   await seedMachine(page, agent);
   await openTerminal(page);
   await expect(mic(page)).toHaveAccessibleName('Dictate (Scribe)');
@@ -95,7 +99,7 @@ test('the mic shows the current preset, and a long press opens the presets on sc
 });
 
 test('picking a preset changes the badge and survives a reload', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('tarfa.openRouterApiKey', 'sk-or-test'));
+  agent.dictationKeys.openrouter = 'sk-or-test';
   await seedMachine(page, agent);
   await openTerminal(page);
 
@@ -110,7 +114,7 @@ test('picking a preset changes the badge and survives a reload', async ({ page }
 });
 
 test('a preset added in Settings is offered by the mic', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('tarfa.openRouterApiKey', 'sk-or-test'));
+  agent.dictationKeys.openrouter = 'sk-or-test';
   await seedMachine(page, agent);
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings' }).click();
@@ -126,10 +130,8 @@ test('a preset added in Settings is offered by the mic', async ({ page }) => {
 });
 
 test("the mic menu's Add preset opens a new preset in Settings, above the highlighted list", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem('tarfa.openRouterApiKey', 'sk-or-test');
-    localStorage.setItem('tarfa.dictationPreset', 'fast');
-  });
+  agent.dictationKeys.openrouter = 'sk-or-test';
+  await page.addInitScript(() => localStorage.setItem('tarfa.dictationPreset', 'fast'));
   await seedMachine(page, agent);
   await openTerminal(page);
   await holdMic(page);
@@ -152,8 +154,8 @@ test('a Claude voice preset falls back on a machine whose agent cannot do Claude
     { machineId: 'agent-machine-id', id: 'perch-demo', name: 'demo', projectPath: '/home/u/workspace/demo', command: 'claude', createdAt: 1, lastActivityAt: 1, status: 'idle' },
   ]);
   try {
+    claudeAgent.dictationKeys.elevenlabs = 'sk-el-test';
     await page.addInitScript(() => {
-      localStorage.setItem('tarfa.elevenLabsApiKey', 'sk-el-test');
       localStorage.setItem(
         'tarfa.dictationPresets',
         JSON.stringify([
@@ -190,7 +192,7 @@ test('out of the box, Claude voice is the mic where the machine can do it, and S
     await expect(mic(page)).toHaveAccessibleName('Dictate (Claude voice)');
     await expect(mic(page)).toContainText('CV');
 
-    await page.evaluate(() => localStorage.setItem('tarfa.elevenLabsApiKey', 'sk-el-test'));
+    claudeAgent.dictationKeys.elevenlabs = 'sk-el-test';
     claudeAgent.claudeVoice = false;
     await openTerminal(page);
     await expect(mic(page)).toHaveAccessibleName('Dictate (Scribe)');

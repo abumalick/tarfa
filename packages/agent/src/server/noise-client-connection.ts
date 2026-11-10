@@ -54,7 +54,12 @@ export interface NoiseClientConnectionOptions {
   agentVersion?: string;
   // Where phones reach this agent (`announcedAddresses`), named on the accepted authResult too.
   phoneAddresses?: string[];
+  // What the authResult says this agent answers; the e2e's fake agent names fewer to play an
+  // older one.
+  features?: readonly string[];
 }
+
+const FEATURES = [AGENT_FEATURES.lastReply, AGENT_FEATURES.dictationKeys, AGENT_FEATURES.setDictationKey];
 
 type State =
   | { kind: 'handshake' }
@@ -118,7 +123,7 @@ export class NoiseClientConnection implements ClientConnection {
     }
     if (message.type === 'authResult' && message.ok) {
       const { agentVersion, phoneAddresses } = this.options;
-      const features: string[] = [AGENT_FEATURES.lastReply, AGENT_FEATURES.dictationKeys];
+      const features = [...(this.options.features ?? FEATURES)];
       const agent = {
         protocol: PROTOCOL_VERSION,
         ...(agentVersion ? { version: agentVersion } : {}),

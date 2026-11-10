@@ -16,6 +16,10 @@ function setup(machine: Partial<Machine> = {}, overrides: Record<string, unknown
     updateMachine: vi.fn(),
     removeMachine: vi.fn(),
     reconnectMachine: vi.fn(),
+    keyRoute: vi.fn(() => 'page'),
+    machineHasDictationKey: vi.fn(() => false),
+    dictationKeySaves: {},
+    setMachineDictationKey: vi.fn(),
     ...overrides,
   };
   const onClose = vi.fn();

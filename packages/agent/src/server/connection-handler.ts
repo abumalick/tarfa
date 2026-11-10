@@ -22,7 +22,8 @@ import type { LaunchersPort } from '../ports/launchers-port';
 import { normalizeCommand } from '../application/remember-launcher';
 import { KNOWN_CLIS } from '../infrastructure/installed-detector';
 import type { KeytermsPort } from '../ports/keyterms-port';
-import type { DictationKeysPort } from '../ports/dictation-keys-port';
+import type { DictationKeysPort, DictationKeysWriter } from '../ports/dictation-keys-port';
+import { changeDictationKey, type DictationProvider } from '../application/dictation-keys';
 import type { WorkspaceLogPort } from '../ports/workspace-log-port';
 import type { ParkedStorePort } from '../ports/parked-store-port';
 import type { ProcessScopePort } from '../ports/process-scope-port';
@@ -73,7 +74,7 @@ export interface ConnectionHandlerDeps {
   // Which of KNOWN_CLIS this machine can run, resolved the way a workspace's command is.
   detectInstalled: (names: string[]) => Promise<string[]>;
   keyterms: KeytermsPort;
-  dictationKeys?: DictationKeysPort;
+  dictationKeys?: DictationKeysPort & DictationKeysWriter;
   workspaceLog: WorkspaceLogPort;
   parked: ParkedStorePort;
   clientLog: ClientLogPort;
@@ -295,6 +296,9 @@ export class ConnectionHandler {
       }
       case 'getDictationKeys':
         this.conn.send({ type: 'dictationKeys', ...(await this.deps.dictationKeys?.read()) });
+        return;
+      case 'setDictationKey':
+        this.conn.send({ type: 'dictationKeySet', provider: message.provider, ...(await this.setDictationKey(message.provider, message.key)) });
         return;
       case 'readFile': {
         const { binary, data, truncated } = await readFile({ reader }, message.path, await this.allowedRoots());
@@ -622,6 +626,18 @@ export class ConnectionHandler {
     });
 
     this.conn.send({ type: 'attached', workspaceId });
+  }
+
+  // Any enrolled phone of this machine may change its key: it can already run anything in a
+  // terminal here. A thrown error may name the file, never the key, but is worded here anyway.
+  private async setDictationKey(provider: DictationProvider, key: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+    const store = this.deps.dictationKeys;
+    if (!store) return { ok: false, error: 'this agent keeps no dictation keys' };
+    try {
+      return await changeDictationKey(store, provider, key);
+    } catch {
+      return { ok: false, error: 'the keys file could not be written' };
+    }
   }
 
   // A dictation lives only as long as its attachment: without one the held spaces go nowhere,

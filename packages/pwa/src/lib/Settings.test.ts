@@ -24,10 +24,10 @@ function fakeStore(overrides: Record<string, unknown> = {}) {
     pairFromLink: vi.fn(() => ({ error: 'nope' })),
     back: vi.fn(),
     goNewMachine: vi.fn(),
-    elevenLabsApiKey: '',
-    setElevenLabsApiKey: vi.fn(),
-    openRouterApiKey: '',
-    setOpenRouterApiKey: vi.fn(),
+    keyRoute: vi.fn(() => 'page'),
+    machineHasDictationKey: vi.fn(() => false),
+    dictationKeySaves: {},
+    setMachineDictationKey: vi.fn(),
     dictationKeySources: vi.fn((): string[] => []),
     dictationPresets: [...DEFAULT_PRESETS],
     saveDictationPresets: vi.fn(),
@@ -37,7 +37,7 @@ function fakeStore(overrides: Record<string, unknown> = {}) {
     groupByProject: false,
     setGroupByProject: vi.fn(),
     languageChoice: 'auto',
-    dictationKeyFocus: null as string | null,
+    dictationKeyFocus: null as { machineId: string; provider: string } | null,
     setLanguageChoice: vi.fn(),
     ...overrides,
   };
@@ -145,62 +145,35 @@ describe('Settings — adding a machine', () => {
 });
 
 describe('Settings — dictation', () => {
-  it('explains how to get each key beside its field', async () => {
+  it('has no key field of its own: keys live on each machine', () => {
     render(Settings, { props: { store: fakeStore() as never } });
-    await fireEvent.click(screen.getByRole('button', { name: 'How to get an OpenRouter key' }));
-    const help = screen.getByRole('dialog', { name: 'Get an OpenRouter key' });
-    expect(within(help).getByRole('link', { name: 'Open the API keys page' })).toHaveAttribute('href', 'https://openrouter.ai/settings/keys');
-    await fireEvent.click(within(help).getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByLabelText(/api key/i)).toBeNull();
+    expect(screen.getByText(/API keys are stored on each machine/)).toBeInTheDocument();
   });
 
-  it('scrolls to the key a setup explanation pointed to, once', () => {
+  it('names the machines that hold each key', () => {
+    const store = fakeStore({ dictationKeySources: vi.fn((p: string) => (p === 'elevenlabs' ? ['Mac', 'Box'] : [])) });
+    render(Settings, { props: { store: store as never } });
+    expect(screen.getByTestId('elevenlabs-key-source')).toHaveTextContent('ElevenLabs: set on Mac, Box.');
+    expect(screen.queryByTestId('openrouter-key-source')).toBeNull();
+  });
+
+  it("opens the machine's page at the key a setup explanation pointed to, once", () => {
     const scrolled = vi.fn();
     const original = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = function (this: Element) {
       scrolled(this.querySelector('input')?.id);
     };
     try {
-      const store = fakeStore({ dictationKeyFocus: 'openrouter' });
+      const store = fakeStore({ dictationKeyFocus: { machineId: 'mac', provider: 'openrouter' }, statuses: { mac: 'online' } });
       render(Settings, { props: { store: store as never } });
-      expect(scrolled).toHaveBeenCalledWith('openrouter-key');
+      expect(screen.getByRole('heading', { name: 'Mac' })).toBeInTheDocument();
+      expect(scrolled).toHaveBeenCalledWith('machine-key-openrouter');
+      expect(document.activeElement?.id).toBe('machine-key-openrouter');
       expect(store.dictationKeyFocus).toBeNull();
     } finally {
       Element.prototype.scrollIntoView = original;
     }
-  });
-
-  it('pre-fills the ElevenLabs API key field from the store', () => {
-    render(Settings, { props: { store: fakeStore({ elevenLabsApiKey: 'sk_existing' }) as never } });
-    expect((screen.getByLabelText(/elevenlabs api key/i) as HTMLInputElement).value).toBe('sk_existing');
-  });
-
-  it('saves the key and says so', async () => {
-    const store = fakeStore();
-    render(Settings, { props: { store: store as never } });
-    await fireEvent.input(screen.getByLabelText(/elevenlabs api key/i), { target: { value: 'sk_new' } });
-    await fireEvent.click(screen.getAllByRole('button', { name: /save key/i })[0]!);
-    expect(store.setElevenLabsApiKey).toHaveBeenCalledWith('sk_new');
-    expect(screen.getByRole('status')).toHaveTextContent('Saved');
-  });
-
-  it('saves the OpenRouter key and says where recordings go', async () => {
-    const store = fakeStore({ openRouterApiKey: 'sk-or-old' });
-    render(Settings, { props: { store: store as never } });
-    const field = screen.getByLabelText(/openrouter api key/i) as HTMLInputElement;
-    expect(field.value).toBe('sk-or-old');
-    expect(screen.getByText(/Recordings sent with an OpenRouter preset go to OpenRouter and the model's provider/)).toBeInTheDocument();
-    await fireEvent.input(field, { target: { value: 'sk-or-new' } });
-    await fireEvent.click(screen.getAllByRole('button', { name: /save key/i })[1]!);
-    expect(store.setOpenRouterApiKey).toHaveBeenCalledWith('sk-or-new');
-  });
-
-  it('names the machines that provide a key, and never shows the key itself', () => {
-    const store = fakeStore({ dictationKeySources: vi.fn((p: string) => (p === 'elevenlabs' ? ['Mac', 'Box'] : [])) });
-    render(Settings, { props: { store: store as never } });
-    expect(screen.getByText('Left empty, workspaces on Mac, Box use the key their machine provides.')).toBeInTheDocument();
-    expect(screen.queryByTestId('openrouter-key-source')).toBeNull();
-    expect((screen.getByLabelText(/elevenlabs api key/i) as HTMLInputElement).value).toBe('');
   });
 
   it('lists the dictation presets', () => {

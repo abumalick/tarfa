@@ -4,21 +4,17 @@ import { dictationKey, dictationKeySources } from './dictation-key-source';
 const fromAgents = { mac: { elevenlabs: 'test-key-mac' }, box: { openrouter: 'test-key-box' } };
 
 describe('dictationKey', () => {
-  it('uses a key typed on this device first, wherever the workspace is', () => {
-    expect(dictationKey('elevenlabs', ' typed-key ', 'box', fromAgents)).toBe('typed-key');
-  });
-
-  it("otherwise uses the key the attached workspace's machine provides", () => {
-    expect(dictationKey('elevenlabs', '', 'mac', fromAgents)).toBe('test-key-mac');
-    expect(dictationKey('openrouter', '', 'box', fromAgents)).toBe('test-key-box');
+  it("uses the key the attached workspace's machine provides", () => {
+    expect(dictationKey('elevenlabs', 'mac', fromAgents)).toBe('test-key-mac');
+    expect(dictationKey('openrouter', 'box', fromAgents)).toBe('test-key-box');
   });
 
   it("never borrows another machine's key: its operator would pay for this one's dictation", () => {
-    expect(dictationKey('elevenlabs', '', 'box', fromAgents)).toBeNull();
+    expect(dictationKey('elevenlabs', 'box', fromAgents)).toBeNull();
   });
 
   it('has no agent key with no workspace open', () => {
-    expect(dictationKey('elevenlabs', '', null, fromAgents)).toBeNull();
+    expect(dictationKey('elevenlabs', null, fromAgents)).toBeNull();
   });
 });
 

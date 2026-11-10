@@ -13,6 +13,9 @@ function memStorage(): StoragePort {
     write: (k, v) => {
       map.set(k, v);
     },
+    remove: (k) => {
+      map.delete(k);
+    },
   };
 }
 
@@ -232,24 +235,15 @@ describe('SettingsStore', () => {
     expect(store.list()[0]?.enabled).toBe(false);
   });
 
-  it('defaults the ElevenLabs API key to null', () => {
-    expect(new SettingsStore(memStorage()).elevenLabsApiKey()).toBeNull();
-  });
-
-  it('persists the ElevenLabs API key across a fresh store', () => {
+  it('deletes the dictation keys an older build stored on the device, and nothing else', () => {
     const storage = memStorage();
-    const store = new SettingsStore(storage);
-    store.setElevenLabsApiKey('sk_test');
-    expect(store.elevenLabsApiKey()).toBe('sk_test');
-    expect(new SettingsStore(storage).elevenLabsApiKey()).toBe('sk_test');
-  });
-
-  it('clears the ElevenLabs API key when set to empty', () => {
-    const storage = memStorage();
-    const store = new SettingsStore(storage);
-    store.setElevenLabsApiKey('sk_test');
-    store.setElevenLabsApiKey('');
-    expect(new SettingsStore(storage).elevenLabsApiKey()).toBeNull();
+    storage.write('tarfa.elevenLabsApiKey', 'sk_test');
+    storage.write('tarfa.openRouterApiKey', 'sk-or-x');
+    storage.write('tarfa.language', 'fr');
+    new SettingsStore(storage).forgetDeviceDictationKeys();
+    expect(storage.read('tarfa.elevenLabsApiKey')).toBeNull();
+    expect(storage.read('tarfa.openRouterApiKey')).toBeNull();
+    expect(storage.read('tarfa.language')).toBe('fr');
   });
 
   it('persists and reads the last used machine', () => {
@@ -362,15 +356,5 @@ describe('SettingsStore dictation presets', () => {
     expect(new SettingsStore(storage).currentPresetId()).toBeNull();
     new SettingsStore(storage).setCurrentPresetId('clean');
     expect(new SettingsStore(storage).currentPresetId()).toBe('clean');
-  });
-
-  it('round-trips the OpenRouter key, empty clearing it', () => {
-    const storage = memStorage();
-    const store = new SettingsStore(storage);
-    expect(store.openRouterApiKey()).toBeNull();
-    store.setOpenRouterApiKey('sk-or-x');
-    expect(new SettingsStore(storage).openRouterApiKey()).toBe('sk-or-x');
-    store.setOpenRouterApiKey('');
-    expect(new SettingsStore(storage).openRouterApiKey()).toBeNull();
   });
 });

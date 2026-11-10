@@ -10,10 +10,7 @@
   import PairMachine from './PairMachine.svelte';
   import MachineDetail from './MachineDetail.svelte';
   import DictationPresets from './DictationPresets.svelte';
-  import HelpPanel from './HelpPanel.svelte';
-  import KeyHelp from './KeyHelp.svelte';
   import { PROVIDER_NAMES } from '../core/dictation-setup';
-  import type { DictationProvider } from '../core/dictation-presets';
   import { STATUS_LABEL, describeConnectionError } from './machine-status';
   import { isAndroid } from './android-input';
   import { msg } from '../i18n.svelte';
@@ -45,26 +42,19 @@
     }
   }
 
-  // Seed the editable field from the persisted key once; untrack marks this as an
-  // intentional initial-value read (not a reactive dependency).
-  let apiKey = $state(untrack(() => store.elevenLabsApiKey));
-  let apiKeySaved = $state(false);
-  let openRouterKey = $state(untrack(() => store.openRouterApiKey));
-  const elevenlabsSources = $derived(store.dictationKeySources('elevenlabs').join(', '));
-  const openrouterSources = $derived(store.dictationKeySources('openrouter').join(', '));
-  let openRouterKeySaved = $state(false);
+  const keySources = $derived(
+    (['elevenlabs', 'openrouter'] as const)
+      .map((provider) => ({ provider, machines: store.dictationKeySources(provider).join(', ') }))
+      .filter((source) => source.machines),
+  );
 
-  let keyHelp = $state<DictationProvider | null>(null);
-  let keyCards = $state<Partial<Record<DictationProvider, HTMLElement>>>({});
-
+  // Opened from the mic's setup explanation: straight to that machine's page, at the key.
+  const focus = untrack(() => store.dictationKeyFocus);
+  let openId = $state<string | null>(focus?.machineId ?? null);
+  const focusKey = focus?.provider ?? null;
   onMount(() => {
-    const provider = store.dictationKeyFocus;
-    if (!provider) return;
     store.dictationKeyFocus = null;
-    keyCards[provider]?.scrollIntoView({ block: 'center' });
   });
-
-  let openId = $state<string | null>(null);
   // Closes by itself if the entry goes away underneath (removed from another page context).
   const openMachine = $derived(store.machines.find((m) => m.id === openId) ?? null);
 
@@ -83,21 +73,10 @@
     return { shown, err };
   }
 
-  function saveApiKey(event: SubmitEvent): void {
-    event.preventDefault();
-    store.setElevenLabsApiKey(apiKey.trim());
-    apiKeySaved = true;
-  }
-
-  function saveOpenRouterKey(event: SubmitEvent): void {
-    event.preventDefault();
-    store.setOpenRouterApiKey(openRouterKey.trim());
-    openRouterKeySaved = true;
-  }
 </script>
 
 {#if openMachine}
-  <MachineDetail {store} machine={openMachine} onClose={() => (openId = null)} />
+  <MachineDetail {store} machine={openMachine} {focusKey} onClose={() => (openId = null)} />
 {:else}
   <section>
     <header>
@@ -189,38 +168,12 @@
     </div>
 
     <p class="group">{msg().settings.dictation}</p>
-    <form class="card" onsubmit={saveApiKey} bind:this={keyCards.elevenlabs}>
-      <label for="elevenlabs-key">{msg().settings.elevenLabsKey}</label>
-      <div class="inline">
-        <input id="elevenlabs-key" bind:value={apiKey} oninput={() => (apiKeySaved = false)} type="password" placeholder="sk_…" />
-        <button type="submit" class="small">{msg().settings.saveKey}</button>
-      </div>
-      {#if apiKeySaved}
-        <p class="hint ok" role="status">{msg().settings.saved}</p>
-      {:else}
-        <p class="hint">{msg().settings.elevenLabsHint}</p>
-      {/if}
-      {#if elevenlabsSources}
-        <p class="hint" data-testid="elevenlabs-key-source">{store.elevenLabsApiKey ? msg().settings.keyOverridesMachines(elevenlabsSources) : msg().settings.keyFromMachines(elevenlabsSources)}</p>
-      {/if}
-      <button type="button" class="link" aria-label={msg().dictation.setup.howToGetKeyFor(PROVIDER_NAMES.elevenlabs)} onclick={() => (keyHelp = 'elevenlabs')}>{msg().settings.howToGetKey}</button>
-    </form>
-    <form class="card" onsubmit={saveOpenRouterKey} bind:this={keyCards.openrouter}>
-      <label for="openrouter-key">{msg().settings.openRouterKey}</label>
-      <div class="inline">
-        <input id="openrouter-key" bind:value={openRouterKey} oninput={() => (openRouterKeySaved = false)} type="password" placeholder="sk-or-…" />
-        <button type="submit" class="small">{msg().settings.saveKey}</button>
-      </div>
-      {#if openRouterKeySaved}
-        <p class="hint ok" role="status">{msg().settings.saved}</p>
-      {:else}
-        <p class="hint">{msg().settings.openRouterHint}</p>
-      {/if}
-      {#if openrouterSources}
-        <p class="hint" data-testid="openrouter-key-source">{store.openRouterApiKey ? msg().settings.keyOverridesMachines(openrouterSources) : msg().settings.keyFromMachines(openrouterSources)}</p>
-      {/if}
-      <button type="button" class="link" aria-label={msg().dictation.setup.howToGetKeyFor(PROVIDER_NAMES.openrouter)} onclick={() => (keyHelp = 'openrouter')}>{msg().settings.howToGetKey}</button>
-    </form>
+    <div class="card">
+      <p class="hint">{msg().settings.keysOnMachines}</p>
+      {#each keySources as source (source.provider)}
+        <p class="hint" data-testid="{source.provider}-key-source">{msg().settings.keyFromMachines(PROVIDER_NAMES[source.provider], source.machines)}</p>
+      {/each}
+    </div>
     <div class="card">
       <span class="name">{msg().settings.presets}</span>
       <p class="hint">{msg().settings.presetsHint}</p>
@@ -292,11 +245,6 @@
   </section>
 {/if}
 
-{#if keyHelp}
-  <HelpPanel title={msg().dictation.keyHelp.title(PROVIDER_NAMES[keyHelp])} testid="key-help" onClose={() => (keyHelp = null)}>
-    <KeyHelp provider={keyHelp} />
-  </HelpPanel>
-{/if}
 
 <style>
   header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
@@ -360,20 +308,7 @@
   .add-panel :global(.pair) { margin-top: 0; }
   label { display: block; font-size: 0.85rem; color: var(--text-dim); }
   #language { display: block; width: 100%; min-height: 44px; margin-top: 0.4rem; box-sizing: border-box; }
-  .inline { display: flex; gap: 0.5rem; margin-top: 0.3rem; }
-  .inline input { flex: 1; min-width: 0; min-height: 44px; box-sizing: border-box; }
   .hint { margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--text-dim); }
-  .hint.ok { color: var(--ok); }
-  .link {
-    margin-top: 0.3rem;
-    padding: 0.2rem 0;
-    border: 0;
-    background: none;
-    color: var(--accent);
-    font: inherit;
-    font-size: 0.8rem;
-    text-decoration: underline;
-  }
   .small,
   .wide {
     min-height: 44px;
