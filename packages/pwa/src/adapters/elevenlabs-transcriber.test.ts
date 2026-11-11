@@ -45,13 +45,15 @@ describe('ElevenLabsTranscriber', () => {
     expect(body.getAll('secondary_language_codes')).toEqual([]);
   });
 
-  it('asks scribe_v3 for digits and leaves the language to detection when none is set', async () => {
+  // Measured: on scribe_v3 any numbers_format (even digits) makes the API ignore no_verbatim, so
+  // "uh"/"um" come back; without it v3 drops them and still writes numbers as digits.
+  it('sends scribe_v3 no numbers_format and leaves the language to detection when none is set', async () => {
     const fetchFn = vi.fn().mockResolvedValue(okResponse('ok'));
     const t = new ElevenLabsTranscriber(() => 'sk_live', () => [], () => ({ model: 'scribe_v3', languages: [] }), fetchFn);
     await t.transcribe(audio);
     const body = fetchFn.mock.calls[0]![1].body as FormData;
     expect(body.get('model_id')).toBe('scribe_v3');
-    expect(body.get('numbers_format')).toBe('digits');
+    expect(body.get('numbers_format')).toBeNull();
     expect(body.get('no_verbatim')).toBe('true');
     expect(body.get('language_code')).toBeNull();
   });

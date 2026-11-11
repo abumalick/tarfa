@@ -32,8 +32,9 @@ export class ElevenLabsTranscriber implements Transcriber {
     form.append('no_verbatim', 'true');
     // scribe_v2 refuses these with a 400. Secondary codes need a main one (alone they fail with
     // a 500), and the main one steers the whole transcript, so the first listed is the main one.
+    // No `numbers_format`: on v3 any value makes the API ignore `no_verbatim` (the fillers come
+    // back), and v3 writes numbers as digits without it.
     if (model === 'scribe_v3') {
-      form.append('numbers_format', 'digits');
       const [main, ...others] = languages;
       if (main) form.append('language_code', main);
       for (const code of others) form.append('secondary_language_codes', code);

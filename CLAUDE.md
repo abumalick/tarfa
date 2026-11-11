@@ -429,10 +429,13 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     voice is the first default, falling back to Scribe v3, then Scribe v2:** `currentPreset` skips it wherever it
     cannot run, so one list serves every machine. A list the user edited is kept as it is.
   - **A Scribe preset names its model; no `model` is v2** (stored lists predate v3). A v3 preset
-    asks for `numbers_format=digits` and may list languages, sent as `language_code` (the first)
-    plus `secondary_language_codes`. Measured: v2 answers 400 to those fields, secondary codes
-    without a main one fail with a 500, and the main one steers the transcript (with `en` first a
-    French word came back translated), so the editor's hint says to put the main language first.
+    may list languages, sent as `language_code` (the first) plus `secondary_language_codes`.
+    Measured: v2 answers 400 to those fields, secondary codes without a main one fail with a 500,
+    and the main one steers the transcript (with `en` first a French word came back translated),
+    so the editor's hint says to put the main language first. **Never send `numbers_format` to
+    v3:** any value, `digits` included, makes it ignore `no_verbatim`, so "uh", "um" and stutters
+    come back; without it v3 drops them and still writes numbers as digits (English, French,
+    Arabic, with or without languages).
   - **An OpenRouter reply is typed as one line.** A newline reaching the pty submits the line
     (a shell would run a half-dictated command); a bracketed paste is no better, since Claude
     Code folds it into an unreadable `[Pasted text]`.

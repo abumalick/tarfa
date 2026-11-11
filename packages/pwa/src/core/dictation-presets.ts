@@ -3,8 +3,8 @@ import { msg } from '../i18n.svelte';
 // A dictation preset is one way of turning a recording into text: ElevenLabs Scribe as is, or
 // an OpenRouter model that hears the audio and follows a prompt. Presets are the user's own
 // (Settings); the app ships only the neutral defaults below.
-// Scribe v3 also takes the languages the speaker may use (the first one steers the transcript)
-// and is asked for numbers as digits; v2 refuses both fields. No `model` means v2.
+// Scribe v3 also takes the languages the speaker may use (the first one steers the transcript);
+// v2 refuses them. No `model` means v2.
 export type ScribeModel = 'scribe_v2' | 'scribe_v3';
 
 export type DictationPreset =
