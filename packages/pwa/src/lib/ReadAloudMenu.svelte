@@ -98,6 +98,7 @@
     margin: 0;
     padding: 0.25rem;
     min-width: 12rem;
+    width: max-content;
     max-width: min(20rem, calc(100vw - 8px));
     max-height: 60vh;
     overflow-y: auto;
