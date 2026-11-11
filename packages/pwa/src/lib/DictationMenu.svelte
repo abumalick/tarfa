@@ -4,6 +4,7 @@
   // A preset that cannot be used here (no key; Claude voice outside Claude Code) is shown but
   // disabled; with none usable a tap on the mic explains how to set one up.
   import { unavailableHint, type DictationPreset, type PresetKeys } from '../core/dictation-presets';
+  import { clampRight } from '../core/popover-position';
   import { msg } from '../i18n.svelte';
 
   let {
@@ -25,6 +26,11 @@
   } = $props();
 
   const keepFocus = (e: Event) => e.preventDefault();
+  let menu = $state<HTMLDivElement>();
+  let width = $state(0);
+  $effect(() => {
+    width = menu?.offsetWidth ?? 0;
+  });
 
   function choose(id: string) {
     onSelect(id);
@@ -35,7 +41,7 @@
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') onClose(); }} />
 
 <button type="button" class="backdrop" aria-label={msg().dictation.closePresets} onpointerdown={keepFocus} onclick={onClose}></button>
-<div class="menu" style="bottom: {anchor.bottom}px; right: {anchor.right}px">
+<div class="menu" bind:this={menu} style="bottom: {anchor.bottom}px; right: {clampRight(anchor.right, width, window.innerWidth)}px">
   <ul role="listbox" aria-label={msg().dictation.presets}>
     {#each presets as preset (preset.id)}
       {@const missing = unavailableHint(preset, keys)}

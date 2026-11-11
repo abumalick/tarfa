@@ -35,6 +35,16 @@ async function holdMic(page: Page) {
   await page.mouse.up();
 }
 
+// Scroll the keyboard bar so `key`'s left edge lands at `left` px from the viewport's.
+async function scrollBarTo(page: Page, key: ReturnType<Page['locator']>, left: number) {
+  await key.evaluate((el, left) => {
+    const bar = el.closest('[role="toolbar"]')!;
+    bar.scrollLeft += el.getBoundingClientRect().left - left;
+  }, left);
+  const box = (await key.boundingBox())!;
+  expect(box.x).toBeLessThan(60);
+}
+
 test("with nothing set up, the mic explains how, down to the key field on the machine's page", async ({ page }) => {
   await seedMachine(page, agent);
   await openTerminal(page);
@@ -96,6 +106,20 @@ test('the mic shows the current preset, and a long press opens the presets on sc
   await expect(menu.getByRole('option', { name: /Clean up/ })).toBeDisabled();
   // The press ended when the menu opened, though the finger lifted over the backdrop.
   await expect(mic(page)).not.toHaveClass(/pressed/);
+});
+
+test('with the bar scrolled so the mic sits at the left edge, the presets stay on screen', async ({ page }) => {
+  agent.dictationKeys.elevenlabs = 'sk-el-test';
+  await seedMachine(page, agent);
+  await openTerminal(page);
+  await scrollBarTo(page, mic(page), 4);
+
+  await holdMic(page);
+  const menu = page.locator('.menu').filter({ has: page.getByRole('listbox', { name: 'Dictation presets' }) });
+  await expect(menu).toBeVisible();
+  const box = (await menu.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
 });
 
 test('picking a preset changes the badge and survives a reload', async ({ page }) => {

@@ -152,3 +152,18 @@ test('picks the ElevenLabs voice in Settings, from the menu', async ({ page }) =
   await expect(page.getByTestId('read-aloud-player').getByRole('button', { name: 'Pause' })).toBeVisible();
   expect(requests.at(-1)!.url).toContain('/v1/text-to-speech/ann-1');
 });
+
+test('with the bar scrolled so the speaker sits at the left edge, its menu stays on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fakeVoice(page);
+  await openDemo(page);
+  await speaker(page).evaluate((el) => {
+    const bar = el.closest('[role="toolbar"]')!;
+    bar.scrollLeft += el.getBoundingClientRect().left - 4;
+  });
+  expect((await speaker(page).boundingBox())!.x).toBeLessThan(60);
+  await longPress(page);
+  const box = (await page.getByTestId('read-aloud-menu').boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+});

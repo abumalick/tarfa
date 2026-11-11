@@ -14,6 +14,7 @@
   // The 🔊's long-press menu: the phone's voice or ElevenLabs. Positioned fixed against the
   // viewport, since the keyboard bar clips its overflow (as DictationMenu).
   import { READ_ALOUD_BADGES } from '../core/read-aloud-voice';
+  import { clampRight } from '../core/popover-position';
   import { msg } from '../i18n.svelte';
 
   let {
@@ -33,6 +34,11 @@
   } = $props();
 
   const keepFocus = (e: Event) => e.preventDefault();
+  let menu = $state<HTMLDivElement>();
+  let width = $state(0);
+  $effect(() => {
+    width = menu?.offsetWidth ?? 0;
+  });
   const choose = (source: ReadAloudSource) => {
     onSelect(source);
     onClose();
@@ -46,7 +52,7 @@
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') onClose(); }} />
 
 <button type="button" class="backdrop" aria-label={msg().readAloud.closeVoices} onpointerdown={keepFocus} onclick={onClose}></button>
-<div class="menu" style="bottom: {anchor.bottom}px; right: {anchor.right}px" data-testid="read-aloud-menu">
+<div class="menu" bind:this={menu} style="bottom: {anchor.bottom}px; right: {clampRight(anchor.right, width, window.innerWidth)}px" data-testid="read-aloud-menu">
   <ul role="listbox" aria-label={msg().readAloud.readWith}>
     <li>
       <button type="button" role="option" aria-selected={model.source === 'device'} onpointerdown={keepFocus} onclick={() => choose('device')}>
