@@ -68,6 +68,8 @@ behavior is Claude-specific; do not assume it applies to Codex messages.
 Review reports against the requested outcome, actual diffs/commits and test
 results. Integration still follows `$work` and its on-device gate where applicable.
 Distinguish verified completion, blocked work and unverified claims in the report.
+When you send the user to a child, name it as `$tarfa-spawn` says ("Pointing the user at a
+workspace"): the bare id in the terminal, its `tarfa link` beside it anywhere else.
 
 Close only children created for this task after their useful state is preserved
 and closing them is within the requested scope. For Tarfa sessions, target one

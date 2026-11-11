@@ -43,3 +43,18 @@ export function linkTarget<W extends { machineId: string; id: string; status: st
   const matches = workspaces.filter((w) => w.id === id && w.status !== 'parked');
   return matches.find((w) => w.machineId === preferMachineId) ?? matches[0] ?? null;
 }
+
+export interface IdSpan {
+  /** 0-based row of the rows given. */
+  row: number;
+  startCol: number;
+  endCol: number;
+}
+
+export function linkedIdSpans(rows: readonly (readonly TerminalCell[])[], isLink: (id: string) => boolean): IdSpan[] {
+  return rows.flatMap((cells, row) =>
+    findWorkspaceIds(cells)
+      .filter((m) => isLink(m.id))
+      .map(({ startCol, endCol }) => ({ row, startCol, endCol })),
+  );
+}

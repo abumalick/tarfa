@@ -58,3 +58,39 @@ test.describe('touch (iOS)', () => {
     await expect(page.locator('.xterm-rows').filter({ hasText: 'TARFA_READY perch-d4e5f6' })).toBeVisible();
   });
 });
+
+test('a tappable workspace id stays underlined, in either screen, and only while it is one', async ({ page }) => {
+  await seedMachine(page, agent);
+  await page.goto('/');
+  await page.getByText('source', { exact: true }).click();
+  await expect(page.locator('.xterm-rows').filter({ hasText: 'TARFA_READY perch-a1b2c3' })).toBeVisible();
+  const bars = page.locator('.workspace-id-underlines > div');
+  const rows = page.locator('.xterm-rows');
+  // Its own id, an unknown one and a parked one are not links.
+  await expect(bars).toHaveCount(0);
+
+  // xterm's rows and the bars are rebuilt as output lands, so a box can be read off a detached node.
+  const underId = (id: string) =>
+    expect(async () => {
+      const span = await rows.getByText(id, { exact: true }).boundingBox();
+      const bar = await bars.first().boundingBox();
+      expect(span && bar).toBeTruthy();
+      expect(Math.abs(bar!.x - span!.x)).toBeLessThan(1.5);
+      expect(Math.abs(bar!.width - span!.width)).toBeLessThan(1.5);
+      expect(bar!.y).toBeGreaterThan(span!.y);
+      expect(bar!.y).toBeLessThanOrEqual(span!.y + span!.height + 1);
+    }).toPass({ timeout: 5000 });
+
+  agent.sendOutput('perch-a1b2c3', 'unknown \x1b[32mperch-999999\x1b[0m parked \x1b[32mperch-e7e7e7\x1b[0m spawned \x1b[32mperch-d4e5f6\x1b[0m\r\n');
+  await expect(bars).toHaveCount(1);
+  await underId('perch-d4e5f6');
+
+  // Scrolled off the screen, the line takes its underline with it.
+  agent.sendOutput('perch-a1b2c3', 'line\r\n'.repeat(80));
+  await expect(bars).toHaveCount(0);
+
+  // A tmux client draws in the alternate screen, where xterm's own decorations do not exist.
+  agent.sendOutput('perch-a1b2c3', '\x1b[?1049h\x1b[2J\x1b[H\x1b[3;5Hsee \x1b[32mperch-d4e5f6\x1b[0m');
+  await expect(bars).toHaveCount(1);
+  await underId('perch-d4e5f6');
+});

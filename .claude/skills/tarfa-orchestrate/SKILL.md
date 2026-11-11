@@ -105,6 +105,8 @@ again, wait on it again.
 The child's final report, its `tarfa send` or a subagent's result, is the deliverable.
 Check it against the design and the repo: the commits exist, the tests ran, the claims hold.
 A subagent review of a workspace's branch is a cheap way to check. Do not relay it unread.
+When you send the user to a child, name it as `tarfa-spawn` says ("Pointing the user at a
+workspace"): the bare id in the terminal, its `tarfa link` beside it anywhere else.
 
 ## When state is lost
 

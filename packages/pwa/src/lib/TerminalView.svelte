@@ -5,6 +5,7 @@
   import { WebLinksAddon } from '@xterm/addon-web-links';
   import { isIOSWebKit, openTerminalLink } from './terminal-link';
   import { workspaceIdLinkProvider } from './workspace-id-link-provider';
+  import { attachWorkspaceIdUnderlines } from './workspace-id-underlines';
   import { linkTarget } from '../core/workspace-id-links';
   import '@xterm/xterm/css/xterm.css';
   import type { TarfaStore } from '../store.svelte';
@@ -58,6 +59,15 @@
   let snapshotEl = $state<HTMLDivElement>();
   const selectMode = $derived(snapshot !== null);
   let copySelect: CopyOnSelect | null = null;
+  let idUnderlines: ReturnType<typeof attachWorkspaceIdUnderlines> | null = null;
+  // The workspace a tapped id opens. Its own id is no link: tapping it would change nothing.
+  const idTarget = (id: string) => (id === store.active?.id ? null : linkTarget(store.workspaces, id, store.active?.machineId ?? null));
+  // An id becomes a link, or stops being one, when the list changes, with no new output.
+  $effect(() => {
+    void store.workspaces;
+    void store.active;
+    idUnderlines?.refresh();
+  });
   let copied = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | null = null;
   let term: Terminal | null = null;
@@ -329,15 +339,10 @@
     t.loadAddon(f);
     t.loadAddon(new WebLinksAddon((_event, uri) => openLink(uri)));
     t.registerLinkProvider(
-      workspaceIdLinkProvider(
-        t,
-        (id) => linkTarget(store.workspaces, id, store.active?.machineId ?? null),
-        (ws) => {
-          if (ws.id !== store.active?.id) store.open(ws);
-        },
-      ),
+      workspaceIdLinkProvider(t, idTarget, (ws) => store.open(ws)),
     );
     t.open(container);
+    idUnderlines = attachWorkspaceIdUnderlines(t, (id) => idTarget(id) !== null);
     f.fit();
     t.parser.registerOscHandler(52, (data) => {
       const text = parseOsc52(data);
@@ -422,6 +427,8 @@
       scroll = null;
       copySelect?.destroy();
       copySelect = null;
+      idUnderlines?.destroy();
+      idUnderlines = null;
       androidInput?.destroy();
       androidInput = null;
       if (copiedTimer) clearTimeout(copiedTimer);
@@ -665,6 +672,9 @@
     -webkit-touch-callout: none;
   }
   .term.selecting { touch-action: auto; -webkit-touch-callout: default; }
+  /* Drawn inside xterm's screen, under its helper layers and under select mode's snapshot. */
+  .term :global(.workspace-id-underlines) { position: absolute; inset: 0; pointer-events: none; }
+  .term :global(.workspace-id-underlines > div) { position: absolute; height: 1px; background: rgba(255, 255, 255, 0.7); }
   /* Above xterm's own layers (its helpers and decorations stack up to z-index 7). The colours
      are xterm's default theme and the runs carry each cell's own, so opening select mode does
      not visibly change the screen. */

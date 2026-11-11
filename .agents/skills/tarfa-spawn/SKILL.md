@@ -51,6 +51,14 @@ Point children at their project roots and let each project's own worktree rules
 provide isolation. If the project has no such convention and concurrent children
 would edit the same files, resolve ownership before launching.
 
+## Pointing the user at a workspace
+
+In a Tarfa terminal, name a workspace by its bare id: the app underlines a listed one, and a tap
+opens it. Anywhere else the user reads you (a Telegram message, an email, a chat), put the link
+`tarfa link <id>` prints beside the id: it opens the app on that workspace. `tarfa link` alone
+gives your own workspace's, for "come and answer me" messages. A `tarfa` that answers
+`unknown command: link` predates links: send the id alone.
+
 ## Messaging boundary
 
 `--child` records the calling workspace as the child's parent. The child is told

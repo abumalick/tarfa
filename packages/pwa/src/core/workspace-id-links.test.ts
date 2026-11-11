@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findWorkspaceIds, linkTarget } from './workspace-id-links';
+import { findWorkspaceIds, linkedIdSpans, linkTarget } from './workspace-id-links';
 
 const cells = (text: string) => [...text].map((chars) => ({ chars, width: 1 }));
 
@@ -78,5 +78,15 @@ describe('linkTarget', () => {
 
   it('falls back to another machine', () => {
     expect(linkTarget([ws('linux', 'perch-aaaaaa')], 'perch-aaaaaa', 'mac')).toEqual(ws('linux', 'perch-aaaaaa'));
+  });
+});
+
+describe('linkedIdSpans', () => {
+  it('places each id that is a link by its row and columns, and skips the rest', () => {
+    const rows = [cells('ls perch-1 perch-2'), cells(''), cells('  eng-ops-12')];
+    expect(linkedIdSpans(rows, (id) => id !== 'perch-2')).toEqual([
+      { row: 0, startCol: 3, endCol: 9 },
+      { row: 2, startCol: 2, endCol: 11 },
+    ]);
   });
 });

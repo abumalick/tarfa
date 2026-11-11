@@ -763,6 +763,13 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   anything the user opens while it waits, then gives up after `RECONNECT_GRACE_MS`. On iOS outside
   the Home Screen app the link is held (`OpenInAppFirst`: copy, then paste in the app). Ids are
   reused, so an old link may open a newer workspace of the same id: accepted.
+  **Inside a terminal a bare id is already a link** (`core/workspace-id-links.ts`, a link provider):
+  one a listed, unparked workspace has, other than the open one, opens it on a tap. xterm underlines
+  a link only under a hovering pointer, so `lib/workspace-id-underlines.ts` keeps a bar drawn under
+  each in a layer of its own, redrawn per frame at most from `onRender`/`onScroll`/`onResize` and on
+  a list change. **Not xterm's decorations:** they exist only in the normal buffer, and a tmux
+  client draws in the alternate one. The skills tell sessions to write the bare id in the terminal
+  and add `tarfa link` anywhere else.
 - **Cross-agent messaging (`tarfa send`).** `tarfa send <id> "<message>"` (or stdin) lets one
   workspace message another on the same machine, for Claude, Codex and Pi; how it works and the
   authority text each CLI needs are in `docs/MESSAGING.md`. Things not to "simplify":
