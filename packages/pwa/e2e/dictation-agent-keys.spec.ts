@@ -74,17 +74,19 @@ test("a key set on the machine's page reaches the machine, and a removed one lea
   await expect(page.getByLabel('ElevenLabs API key')).toHaveAttribute('placeholder', '••••••');
   await expect(page.getByLabel('ElevenLabs API key')).toHaveValue('');
 
-  await page.getByLabel('OpenRouter API key').fill('sk-or-from-phone');
+  await page.getByLabel('OpenRouter API key').fill('sk-or-v1-testkey2testkey2testkey2testkey2testkey2');
   await openrouter.getByRole('button', { name: 'Save key' }).click();
   await expect(openrouter.getByRole('status')).toHaveText('Saved on Test ✓');
   await expect(openrouter).toContainText('Set on this machine');
   await expect(page.getByLabel('OpenRouter API key')).toHaveValue('');
-  expect(agent.dictationKeys.openrouter).toBe('sk-or-from-phone');
-  expect(await page.evaluate(() => Object.values(localStorage).join('\n'))).not.toContain('sk-or-from-phone');
+  expect(agent.dictationKeys.openrouter).toBe('sk-or-v1-testkey2testkey2testkey2testkey2testkey2');
+  expect(await page.evaluate(() => Object.values(localStorage).join('\n'))).not.toContain('sk-or-v1-testkey2testkey2testkey2testkey2testkey2');
 
   await page.getByLabel('OpenRouter API key').fill('two words');
   await openrouter.getByRole('button', { name: 'Save key' }).click();
-  await expect(openrouter.getByRole('status')).toHaveText('Not saved: a key holds no whitespace');
+  await expect(openrouter.getByRole('status')).toHaveText(
+    'Not saved: this is not an OpenRouter key. An OpenRouter key starts with sk-or-v1- followed by at least 32 letters and digits.',
+  );
 
   await openrouter.getByRole('button', { name: 'Remove' }).click();
   await expect(openrouter.getByRole('status')).toHaveText('Removed from Test');

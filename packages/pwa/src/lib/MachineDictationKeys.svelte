@@ -2,6 +2,7 @@
   // A machine's dictation keys, kept on the machine: whether each is set (never its value), and
   // a field that sends a new one to this machine alone.
   import { onMount } from 'svelte';
+  import { dictationKeyProblem, type DictationKeyProblem } from '@tarfa/contracts';
   import type { TarfaStore } from '../store.svelte';
   import type { DictationProvider } from '../core/dictation-presets';
   import { PROVIDER_NAMES } from '../core/dictation-setup';
@@ -21,6 +22,7 @@
 
   const PROVIDERS: DictationProvider[] = ['elevenlabs', 'openrouter'];
   const PLACEHOLDERS: Record<DictationProvider, string> = { elevenlabs: 'sk_…', openrouter: 'sk-or-…' };
+  const PREFIXES: Record<DictationProvider, string> = { elevenlabs: 'sk_', openrouter: 'sk-or-v1-' };
 
   const online = $derived(store.statuses?.[machine.id] === 'online');
   const route = $derived(store.keyRoute(machine.id));
@@ -28,6 +30,7 @@
   let inputs = $state<Partial<Record<DictationProvider, HTMLInputElement>>>({});
   let cards = $state<Partial<Record<DictationProvider, HTMLElement>>>({});
   let keyHelp = $state<DictationProvider | null>(null);
+  let refused = $state<Partial<Record<DictationProvider, { key: string; problem: DictationKeyProblem }>>>({});
   const sent: Record<DictationProvider, string | null> = { elevenlabs: null, openrouter: null };
 
   onMount(() => {
@@ -44,8 +47,19 @@
     event.preventDefault();
     const key = drafts[provider].trim();
     if (!key) return;
+    const problem = dictationKeyProblem(provider, key);
+    if (problem) {
+      refused[provider] = { key, problem };
+      return;
+    }
+    refused[provider] = undefined;
     store.setMachineDictationKey(machine.id, provider, key);
     sent[provider] = key;
+  }
+
+  function remove(provider: DictationProvider): void {
+    refused[provider] = undefined;
+    store.setMachineDictationKey(machine.id, provider, null);
   }
 
   // The typed key stays until the machine stored it, so a refusal or a drop needs no new paste.
@@ -60,6 +74,15 @@
   });
 
   function outcome(provider: DictationProvider): { text: string; tone: 'dim' | 'ok' | 'diag' } | null {
+    const refusal = refused[provider];
+    if (refusal && refusal.key === drafts[provider].trim()) {
+      const other: DictationProvider = provider === 'elevenlabs' ? 'openrouter' : 'elevenlabs';
+      const text =
+        refusal.problem === 'other-provider'
+          ? msg().settings.keyOtherProvider(PROVIDER_NAMES[provider], PROVIDER_NAMES[other])
+          : msg().settings.keyFormat(PROVIDER_NAMES[provider], PREFIXES[provider]);
+      return { text, tone: 'diag' };
+    }
     const save = store.dictationKeySaves[machine.id]?.[provider];
     if (!save) return null;
     if (save.state === 'pending') return { text: msg().settings.keySaving, tone: 'dim' };
@@ -113,7 +136,7 @@
           <div class="actions">
             <button type="button" class="link" aria-label={msg().dictation.setup.howToGetKeyFor(PROVIDER_NAMES[provider])} onclick={() => (keyHelp = provider)}>{msg().settings.howToGetKey}</button>
             {#if has}
-              <button type="button" class="link danger" disabled={pending} onclick={() => store.setMachineDictationKey(machine.id, provider, null)}>{msg().settings.removeKey}</button>
+              <button type="button" class="link danger" disabled={pending} onclick={() => remove(provider)}>{msg().settings.removeKey}</button>
             {/if}
           </div>
         {/if}
