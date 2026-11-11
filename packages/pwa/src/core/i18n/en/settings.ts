@@ -36,6 +36,8 @@ export const settings = {
   keyRemoved: (machine: string) => `Removed from ${machine}`,
   keySaveFailed: (error: string) => `Not saved: ${error}`,
   keySaveOffline: 'the machine went offline',
+  keyFormat: (provider: string, prefix: string) => `Not saved: this is not an ${provider} key. An ${provider} key starts with ${prefix} followed by at least 32 letters and digits.`,
+  keyOtherProvider: (provider: string, other: string) => `Not saved: this looks like an ${other} key. Paste it in the ${other} field, and an ${provider} key here.`,
   keySaveNoReply: 'the machine did not answer',
   keySaveRefused: 'the machine refused it',
   machineKeysOffline: 'Connect to this machine to see or change its keys.',

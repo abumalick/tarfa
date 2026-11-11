@@ -1546,37 +1546,37 @@ describe('tarfa dictation-key', () => {
 
   it('stores a key read as a secret, 0600, and never prints it', async () => {
     const { home, env, path, secret } = await machine();
-    const out = await run(['dictation-key', 'set', 'elevenlabs'], env, home, secret('test-key-1\n'));
-    expect(out).not.toContain('test-key-1');
-    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ elevenlabs: 'test-key-1' });
+    const out = await run(['dictation-key', 'set', 'elevenlabs'], env, home, secret('sk_testkey1testkey1testkey1testkey1testkey1\n'));
+    expect(out).not.toContain('sk_testkey1testkey1testkey1testkey1testkey1');
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ elevenlabs: 'sk_testkey1testkey1testkey1testkey1testkey1' });
     expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 
   it('refuses a key given as an argument, where any local user can read it', async () => {
     const { home, env, path, secret } = await machine();
-    await expect(run(['dictation-key', 'set', 'elevenlabs', 'test-key-1'], env, home, secret('x'))).rejects.toMatchObject({
+    await expect(run(['dictation-key', 'set', 'elevenlabs', 'sk_testkey1testkey1testkey1testkey1testkey1'], env, home, secret('x'))).rejects.toMatchObject({
       exitCode: 2,
-      message: expect.not.stringContaining('test-key-1'),
+      message: expect.not.stringContaining('sk_testkey1testkey1testkey1testkey1testkey1'),
     });
     await expect(stat(path)).rejects.toThrow();
   });
 
   it('refuses an unknown provider and a bad key, without echoing the key', async () => {
     const { home, env, secret } = await machine();
-    await expect(run(['dictation-key', 'set', 'claude'], env, home, secret('test-key-1'))).rejects.toMatchObject({ exitCode: 2 });
+    await expect(run(['dictation-key', 'set', 'claude'], env, home, secret('sk_testkey1testkey1testkey1testkey1testkey1'))).rejects.toMatchObject({ exitCode: 2 });
     await expect(run(['dictation-key', 'set', 'openrouter'], env, home, secret('test key'))).rejects.toThrow(/whitespace/);
   });
 
   it('shows which providers hold a key, removes one, and keeps the other', async () => {
     const { home, env, path, secret } = await machine();
-    await run(['dictation-key', 'set', 'elevenlabs'], env, home, secret('test-key-1'));
-    await run(['dictation-key', 'set', 'openrouter'], env, home, secret('test-key-2'));
+    await run(['dictation-key', 'set', 'elevenlabs'], env, home, secret('sk_testkey1testkey1testkey1testkey1testkey1'));
+    await run(['dictation-key', 'set', 'openrouter'], env, home, secret('sk-or-v1-testkey2testkey2testkey2testkey2testkey2'));
     const status = await run(['dictation-key', 'status'], env, home);
     expect(status).toContain('elevenlabs  set');
     expect(status).toContain('openrouter  set');
     expect(status).not.toContain('test-key');
     await run(['dictation-key', 'remove', 'elevenlabs'], env, home);
-    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ openrouter: 'test-key-2' });
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ openrouter: 'sk-or-v1-testkey2testkey2testkey2testkey2testkey2' });
     expect(await run(['dictation-key'], env, home)).toContain('elevenlabs  not set');
   });
 
@@ -1584,7 +1584,7 @@ describe('tarfa dictation-key', () => {
     const { home, env, path, secret } = await machine();
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, '{"openrouter":', { mode: 0o600 });
-    await expect(run(['dictation-key', 'set', 'elevenlabs'], env, home, secret('test-key-1'))).rejects.toThrow(`${path} is malformed`);
+    await expect(run(['dictation-key', 'set', 'elevenlabs'], env, home, secret('sk_testkey1testkey1testkey1testkey1testkey1'))).rejects.toThrow(`${path} is malformed`);
     expect(await readFile(path, 'utf8')).toBe('{"openrouter":');
   });
 });

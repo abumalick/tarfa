@@ -384,12 +384,19 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   to one that timed out must not settle the next), and any `ok` makes the phone ask `getDictationKeys`
   again. Other phones on that machine get the change at their next connect. Both
   paths run `changeDictationKey` (`application/dictation-keys.ts`: `checkKey` trims and refuses
-  whitespace inside or over 512 characters) and write under `withFileLock`, since the CLI and the agent
+  whitespace inside or over 512 characters, then `keyFormatError` refuses a key not shaped like
+  its provider's, naming the shape and the other provider when it looks like that one's) and write under `withFileLock`, since the CLI and the agent
   are different processes. The agent advertises `AGENT_FEATURES.dictationKeys` (it hands keys out) and
   `AGENT_FEATURES.setDictationKey` (it takes one), and the PWA sends `getDictationKeys` on each
   accepted `authResult`; the handler answers both only behind `authed`, and a refusal or a failed
   write is a `dictationKeySet` with `checkKey`'s fixed wording or the file's problem line (its path,
-  never its text), never the generic `error`. Things not to
+  never its text), never the generic `error`. **The shape check (`dictationKeyProblem`,
+  contracts) runs on both sides and only when a key is set:** the machine page refuses before
+  sending, in the phone's language, since released agents lack the check; the agent refuses for
+  the CLI and older PWAs; a stored key is never re-checked on read, so one stored before the
+  check keeps working. Its lengths are minimums, not exact (ElevenLabs `sk_` + 48 hex today, or 32
+  bare hex from before the prefix; OpenRouter `sk-or-v1-` + 64 hex): a valid key wrongly refused
+  has no way round. Things not to
   "simplify": **a request, not a field on `authResult.agent`** (a malformed field there would
   wipe `features` too, and the transport layer should read no secret file); **held in memory per
   machine, never in localStorage**, dropped when the machine goes offline, is removed, or stops

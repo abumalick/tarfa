@@ -39,22 +39,57 @@ describe('MachineDictationKeys', () => {
       },
     });
     const field = card('openrouter').getByLabelText('OpenRouter API key') as HTMLInputElement;
-    await fireEvent.input(field, { target: { value: ' sk-or-new ' } });
+    await fireEvent.input(field, { target: { value: ' sk-or-v1-testkey2testkey2testkey2testkey2testkey2 ' } });
     await fireEvent.click(card('openrouter').getByRole('button', { name: 'Save key' }));
-    expect(store.setMachineDictationKey).toHaveBeenCalledWith('mac', 'openrouter', 'sk-or-new');
+    expect(store.setMachineDictationKey).toHaveBeenCalledWith('mac', 'openrouter', 'sk-or-v1-testkey2testkey2testkey2testkey2testkey2');
     saves.mac = { openrouter: { state: 'failed', error: 'x' } };
     await tick();
-    expect(field.value).toBe(' sk-or-new ');
+    expect(field.value).toBe(' sk-or-v1-testkey2testkey2testkey2testkey2testkey2 ');
     await fireEvent.click(card('openrouter').getByRole('button', { name: 'Save key' }));
     saves.mac = { openrouter: { state: 'saved' } };
     await tick();
     expect(field.value).toBe('');
   });
 
+  it('refuses a key not shaped like the provider\'s before sending it, until the field changes', async () => {
+    const store = setup();
+    const field = card('elevenlabs').getByLabelText('ElevenLabs API key') as HTMLInputElement;
+    await fireEvent.input(field, { target: { value: 'not-a-key' } });
+    await fireEvent.click(card('elevenlabs').getByRole('button', { name: 'Save key' }));
+    expect(store.setMachineDictationKey).not.toHaveBeenCalled();
+    expect(card('elevenlabs').getByRole('status')).toHaveTextContent(
+      'Not saved: this is not an ElevenLabs key. An ElevenLabs key starts with sk_ followed by at least 32 letters and digits.',
+    );
+    expect(field.value).toBe('not-a-key');
+    await fireEvent.input(field, { target: { value: 'not-a-key2' } });
+    expect(card('elevenlabs').queryByRole('status')).toBeNull();
+  });
+
+  it('says when the key pasted belongs to the other provider', async () => {
+    const store = setup();
+    await fireEvent.input(card('elevenlabs').getByLabelText('ElevenLabs API key'), {
+      target: { value: 'sk-or-v1-testkey2testkey2testkey2testkey2testkey2' },
+    });
+    await fireEvent.click(card('elevenlabs').getByRole('button', { name: 'Save key' }));
+    expect(store.setMachineDictationKey).not.toHaveBeenCalled();
+    expect(card('elevenlabs').getByRole('status')).toHaveTextContent(
+      'Not saved: this looks like an OpenRouter key. Paste it in the OpenRouter field, and an ElevenLabs key here.',
+    );
+  });
+
   it('removes a key from the machine', async () => {
     const store = setup();
     await fireEvent.click(card('elevenlabs').getByRole('button', { name: 'Remove' }));
     expect(store.setMachineDictationKey).toHaveBeenCalledWith('mac', 'elevenlabs', null);
+  });
+
+  it('drops a refusal once the key is removed', async () => {
+    setup();
+    await fireEvent.input(card('elevenlabs').getByLabelText('ElevenLabs API key'), { target: { value: 'not-a-key' } });
+    await fireEvent.click(card('elevenlabs').getByRole('button', { name: 'Save key' }));
+    expect(card('elevenlabs').getByRole('status')).toBeInTheDocument();
+    await fireEvent.click(card('elevenlabs').getByRole('button', { name: 'Remove' }));
+    expect(card('elevenlabs').queryByRole('status')).toBeNull();
   });
 
   it('says what became of the last save', () => {

@@ -1,3 +1,4 @@
+import { dictationKeyProblem } from '@tarfa/contracts';
 import type { DictationKeysWriter } from '../ports/dictation-keys-port';
 
 // The dictation provider keys an operator stores on the agent machine, for every phone paired
@@ -19,6 +20,19 @@ export function checkKey(raw: string): { ok: true; key: string } | { ok: false; 
   if (/\s/.test(key)) return { ok: false, error: 'a key holds no whitespace' };
   if (key.length > MAX_KEY_LENGTH) return { ok: false, error: `a key is at most ${MAX_KEY_LENGTH} characters` };
   return { ok: true, key };
+}
+
+const SHAPE: Record<DictationProvider, string> = {
+  elevenlabs: 'an ElevenLabs key starts with sk_ followed by at least 32 letters and digits',
+  openrouter: 'an OpenRouter key starts with sk-or-v1- followed by at least 32 letters and digits',
+};
+const OTHER: Record<DictationProvider, string> = { elevenlabs: 'OpenRouter', openrouter: 'ElevenLabs' };
+
+// Checked when a key is stored, never on read, so a key stored before the check keeps working.
+export function keyFormatError(provider: DictationProvider, key: string): string | null {
+  const problem = dictationKeyProblem(provider, key);
+  if (problem === null) return null;
+  return problem === 'other-provider' ? `this looks like an ${OTHER[provider]} key; ${SHAPE[provider]}` : SHAPE[provider];
 }
 
 // 'malformed' carries no detail on purpose: JSON.parse's message quotes the text it read.
@@ -60,6 +74,8 @@ export async function changeDictationKey(
   if (raw !== null) {
     const checked = checkKey(raw);
     if (!checked.ok) return checked;
+    const formatError = keyFormatError(provider, checked.key);
+    if (formatError) return { ok: false, error: formatError };
     key = checked.key;
   }
   const result = await store.update((keys) => (key === null ? withoutKey(keys, provider) : withKey(keys, provider, key)));

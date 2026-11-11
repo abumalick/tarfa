@@ -35,6 +35,8 @@ export const settings: Messages['settings'] = {
   keyRemoved: (machine: string) => `Supprimée de ${machine}`,
   keySaveFailed: (error: string) => `Non enregistrée : ${error}`,
   keySaveOffline: 'la machine s’est déconnectée',
+  keyFormat: (provider: string, prefix: string) => `Non enregistrée : ce n’est pas une clé ${provider}. Une clé ${provider} commence par ${prefix} suivi d’au moins 32 lettres et chiffres.`,
+  keyOtherProvider: (provider: string, other: string) => `Non enregistrée : cela ressemble à une clé ${other}. Collez-la dans le champ ${other}, et une clé ${provider} ici.`,
   keySaveNoReply: 'la machine n’a pas répondu',
   keySaveRefused: 'la machine l’a refusée',
   machineKeysOffline: 'Connectez-vous à cette machine pour voir ou modifier ses clés.',
