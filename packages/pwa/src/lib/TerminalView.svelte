@@ -298,9 +298,9 @@
 
   onMount(() => {
     const ios = isIOSWebKit(navigator.userAgent, navigator.maxTouchPoints);
-    // A pairing link is the running app's to handle; opened, it would pair in another page.
+    // A pairing or workspace link is the running app's to handle; opened, it would act in another page.
     const openLink = (uri: string) => {
-      if (!store.openPairingLink(uri)) openTerminalLink(uri, { ios, share: store.shareLinks });
+      if (!store.openPairingLink(uri) && !store.openWorkspaceLink(uri)) openTerminalLink(uri, { ios, share: store.shareLinks });
     };
     const t = new Terminal({
       cursorBlink: true,

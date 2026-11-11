@@ -9,3 +9,4 @@ export * from './protocol/messages';
 export * from './protocol/browser-messages';
 export * from './protocol/client-log';
 export * from './protocol/session-channels';
+export * from './domain/workspace-link';

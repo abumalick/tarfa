@@ -1,5 +1,6 @@
 import type { AgentMessage, BrowserSession, ClientMessage, MachineStats, MediaResult, Workspace, WorkspaceStatus } from '@tarfa/contracts';
-import { AGENT_FEATURES, imageMediaType, pdfMediaType, audioMediaType, runsClaude } from '@tarfa/contracts';
+import { AGENT_FEATURES, imageMediaType, pdfMediaType, audioMediaType, parseWorkspaceLink, runsClaude, type WorkspaceLink } from '@tarfa/contracts';
+import { linkedMachine, resolveLinkOpen } from './core/workspace-link-open';
 import { SvelteSet } from 'svelte/reactivity';
 import { agentTooOld, MIN_AGENT_VERSION } from './core/agent-skew';
 import type { ConnectionManager } from './core/connection-manager';
@@ -346,6 +347,11 @@ export class TarfaStore {
   dictationError = $state<string | null>(null);
   // A create we sent and are waiting to see appear in the list, so we can auto-open it.
   private pendingCreate: { machineId: string; projectPath: string; existingIds: Set<string> } | null = null;
+  private linkOpen: { link: WorkspaceLink; view: View; activeKey: string | null; freshList: boolean; cancel: () => void } | null = null;
+  // A workspace link opened in iOS Safari, outside the Home Screen app that holds the pairings.
+  heldWorkspaceLink = $state<string | null>(null);
+  private started = false;
+  private launchLink: WorkspaceLink | null = null;
   // Focuses App's hidden input. iOS only raises the soft keyboard from a user gesture, so
   // the create tap focuses this anchor to open the keyboard now and hold it through the
   // round-trip; the terminal takes focus from it on mount (see App.svelte, TerminalView).
@@ -449,6 +455,7 @@ export class TarfaStore {
         if (fresh) this.active = fresh;
       }
       this.maybeOpenCreated();
+      this.settleLinkOpen();
     });
   }
 
@@ -479,6 +486,10 @@ export class TarfaStore {
     this.deps.manager.setMachines(this.machines);
     this.pruneDictationKeys();
     this.recomputeGrace();
+    this.started = true;
+    const launchLink = this.launchLink;
+    this.launchLink = null;
+    if (launchLink) this.requestWorkspaceOpen(launchLink);
   }
 
   // The agent took this entry's pairing code: the enrolled device key is all it needs from now on.
@@ -680,6 +691,10 @@ export class TarfaStore {
         return;
       case 'workspaces':
         this.claudeVoiceOn = { ...this.claudeVoiceOn, [machineId]: message.claudeVoice === true };
+        if (this.linkOpen && linkedMachine(this.machines, this.linkOpen.link)?.id === machineId) {
+          this.linkOpen.freshList = true;
+          this.settleLinkOpen();
+        }
         return;
       case 'recentPaths':
         this.recentPaths = { ...this.recentPaths, [machineId]: message.paths };
@@ -1638,6 +1653,85 @@ export class TarfaStore {
     const machine = acceptPairingLink(this.deps.settings.list(), read.link, this.deps);
     if (machine) this.applyPairing(machine);
     return true;
+  }
+
+  // A workspace link tapped or pasted in the app. A full URL is taken only from this app's own
+  // origin; false hands anything else to the browser.
+  openWorkspaceLink(uri: string): boolean {
+    const link = parseWorkspaceLink(uri);
+    if (!link) return false;
+    const trimmed = uri.trim();
+    if (!trimmed.startsWith('#')) {
+      try {
+        if (new URL(trimmed).origin !== this.origin()) return false;
+      } catch {
+        return false;
+      }
+    }
+    this.requestWorkspaceOpen(link);
+    return true;
+  }
+
+  // Waits for the machine's list, since the link usually wakes the app before it reconnects.
+  // Navigation only: it never switches a machine on or pairs, and it gives way to anything the
+  // user opens meanwhile.
+  requestWorkspaceOpen(link: WorkspaceLink): void {
+    // A link the app was launched with arrives before the machines are read.
+    if (!this.started) {
+      this.launchLink = link;
+      return;
+    }
+    this.linkOpen?.cancel();
+    const cancel = this.startTimer(() => {
+      if (this.linkOpen?.cancel !== cancel) return;
+      const machine = linkedMachine(this.machines, link);
+      this.linkOpen = null;
+      if (machine && this.stillWhereLinkFound()) this.actionError = msg().app.workspaceLink.unreachable(machine.name);
+    }, RECONNECT_GRACE_MS);
+    this.linkOpen = { link, view: this.view, activeKey: this.activeKey(), freshList: false, cancel };
+    const machine = linkedMachine(this.machines, link);
+    if (machine && this.statuses[machine.id] === 'online') {
+      this.deps.manager.checkLiveness(machine.id);
+      this.send(machine.id, { type: 'list' });
+    }
+    this.settleLinkOpen();
+  }
+
+  holdWorkspaceLink(link: string): void {
+    this.heldWorkspaceLink = link;
+  }
+
+  openHeldLinkHere(): void {
+    const held = this.heldWorkspaceLink;
+    this.heldWorkspaceLink = null;
+    const link = held === null ? null : parseWorkspaceLink(held);
+    if (link) this.requestWorkspaceOpen(link);
+  }
+
+  private activeKey(): string | null {
+    return this.active ? `${this.active.machineId}\n${this.active.id}` : null;
+  }
+
+  private stillWhereLinkFound(): boolean {
+    return this.linkOpen === null || (this.view === this.linkOpen.view && this.activeKey() === this.linkOpen.activeKey);
+  }
+
+  private settleLinkOpen(): void {
+    const pending = this.linkOpen;
+    if (!pending) return;
+    const drop = () => {
+      pending.cancel();
+      this.linkOpen = null;
+    };
+    if (!this.stillWhereLinkFound()) return drop();
+    const outcome = resolveLinkOpen(pending.link, { machines: this.machines, workspaces: this.workspaces, freshList: pending.freshList });
+    if (outcome.kind === 'wait') return;
+    drop();
+    if (outcome.kind === 'open') return this.open(outcome.workspace);
+    const notice = msg().app.workspaceLink;
+    if (outcome.reason === 'notPaired') this.actionError = notice.notPaired;
+    else if (outcome.reason === 'switchedOff') this.actionError = notice.switchedOff(outcome.machine.name);
+    else this.actionError = notice.gone(pending.link.workspaceId, outcome.machine.name);
   }
 
   holdForInstall(link: string): void {

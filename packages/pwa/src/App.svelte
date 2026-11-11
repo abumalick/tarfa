@@ -14,6 +14,8 @@
   import ActionErrorBanner from './lib/ActionErrorBanner.svelte';
   import DeviceEnrolledNotice from './lib/DeviceEnrolledNotice.svelte';
   import InstallFirst from './lib/InstallFirst.svelte';
+  import OpenInAppFirst from './lib/OpenInAppFirst.svelte';
+  import { takeWorkspaceLinkFragment } from './core/workspace-link-open';
   import { trackWide } from './lib/viewport';
   import { msg } from './i18n.svelte';
 
@@ -82,7 +84,15 @@
     // A pairing link tapped anywhere in the app is paired here rather than opened.
     const onClick = (event: MouseEvent) => {
       const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
-      if (anchor instanceof HTMLAnchorElement && store.openPairingLink(anchor.href)) event.preventDefault();
+      if (anchor instanceof HTMLAnchorElement && (store.openPairingLink(anchor.href) || store.openWorkspaceLink(anchor.href))) {
+        event.preventDefault();
+      }
+    };
+    // An Android app already open receives a workspace link as a same-page navigation: only the
+    // fragment changes, and nothing reloads.
+    const onHashChange = () => {
+      const link = takeWorkspaceLinkFragment(location, (url) => history.replaceState(history.state, '', url));
+      if (link) store.requestWorkspaceOpen(link);
     };
     const onOnline = () => {
       store.logConnectivity('net-online');
@@ -95,6 +105,7 @@
     document.addEventListener('click', onClick, true);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    window.addEventListener('hashchange', onHashChange);
     return () => {
       store.setKeyboardAnchor(null);
       stopWide();
@@ -103,6 +114,7 @@
       document.removeEventListener('click', onClick, true);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+      window.removeEventListener('hashchange', onHashChange);
     };
   });
 </script>
@@ -145,6 +157,8 @@
 
 {#if store.installFirst}
   <main><InstallFirst {store} /></main>
+{:else if store.heldWorkspaceLink}
+  <main><OpenInAppFirst {store} /></main>
 {:else if wide}
   <div class="layout">
     <aside class="sidebar">

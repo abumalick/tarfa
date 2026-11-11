@@ -85,13 +85,14 @@ describe('tarfa --version', () => {
     expect(await run(['--version'], {}, '/nonexistent')).toBe(version);
     expect(await run(['-v'], {}, '/nonexistent')).toBe(version);
   });
+
 });
 
 describe('tarfa --help', () => {
   it('lists every command with no agent.env, for a bare tarfa, --help, -h and help', async () => {
     for (const argv of [[], ['--help'], ['-h'], ['help']]) {
       const help = await run(argv, {}, '/nonexistent');
-      for (const command of ['setup', 'pair', 'update', 'apply', 'devices', 'dictation-key', 'install-hooks', 'serve', 'ls', 'spawn', 'peek', 'wait', 'send', 'unpark', 'rename', 'close']) {
+      for (const command of ['setup', 'pair', 'update', 'apply', 'devices', 'dictation-key', 'install-hooks', 'serve', 'ls', 'spawn', 'peek', 'wait', 'send', 'unpark', 'rename', 'link', 'close']) {
         expect(help).toMatch(new RegExp(`^  ${command}\\b`, 'm'));
       }
     }
@@ -1092,6 +1093,30 @@ describe('tarfa ls / spawn / peek (fake tmux)', () => {
     await expect(run(['ls', '--mine'], env, home, io(tmux))).rejects.toThrow(/TMUX_PANE/);
     await expect(run(['ls', '--mine'], { ...env, TMUX_PANE: '%8' }, home, io(tmux))).rejects.toThrow(/not inside a Tarfa workspace/);
     await expect(run(['ls', '--parent'], env, home, io(tmux))).rejects.toThrow(/usage: tarfa ls/);
+  });
+  it('prints a link to a workspace, the caller by default, on the PWA origin, reading the key only', async () => {
+    const { home, env } = await machine();
+    const { tmux } = fakeTmux({ '%7': 'perch-aaaaaa' });
+    const keyPath = join(home, '.tarfa', 'agent-key.json');
+    const pane = { ...env, TMUX_PANE: '%7' };
+    await expect(run(['link', 'perch-bbbbbb'], pane, home, io(tmux))).rejects.toThrow(`no agent key at ${keyPath}`);
+    await expect(readFile(keyPath)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const key = (await loadOrCreateAgentKeys(keyPath)).x25519.publicKey;
+    expect(await run(['link', 'perch-bbbbbb'], pane, home, io(tmux))).toBe(`https://tarfa.app/#open?k=${key}&w=perch-bbbbbb`);
+    expect(await run(['link'], pane, home, io(tmux))).toBe(`https://tarfa.app/#open?k=${key}&w=perch-aaaaaa`);
+    expect(await run(['link', '--pwa', 'https://pwa.example:8443/x', 'perch-bbbbbb'], pane, home, io(tmux))).toBe(
+      `https://pwa.example:8443/#open?k=${key}&w=perch-bbbbbb`,
+    );
+    const envFile = join(home, 'agent.env');
+    await writeFile(envFile, 'TARFA_PWA_ORIGIN=https://pwa.example\n', { mode: 0o600 });
+    expect(await run(['link', 'perch-bbbbbb'], { ...pane, TARFA_AGENT_ENV: envFile }, home, io(tmux))).toBe(
+      `https://pwa.example/#open?k=${key}&w=perch-bbbbbb`,
+    );
+
+    await expect(run(['link', 'nope-1'], pane, home, io(tmux))).rejects.toThrow('no workspace nope-1 (see tarfa ls)');
+    await expect(run(['link', 'perch-hhhhhh'], pane, home, io(tmux))).rejects.toThrow('perch-hhhhhh is in a hidden folder, which phones do not list');
+    await expect(run(['link', 'a', 'b'], pane, home, io(tmux))).rejects.toThrow(/usage: tarfa link/);
   });
 
   it('unparks through the running agent, one line per id, failing if any did not open', async () => {

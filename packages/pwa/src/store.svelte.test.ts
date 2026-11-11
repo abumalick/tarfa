@@ -3092,3 +3092,84 @@ describe('TarfaStore orchestrator folds', () => {
     expect(write).not.toHaveBeenCalled();
   });
 });
+
+describe('TarfaStore workspace links', () => {
+  const w = (id: string) => ({ machineId: 'mac', id, name: id, projectPath: '/a', command: 'claude', createdAt: 0, lastActivityAt: 0, status: 'needs-feedback' as const });
+  const setup = () => {
+    const timer = manualTimer();
+    const built = build([mac], undefined, timer.startTimer);
+    built.store.start();
+    const online = () => {
+      built.sockets['wss://mac']!.open();
+      built.sockets['wss://mac']!.deliver({ type: 'authResult', ok: true });
+    };
+    const list = (...ids: string[]) => built.sockets['wss://mac']!.deliver({ type: 'workspaces', workspaces: ids.map(w) });
+    return { ...built, timer, online, list };
+  };
+  const link = (id: string, key = agentKey) => `https://pwa.example/#open?k=${key}&w=${id}`;
+
+  it('opens the workspace once its machine lists it', () => {
+    const { store, online, list } = setup();
+    expect(store.openWorkspaceLink(link('app-3'))).toBe(true);
+    expect(store.view).toBe('list');
+    online();
+    list('app-1', 'app-3');
+    expect(store.active?.id).toBe('app-3');
+    expect(store.view).toBe('terminal');
+    expect(store.actionError).toBeNull();
+  });
+
+  it('waits past a list from before the link and asks the machine for a fresh one', () => {
+    const { store, online, list, sockets } = setup();
+    online();
+    list('app-1');
+    const sent = sockets['wss://mac']!.sent.length;
+    store.openWorkspaceLink(link('app-3'));
+    expect(sockets['wss://mac']!.sent.length).toBeGreaterThan(sent);
+    expect(store.actionError).toBeNull();
+    list('app-1', 'app-3');
+    expect(store.active?.id).toBe('app-3');
+  });
+
+  it('says the workspace is gone when a fresh list lacks it', () => {
+    const { store, online, list } = setup();
+    store.openWorkspaceLink(link('app-3'));
+    online();
+    list('app-1');
+    expect(store.active).toBeNull();
+    expect(store.actionError).toMatch(/app-3/);
+  });
+
+  it('says a key no entry holds is not paired, and gives up on a machine that never answers', () => {
+    const { store, timer } = setup();
+    store.openWorkspaceLink(link('app-3', generateAgentKeys().x25519.publicKey));
+    expect(store.actionError).toBeTruthy();
+    store.dismissActionError();
+    store.openWorkspaceLink(link('app-3'));
+    timer.fireAll();
+    expect(store.actionError).toMatch(/Mac/);
+  });
+
+  it('drops the link quietly once the user moves on, and a newer link replaces an older one', () => {
+    const { store, online, list, timer } = setup();
+    store.openWorkspaceLink(link('app-3'));
+    store.goSettings();
+    online();
+    list('app-3');
+    expect(store.active).toBeNull();
+    store.back();
+    store.openWorkspaceLink(link('app-1'));
+    store.openWorkspaceLink(link('app-3'));
+    list('app-1', 'app-3');
+    expect(store.active?.id).toBe('app-3');
+    timer.fireAll();
+    expect(store.actionError).toBeNull();
+  });
+
+  it('leaves other links to the browser: a pairing link, another origin', () => {
+    const { store } = setup();
+    expect(store.openWorkspaceLink('https://pwa.example/#pair?u=wss://x')).toBe(false);
+    expect(store.openWorkspaceLink(`https://elsewhere.example/#open?k=${agentKey}&w=app-3`)).toBe(false);
+    expect(store.openWorkspaceLink(`#open?k=${agentKey}&w=app-3`)).toBe(true);
+  });
+});

@@ -711,7 +711,7 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   `deploy/tarfa-cli.sh` to `~/.local/bin/tarfa` (and, for one release, `~/.local/bin/perch` to
   `tarfa`) on each machine, so any session in any repo can
   run `tarfa spawn [--child]`, `tarfa ls [--mine|--role|--path]`, `tarfa peek <id>`, `tarfa wait <id>...`,
-  `tarfa unpark <id>...`, `tarfa close <id>...` and `tarfa rename [<id>] <title>`. `rename` sets `✳ <title>` locked, as unpark does, so Claude
+  `tarfa unpark <id>...`, `tarfa close <id>...`, `tarfa rename [<id>] <title>` and `tarfa link [<id>]`. `rename` sets `✳ <title>` locked, as unpark does, so Claude
   stops renaming that workspace; without an id it renames the caller's own. The first three read tmux and the `~/.tarfa` stores directly (read-only, no agent.env needed)
   and skip the GitHub lookup, so `ls` answers in a fraction of a second; `unpark` asks the
   running agent (parking section). **Orchestration is explicit:** a plain
@@ -747,6 +747,22 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   **tmux listing no session at all on the first look is an error, not `gone`:** tmux says
   `error connecting to` for a socket a Codex sandbox blocks too, which `isNoServer` reads as no
   server, and every child would read as gone.
+- **Workspace links open the app on one workspace** (`tarfa link [<id>] [--pwa <origin>]`, for a
+  session to hand the owner in its terminal or a chat message). The link is
+  `<TARFA_PWA_ORIGIN>/#open?k=<agent key>&w=<workspace id>` (`workspaceLink` in contracts): the
+  machine is named by its agent key, the one thing every phone paired with it shares (each phone's
+  entry id is its own). The CLI only reads (`readAgentPublicKey`, never `loadOrCreateAgentKeys`),
+  and refuses an id it cannot list or one in a hidden folder, which phones never see. The PWA takes
+  the fragment at launch (read before `replaceState`, as a pairing link), on `hashchange` (an
+  Android app already open gets the link as a same-page navigation, with no reload), from a tap in
+  the app (this origin only) and from the paste field. Things not to "simplify"
+  (`core/workspace-link-open.ts`, `store.requestWorkspaceOpen`): **only a list that arrived after
+  the link proves a workspace gone** (a resumed app's list predates the workspace it was told
+  about), so the request also probes the machine and asks for `list`; **it is navigation only**
+  (never switches an entry on, pairs or unparks beyond what a tap does) and **gives way** to
+  anything the user opens while it waits, then gives up after `RECONNECT_GRACE_MS`. On iOS outside
+  the Home Screen app the link is held (`OpenInAppFirst`: copy, then paste in the app). Ids are
+  reused, so an old link may open a newer workspace of the same id: accepted.
 - **Cross-agent messaging (`tarfa send`).** `tarfa send <id> "<message>"` (or stdin) lets one
   workspace message another on the same machine, for Claude, Codex and Pi; how it works and the
   authority text each CLI needs are in `docs/MESSAGING.md`. Things not to "simplify":

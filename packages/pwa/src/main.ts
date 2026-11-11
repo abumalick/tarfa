@@ -29,6 +29,7 @@ import { WakeLockRecorder } from './core/wake-lock-recorder';
 import { WebAudioPcm } from './adapters/web-audio-pcm';
 import { VERSION_FILE, parseVersionJson } from './core/version-file';
 import { acceptPairingLink, outsideInstalledApp, pairingPlan, takePairingFragment, type PairingPrompts } from './core/pairing';
+import { takeWorkspaceLinkFragment } from './core/workspace-link-open';
 import { setLanguage } from './i18n.svelte';
 import { resolveLanguage } from './core/i18n/language';
 
@@ -93,6 +94,12 @@ if (pairing && !holdPairing) {
   if (machine && pairingPlan(settings.list(), machine) === 'add') settings.add(machine);
   else unprovenPairing = machine;
 }
+
+// Opened from a workspace link: taken off the address like a pairing link, and opened once the
+// machines are read (the store waits for start). Held on iOS outside the Home Screen app.
+const workspaceLinkHref = location.href;
+const launchLink = takeWorkspaceLinkFragment(location, (url) => history.replaceState(history.state, '', url));
+const holdLaunchLink = launchLink !== null && outsideInstalledApp(navigator as { standalone?: boolean });
 
 // This installed PWA's device key, created on first use and kept in IndexedDB for good.
 let identity: Promise<DeviceIdentity> | null = null;
@@ -177,6 +184,10 @@ store = new TarfaStore({
   ...prompts,
 });
 if (unprovenPairing) store.applyPairing(unprovenPairing);
+if (launchLink) {
+  if (holdLaunchLink) store.holdWorkspaceLink(workspaceLinkHref);
+  else store.requestWorkspaceOpen(launchLink);
+}
 
 // Pick up an image handed to us by the OS "Share" sheet (Android Web Share Target). The SW
 // helper (public/share-target-sw.js) stashed it in the Cache API on the share POST; read it

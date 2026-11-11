@@ -9,7 +9,7 @@
     store,
     scan = scanQrCodes,
     readClipboard = () => navigator.clipboard.readText(),
-  }: { store: Pick<TarfaStore, 'pairFromLink'>; scan?: QrScan; readClipboard?: () => Promise<string> } = $props();
+  }: { store: Pick<TarfaStore, 'pairFromLink' | 'openWorkspaceLink'>; scan?: QrScan; readClipboard?: () => Promise<string> } = $props();
 
   let scanning = $state(false);
   let error = $state('');
@@ -19,6 +19,11 @@
 
   // True once the text is dealt with: paired, or declined by the owner.
   function pair(text: string): boolean {
+    // A workspace link pasted here (the iPhone's way into the Home Screen app) opens it.
+    if (store.openWorkspaceLink(text)) {
+      error = '';
+      return true;
+    }
     const result = store.pairFromLink(text);
     if (!('error' in result)) {
       error = '';

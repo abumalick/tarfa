@@ -23,6 +23,19 @@ export async function loadOrCreateAgentKeys(path: string): Promise<AgentKeys> {
   }
 }
 
+// The public half alone, for the CLI: it must never create a key (nothing is written under the
+// state dir before the agent's own startup move).
+export async function readAgentPublicKey(path: string): Promise<string> {
+  let text: string;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`no agent key at ${path}: run tarfa setup first`);
+    throw err;
+  }
+  return parseKeys(text, path).x25519.publicKey;
+}
+
 function parseKeys(text: string, path: string): AgentKeys {
   const keyPattern = /^[A-Za-z0-9_-]{43}$/;
   const parsed = JSON.parse(text) as Partial<AgentKeys>;

@@ -108,6 +108,7 @@ function fakeStore(
     terminalFontSize,
     shareLinks: false,
     openPairingLink: vi.fn((uri: string) => uri.includes('#pair?')),
+    openWorkspaceLink: vi.fn((uri: string) => uri.includes('#open?')),
     onOutput: null as ((d: string) => void) | null,
     attach: vi.fn(),
     sendInput: vi.fn(),

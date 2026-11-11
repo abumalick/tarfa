@@ -31,6 +31,7 @@ function fakeStore(view: string) {
     attach: vi.fn(), sendInput: vi.fn(), resize: vi.fn(), closeActive: vi.fn(),
     setKeyboardAnchor: vi.fn(), reconnectAll: vi.fn(), syncAddresses: vi.fn(), logConnectivity: vi.fn(),
     refreshMachines: vi.fn(), openPairingLink: vi.fn((href: string) => href.includes('#pair?')),
+    openWorkspaceLink: vi.fn((href: string) => href.includes('#open?')), requestWorkspaceOpen: vi.fn(),
     unattachedBrowserSessions: () => [] as { connectionId: string; name: string }[],
     openBrowserView: vi.fn(),
     browserTarget: null as { connectionId: string; session: string } | null,
@@ -118,18 +119,22 @@ describe('App', () => {
     expect(store.refreshMachines).toHaveBeenCalledTimes(2);
   });
 
-  it('pairs from a pairing link tapped anywhere in the app instead of following it', () => {
+  it('pairs from a pairing link and opens a workspace link tapped anywhere in the app, instead of following either', () => {
     const store = fakeStore('list');
     render(App, { props: { store: store as never } });
     const pairing = Object.assign(document.createElement('a'), { href: 'https://pwa.example/#pair?u=x' });
     const plain = Object.assign(document.createElement('a'), { href: 'https://example.com/' });
-    document.body.append(pairing, plain);
+    const workspace = Object.assign(document.createElement('a'), { href: 'https://pwa.example/#open?k=x&w=y' });
+    document.body.append(pairing, plain, workspace);
     const followed = (a: HTMLAnchorElement) => a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(followed(pairing)).toBe(false);
     expect(followed(plain)).toBe(true);
+    expect(followed(workspace)).toBe(false);
     expect(store.openPairingLink).toHaveBeenCalledWith('https://pwa.example/#pair?u=x');
+    expect(store.openWorkspaceLink).toHaveBeenCalledWith('https://pwa.example/#open?k=x&w=y');
     pairing.remove();
     plain.remove();
+    workspace.remove();
   });
 
   it('reconnects machines when the browser comes back online', () => {

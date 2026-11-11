@@ -11,6 +11,7 @@ function fakeStore(accepts: (text: string) => boolean | 'declined' = () => true)
       if (verdict === 'declined') return { declined: true };
       return verdict ? { name: 'dev' } : { error: 'That is not a Tarfa pairing code. Run `tarfa pair` on the machine for a fresh one.' };
     }),
+    openWorkspaceLink: vi.fn((text: string) => text.includes('#open?')),
   };
 }
 
@@ -22,6 +23,15 @@ describe('PairMachine', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Pair' }));
     expect(store.pairFromLink).toHaveBeenCalledWith('https://p/#pair?x');
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('opens a pasted workspace link instead of pairing with it', async () => {
+    const store = fakeStore();
+    render(PairMachine, { props: { store, scan: vi.fn() } });
+    await fireEvent.input(screen.getByLabelText(/paste a pairing code/i), { target: { value: 'https://p/#open?k=x&w=y' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Pair' }));
+    expect(store.openWorkspaceLink).toHaveBeenCalledWith('https://p/#open?k=x&w=y');
+    expect(store.pairFromLink).not.toHaveBeenCalled();
   });
 
   it('says so when the pasted text is not a pairing code', async () => {
