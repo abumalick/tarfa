@@ -3166,6 +3166,14 @@ describe('TarfaStore workspace links', () => {
     expect(store.actionError).toBeNull();
   });
 
+  it('gives up quietly on an unreachable machine once the user has moved on', () => {
+    const { store, timer } = setup();
+    store.openWorkspaceLink(link('app-3'));
+    store.goSettings();
+    timer.fireAll();
+    expect(store.actionError).toBeNull();
+  });
+
   it('leaves other links to the browser: a pairing link, another origin', () => {
     const { store } = setup();
     expect(store.openWorkspaceLink('https://pwa.example/#pair?u=wss://x')).toBe(false);

@@ -1685,8 +1685,9 @@ export class TarfaStore {
     const cancel = this.startTimer(() => {
       if (this.linkOpen?.cancel !== cancel) return;
       const machine = linkedMachine(this.machines, link);
+      const stayed = this.stillWhereLinkFound();
       this.linkOpen = null;
-      if (machine && this.stillWhereLinkFound()) this.actionError = msg().app.workspaceLink.unreachable(machine.name);
+      if (machine && stayed) this.actionError = msg().app.workspaceLink.unreachable(machine.name);
     }, RECONNECT_GRACE_MS);
     this.linkOpen = { link, view: this.view, activeKey: this.activeKey(), freshList: false, cancel };
     const machine = linkedMachine(this.machines, link);
