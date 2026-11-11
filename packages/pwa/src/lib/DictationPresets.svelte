@@ -66,7 +66,7 @@
   function providerLabel(p: DictationPreset): string {
     if (p.provider === 'openrouter') return p.model;
     if (p.provider === 'claude') return msg().presets.claudeVoiceLabel;
-    if (p.model !== 'scribe_v3') return 'ElevenLabs';
+    if (p.model !== 'scribe_v3') return 'Scribe v2';
     return p.languages?.length ? `Scribe v3 · ${p.languages.join(', ')}` : 'Scribe v3';
   }
 

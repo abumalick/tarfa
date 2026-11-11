@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { setLanguage } from '../i18n.svelte';
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { cleanup, render, screen, fireEvent } from '@testing-library/svelte';
 import DictationPresets from './DictationPresets.svelte';
 import { DEFAULT_CLEANUP_PROMPT, DEFAULT_PRESETS, type DictationPreset } from '../core/dictation-presets';
 
@@ -102,6 +102,11 @@ describe('DictationPresets', () => {
     const store = fakeStore([v3]);
     render(DictationPresets, { props: { store: store as never } });
     expect(screen.getByRole('button', { name: 'Edit Multi' })).toHaveTextContent('Scribe v3 · fr, en');
+    cleanup();
+    render(DictationPresets, { props: { store: fakeStore() as never } });
+    expect(screen.getByRole('button', { name: 'Edit Scribe v2' }).querySelector('.provider')).toHaveTextContent(/^Scribe v2$/);
+    cleanup();
+    render(DictationPresets, { props: { store: store as never } });
     await fireEvent.click(screen.getByRole('button', { name: 'Edit Multi' }));
     expect(screen.getByLabelText('Languages')).toHaveValue('fr, en');
     await fireEvent.input(screen.getByLabelText('Languages'), { target: { value: 'french' } });
