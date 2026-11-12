@@ -1,3 +1,4 @@
+import { flushSync } from 'svelte';
 import { generateAgentKeys, pairingLink } from '@tarfa/secure-channel';
 import { audioMediaType, imageMediaType, pdfMediaType } from '@tarfa/contracts';
 import { describe, it, expect, vi } from 'vitest';
@@ -527,6 +528,57 @@ describe('TarfaStore', () => {
     it('needs an open workspace', () => {
       const { store } = build([mac]);
       expect(() => store.voiceLink.begin()).toThrow('Open a workspace first');
+    });
+
+    it('cancel tells the agent to throw the dictation away and stops streaming, ignoring its late reply', () => {
+      const { store, sockets } = opened();
+      let injected = 0;
+      store.onInjectedInput = () => injected++;
+      store.voiceLink.begin();
+      const id = sentVoice(sockets)[0].id as string;
+      store.voiceLink.cancel();
+      store.voiceLink.chunk(new Uint8Array([1]));
+      expect(sentVoice(sockets).slice(1)).toEqual([{ type: 'voiceCancel', id }]);
+      expect(injected).toBe(1);
+      store.handleMessage('mac', { type: 'voiceDone', id, ok: false, error: 'Cancelled' });
+      expect(store.dictationError).toBeNull();
+    });
+
+    it('tells the user when the agent could not cancel, and stays quiet when it did', () => {
+      const { store, sockets } = opened();
+      store.voiceLink.begin();
+      const id = sentVoice(sockets)[0].id as string;
+      store.voiceLink.cancel();
+      store.handleMessage('mac', { type: 'voiceDone', id, ok: true });
+      expect(store.actionError).toBeNull();
+      store.voiceLink.begin();
+      const second = sentVoice(sockets).at(-1).id as string;
+      store.voiceLink.cancel();
+      store.handleMessage('mac', { type: 'voiceDone', id: second, ok: false, error: 'Dictation not cancelled: Claude was not listening' });
+      expect(store.actionError).toBe('Dictation not cancelled: Claude was not listening');
+    });
+
+    it('withdraws the Cancel offer as soon as a Claude voice dictation starts on an agent without it', () => {
+      const { store } = opened();
+      const seen: boolean[] = [];
+      const stop = $effect.root(() => {
+        $effect(() => void seen.push(store.voiceCancellable));
+      });
+      flushSync();
+      store.voiceLink.begin();
+      flushSync();
+      stop();
+      expect(seen).toEqual([true, false]);
+    });
+
+    it('offers cancel for a Claude voice dictation only when the agent takes one', () => {
+      const { store, sockets } = opened();
+      store.voiceLink.begin();
+      expect(store.voiceCancellable).toBe(false);
+      sockets['wss://mac']!.deliver({ type: 'authResult', ok: true, agent: { protocol: 1, features: ['voiceCancel'] } });
+      expect(store.voiceCancellable).toBe(true);
+      store.voiceLink.cancel();
+      expect(store.voiceCancellable).toBe(true);
     });
 
     it('rejects with the agent’s reason, even one that came before the end, and stops sending', async () => {
@@ -1748,6 +1800,7 @@ describe('TarfaStore dictation', () => {
     const recorder = {
       start: () => Promise.resolve(),
       stop: () => Promise.resolve(new Blob(['x'], { type: 'audio/webm' })),
+      discard: () => undefined,
     };
     const store = new TarfaStore({ settings, manager, aggregator, recorder, transcriber, ...prompts });
     store.start();

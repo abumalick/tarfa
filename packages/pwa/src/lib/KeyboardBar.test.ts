@@ -161,6 +161,26 @@ describe('KeyboardBar', () => {
     expect(screen.getByRole('button', { name: /dictate/i })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('offers Cancel only while recording, and only when wired', async () => {
+    const onCancelDictation = vi.fn();
+    const { rerender } = render(KeyboardBar, { props: { ...base, dictation: 'idle', onCancelDictation } });
+    expect(screen.queryByRole('button', { name: /cancel dictation/i })).toBeNull();
+    await rerender({ ...base, dictation: 'recording', onCancelDictation });
+    const cancel = screen.getByRole('button', { name: /cancel dictation/i });
+    expect(screen.getByRole('timer')).toHaveTextContent('0:00');
+    await fireEvent.click(cancel);
+    expect(onCancelDictation).toHaveBeenCalledOnce();
+    await rerender({ ...base, dictation: 'recording', onCancelDictation: undefined });
+    expect(screen.queryByRole('button', { name: /cancel dictation/i })).toBeNull();
+  });
+
+  it('keeps the terminal focused when Cancel is pressed', async () => {
+    render(KeyboardBar, { props: { ...base, dictation: 'recording', onCancelDictation: vi.fn() } });
+    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+    screen.getByRole('button', { name: /cancel dictation/i }).dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+  });
+
   it('disables the mic button while transcribing', () => {
     render(KeyboardBar, { props: { ...base, dictation: 'transcribing' } });
     expect(screen.getByRole('button', { name: /dictate/i })).toBeDisabled();

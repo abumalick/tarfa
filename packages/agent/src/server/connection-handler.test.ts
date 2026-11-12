@@ -1,3 +1,4 @@
+import type { VoicePane } from '../application/claude-voice';
 import type { DictationKeysPort, DictationKeysWriter } from '../ports/dictation-keys-port';
 import type { DictationKeys } from '../application/dictation-keys';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -1173,6 +1174,7 @@ describe('ConnectionHandler voice stream', () => {
   function fakeVoice() {
     const written: number[] = [];
     let press: () => void = () => undefined;
+    let pane: VoicePane | undefined;
     const makeSession = () => {
       let settle!: (error: string | null) => void;
       const done = new Promise<string | null>((resolve) => (settle = resolve));
@@ -1180,13 +1182,15 @@ describe('ConnectionHandler voice stream', () => {
         write: vi.fn((pcm: Uint8Array) => void written.push(...pcm)),
         end: vi.fn(),
         abort: vi.fn((reason: string) => settle(reason)),
+        cancel: vi.fn(),
         done,
         settle: (e: string | null) => settle(e),
       };
     };
     const sessions: ReturnType<typeof makeSession>[] = [];
-    const start = vi.fn((p: () => void) => {
+    const start = vi.fn((p: () => void, v?: VoicePane) => {
       press = p;
+      pane = v;
       sessions.push(makeSession());
       return sessions.at(-1)!;
     });
@@ -1199,6 +1203,9 @@ describe('ConnectionHandler voice stream', () => {
       },
       written,
       press: () => press(),
+      get pane() {
+        return pane!;
+      },
       settle: (e: string | null) => sessions[0]!.settle(e),
     };
   }
@@ -1229,6 +1236,47 @@ describe('ConnectionHandler voice stream', () => {
     voice.settle(null);
     await tick();
     expect(conn.sent).toContainEqual({ type: 'voiceDone', id: 'v1', ok: true });
+  });
+
+  it('cancels a dictation on the phone’s word, cancelling Claude’s recording with Ctrl+C once the pane shows it listens', async () => {
+    const screen = ['  listening…', '─'.repeat(20), '❯ hi'].join('\n');
+    const capturePane = vi.fn(async () => screen);
+    const { fp, conn, voice } = attached({ tmux: { ...baseDeps().tmux, capturePane } });
+    await tick();
+    conn.emit({ type: 'voiceStart', workspaceId: 'perch-aa', id: 'v1' });
+    await tick();
+    conn.emit({ type: 'voiceCancel', id: 'older' });
+    expect(voice.session.cancel).not.toHaveBeenCalled();
+    conn.emit({ type: 'voiceCancel', id: 'v1' });
+    expect(voice.session.cancel).toHaveBeenCalledOnce();
+    await expect(voice.pane.listening()).resolves.toBe(true);
+    expect(capturePane).toHaveBeenCalledWith('perch-aa', 0);
+    voice.pane.pressCancel();
+    expect(fp.sessions[0]!.written).toEqual(['\x03']);
+    conn.emit({ type: 'voiceChunk', id: 'v1', data: b64(1) });
+    expect(voice.written).toEqual([]);
+  });
+
+  it('drops a dictation cancelled before its checks passed, starting nothing', async () => {
+    const { conn, voice } = attached();
+    await tick();
+    conn.emit({ type: 'voiceStart', workspaceId: 'perch-aa', id: 'v1' });
+    conn.emit({ type: 'voiceCancel', id: 'v1' });
+    await tick();
+    expect(voice.start).not.toHaveBeenCalled();
+    expect(conn.sent).toContainEqual({ type: 'voiceDone', id: 'v1', ok: true });
+  });
+
+  it('lets a newer dictation stop one still cancelling', async () => {
+    const { conn, voice } = attached();
+    await tick();
+    conn.emit({ type: 'voiceStart', workspaceId: 'perch-aa', id: 'v1' });
+    await tick();
+    conn.emit({ type: 'voiceCancel', id: 'v1' });
+    conn.emit({ type: 'voiceEnd', id: 'v1' });
+    expect(voice.session.end).not.toHaveBeenCalled();
+    conn.emit({ type: 'voiceStart', workspaceId: 'perch-aa', id: 'v2' });
+    expect(voice.session.abort).toHaveBeenCalledWith('Superseded by a newer dictation');
   });
 
   it('ends a dictation whose end came before its checks passed', async () => {

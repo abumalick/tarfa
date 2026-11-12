@@ -7,6 +7,9 @@ export const dictation: Messages['dictation'] = {
   failed: 'La dictée a échoué',
   retry: 'Réessayer',
   dismiss: 'Ignorer',
+  cancel: 'Annuler',
+  cancelLabel: 'Annuler la dictée : rien n’est envoyé',
+  recording: 'Enregistrement',
   unavailable: {
     needsKey: 'clé requise',
     notOnMachine: 'pas sur cette machine',

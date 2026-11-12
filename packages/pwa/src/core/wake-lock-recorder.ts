@@ -20,10 +20,19 @@ export class WakeLockRecorder implements AudioRecorder {
   }
 
   async stop(): Promise<Blob> {
+    this.releaseLock();
+    return this.inner.stop();
+  }
+
+  discard(): void {
+    this.releaseLock();
+    this.inner.discard();
+  }
+
+  private releaseLock(): void {
     const held = this.held;
     this.held = null;
     // Released whenever it is granted, even after the recording ended.
     void held?.then((lock) => lock?.release().catch(() => undefined));
-    return this.inner.stop();
   }
 }

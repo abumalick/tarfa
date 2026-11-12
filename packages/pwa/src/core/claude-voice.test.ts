@@ -10,7 +10,7 @@ function fakes() {
     }),
     stop: vi.fn(),
   };
-  const link: VoiceLink = { begin: vi.fn(), chunk: vi.fn(), finish: vi.fn(async () => undefined) };
+  const link: VoiceLink = { begin: vi.fn(), chunk: vi.fn(), finish: vi.fn(async () => undefined), cancel: vi.fn() };
   return { pcm, link, emit: (bytes: Uint8Array) => emit(bytes) };
 }
 
@@ -25,6 +25,16 @@ describe('ClaudeVoiceRecorder', () => {
     const audio = await recorder.stop();
     expect(pcm.stop).toHaveBeenCalled();
     expect(audio.size).toBe(0);
+  });
+
+  it('discard stops the mic and tells the machine to throw the dictation away', async () => {
+    const { pcm, link } = fakes();
+    const recorder = new ClaudeVoiceRecorder(pcm, link);
+    await recorder.start();
+    recorder.discard();
+    expect(pcm.stop).toHaveBeenCalled();
+    expect(link.cancel).toHaveBeenCalledOnce();
+    expect(link.finish).not.toHaveBeenCalled();
   });
 
   it('streams nothing when the mic is refused', async () => {

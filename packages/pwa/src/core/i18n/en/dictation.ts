@@ -5,6 +5,9 @@ export const dictation = {
   failed: 'Dictation failed',
   retry: 'Retry',
   dismiss: 'Dismiss',
+  cancel: 'Cancel',
+  cancelLabel: 'Cancel dictation: nothing is sent',
+  recording: 'Recording',
   unavailable: {
     needsKey: 'needs key',
     notOnMachine: 'not on this machine',

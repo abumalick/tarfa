@@ -31,6 +31,18 @@ export class MediaRecorderAudio implements AudioRecorder {
     this.recorder = recorder;
   }
 
+  discard(): void {
+    const recorder = this.recorder;
+    if (!recorder) return;
+    this.recorder = null;
+    recorder.onstop = null;
+    recorder.ondataavailable = null;
+    recorder.stop();
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = null;
+    this.chunks = [];
+  }
+
   stop(): Promise<Blob> {
     return new Promise((resolve, reject) => {
       const recorder = this.recorder;

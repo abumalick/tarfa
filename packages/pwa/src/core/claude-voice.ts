@@ -8,6 +8,8 @@ export interface VoiceLink {
   chunk(pcm: Uint8Array): void;
   // Resolves once the machine has played everything and Claude has the transcript.
   finish(): Promise<void>;
+  // Tells the machine to throw the dictation away; Claude writes nothing.
+  cancel(): void;
 }
 
 // A Claude voice preset records by streaming: the machine plays the audio into its virtual
@@ -32,6 +34,11 @@ export class ClaudeVoiceRecorder implements AudioRecorder {
   async stop(): Promise<Blob> {
     this.pcm.stop();
     return new Blob([]);
+  }
+
+  discard(): void {
+    this.pcm.stop();
+    this.link.cancel();
   }
 }
 

@@ -27,6 +27,7 @@
   import { startKeyRepeat } from '../core/key-repeat';
   import { startGesture, moveGesture, type PadState, type PadDirection } from '../core/cursor-pad';
   import DictationMenu from './DictationMenu.svelte';
+  import DictationCancel from './DictationCancel.svelte';
   import ReadAloudMenu, { type ReadAloudMenuModel } from './ReadAloudMenu.svelte';
   import type { ReadAloudSource } from '../core/read-aloud-voice';
   import { msg } from '../i18n.svelte';
@@ -39,6 +40,7 @@
     onToggleSelect,
     dictation = 'idle',
     onDictate = () => {},
+    onCancelDictation,
     presets = [],
     currentPresetId = null,
     presetKeys = { elevenlabs: true, openrouter: true },
@@ -62,6 +64,8 @@
     onToggleSelect: () => void;
     dictation?: DictationState;
     onDictate?: () => void;
+    // When wired, a recording shows a Cancel above the mic that throws it away.
+    onCancelDictation?: () => void;
     presets?: DictationPreset[];
     currentPresetId?: string | null;
     presetKeys?: PresetKeys;
@@ -402,6 +406,9 @@
       onChooseVoice={onChooseVoice}
       onClose={() => (voiceAnchor = null)}
     />
+  {/if}
+  {#if dictation === 'recording' && onCancelDictation && mic}
+    <DictationCancel {mic} onCancel={onCancelDictation} />
   {/if}
   {#if presetAnchor && menuPreset}
     <DictationMenu
