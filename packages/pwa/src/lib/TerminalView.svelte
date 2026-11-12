@@ -568,6 +568,7 @@
     onToggleSelect={toggleSelect}
     dictation={store.dictationState}
     onDictate={() => store.toggleDictation()}
+    onCancelDictation={store.voiceCancellable ? () => store.cancelDictation() : undefined}
     presets={store.dictationPresets}
     currentPresetId={store.currentPresetId}
     presetKeys={store.presetKeys}

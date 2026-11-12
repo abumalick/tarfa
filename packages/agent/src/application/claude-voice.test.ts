@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ClaudeVoice, DRAIN_MS, HOLD_REPEAT_MS, IDLE_MS, LEAD_MS, MAX_MS, TAIL_MS, voiceSettingsProblem } from './claude-voice';
+import { CANCEL_KEY, CANCEL_POLL_MS, CANCEL_WAIT_MS, ClaudeVoice, DRAIN_MS, HOLD_REPEAT_MS, IDLE_MS, LEAD_MS, MAX_MS, TAIL_MS, claudeVoiceListening, voiceSettingsProblem } from './claude-voice';
 
 function deferred() {
   let resolve!: () => void;
@@ -195,5 +195,129 @@ describe('ClaudeVoice', () => {
     expect(open).not.toHaveBeenCalled();
     expect(presses).toEqual([]);
     await expect(voice.start(press).done).resolves.toMatch(/hold/);
+  });
+
+  describe('cancel', () => {
+    function pane(listening: () => boolean) {
+      const keys: string[] = [];
+      return { keys, pane: { listening: async () => listening(), pressCancel: () => void keys.push(CANCEL_KEY) } };
+    }
+
+    it('stops the player and the hold, then cancels Claude’s recording, once it listens', async () => {
+      const { voice, stream, presses, press } = setup();
+      const { keys, pane: p } = pane(() => true);
+      const session = voice.start(press, p);
+      await vi.advanceTimersByTimeAsync(LEAD_MS + 500);
+      session.cancel();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stream.abort).toHaveBeenCalled();
+      expect(keys).toEqual([CANCEL_KEY]);
+      await expect(session.done).resolves.toBeNull();
+      const count = presses.length;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(presses.length).toBe(count);
+    });
+
+    it('still cancels when the killed player reports its death', async () => {
+      const { voice, stream, playing, press } = setup();
+      stream.abort.mockImplementation(() => playing.reject(new Error('aplay: exited with SIGKILL')));
+      let resolveListening!: (v: boolean) => void;
+      const keys: string[] = [];
+      const session = voice.start(press, { listening: () => new Promise((r) => (resolveListening = r)), pressCancel: () => void keys.push(CANCEL_KEY) });
+      await vi.advanceTimersByTimeAsync(LEAD_MS + 500);
+      session.cancel();
+      await vi.advanceTimersByTimeAsync(0);
+      resolveListening(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(keys).toEqual([CANCEL_KEY]);
+      await expect(session.done).resolves.toBeNull();
+    });
+
+    it('ignores an end that arrives while cancelling', async () => {
+      const { voice, stream, press } = setup();
+      const { pane: p } = pane(() => false);
+      const session = voice.start(press, p);
+      await vi.advanceTimersByTimeAsync(LEAD_MS + 100);
+      session.cancel();
+      session.end();
+      expect(stream.end).not.toHaveBeenCalled();
+      session.abort('Superseded');
+      await expect(session.done).resolves.toBe('Superseded');
+    });
+
+    it('keeps holding until Claude listens, so the key never reaches a prompt that is not recording', async () => {
+      const { voice, open, presses, press } = setup();
+      let listening = false;
+      const { keys, pane: p } = pane(() => listening);
+      const session = voice.start(press, p);
+      await vi.advanceTimersByTimeAsync(HOLD_REPEAT_MS * 2);
+      session.cancel();
+      await vi.advanceTimersByTimeAsync(CANCEL_POLL_MS * 3);
+      expect(keys).toEqual([]);
+      const held = presses.length;
+      await vi.advanceTimersByTimeAsync(HOLD_REPEAT_MS * 2);
+      expect(presses.length).toBeGreaterThan(held);
+      listening = true;
+      await vi.advanceTimersByTimeAsync(CANCEL_POLL_MS);
+      expect(keys).toEqual([CANCEL_KEY]);
+      await expect(session.done).resolves.toBeNull();
+      await vi.advanceTimersByTimeAsync(LEAD_MS);
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it('releases with no key when Claude never shows it listens', async () => {
+      const { voice, press } = setup();
+      const { keys, pane: p } = pane(() => false);
+      const session = voice.start(press, p);
+      await vi.advanceTimersByTimeAsync(LEAD_MS);
+      session.cancel();
+      await vi.advanceTimersByTimeAsync(CANCEL_WAIT_MS);
+      expect(keys).toEqual([]);
+      await expect(session.done).resolves.toMatch(/not listening/);
+    });
+
+    it('presses nothing for a dictation cancelled before its hold began', async () => {
+      const { voice, presses, press } = setup();
+      const { keys, pane: p } = pane(() => true);
+      const session = voice.start(press, p);
+      session.cancel();
+      await vi.advanceTimersByTimeAsync(LEAD_MS);
+      expect(presses).toEqual([]);
+      expect(keys).toEqual([]);
+      await expect(session.done).resolves.toBeNull();
+    });
+
+    it('ignores a cancel after the end, and one with no pane to press', async () => {
+      const { voice, playing, press } = setup();
+      const { keys, pane: p } = pane(() => true);
+      const session = voice.start(press, p);
+      await vi.advanceTimersByTimeAsync(LEAD_MS);
+      session.end();
+      session.cancel();
+      playing.resolve();
+      await vi.advanceTimersByTimeAsync(TAIL_MS);
+      await expect(session.done).resolves.toBeNull();
+      expect(keys).toEqual([]);
+      const bare = voice.start(press);
+      await vi.advanceTimersByTimeAsync(LEAD_MS);
+      bare.cancel();
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(bare.done).resolves.toMatch(/not listening/);
+    });
+  });
+});
+
+describe('claudeVoiceListening', () => {
+  const screen = (status: string) => ['● some reply', '', `${' '.repeat(90)}${status}`, '─'.repeat(40), '❯ hello', '─'.repeat(40), '  ⏵⏵ auto mode on'].join('\n');
+
+  it('reads the indicator Claude Code 2.1 shows while it records', () => {
+    expect(claudeVoiceListening(screen('listening…'))).toBe(true);
+    expect(claudeVoiceListening(screen('Voice: processing…'))).toBe(false);
+    expect(claudeVoiceListening(screen('◐ medium · /effort'))).toBe(false);
+  });
+
+  it('ignores the word in the conversation above the prompt', () => {
+    const above = ['I am listening…', ...Array(10).fill('text'), screen('')].join('\n');
+    expect(claudeVoiceListening(above)).toBe(false);
   });
 });

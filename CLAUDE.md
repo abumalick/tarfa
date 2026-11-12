@@ -512,6 +512,23 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     unpinned users dictating at once cross over (measured with `arecord`/`aplay`: a recorder
     heard the tone another player sent; pinned subdevices kept apart). Each user's `~/.asoundrc` names `Loopback,1,<n>` and its `TARFA_VOICE_DEVICE` the
     matching `plughw:Loopback,0,<n>` (default `plughw:Loopback,0`, right for one user only).
+  - **A recording can be thrown away** (the controls above the mic while it records,
+    `lib/DictationControls.svelte`: a timer, ✕ to cancel where the dictation can be, and ■ to stop
+    and transcribe, the mic's own second tap made explicit): a clip preset discards its recording (`AudioRecorder.discard`)
+    and sends nothing; Claude voice sends `voiceCancel`, offered only to an agent naming the
+    `voiceCancel` feature (an older one drops it, and Claude would type what it heard). The agent
+    kills the player, keeps holding space until the pane shows `listening…` on the line above
+    the prompt box (`claudeVoiceListening`, polled up to `CANCEL_WAIT_MS`), then stops the hold
+    and writes **Ctrl+C**, which Claude Code takes as "discard the recording", keeping what was
+    typed before. Measured on 2.1.322: **an Esc written through the attached client never
+    cancelled** (8/8, unlike `tmux send-keys Escape`), Ctrl+C did (24/24, from the moment the
+    indicator shows, ~145 ms into the hold, and mid-turn without interrupting it); before the
+    indicator Claude is not recording yet, and the same Ctrl+C clears the prompt or interrupts the
+    turn. So with no indicator nothing is pressed and the dictation is released as is: a Claude
+    that words its indicator differently turns cancel into stop, never into a stray Ctrl+C, and
+    the phone shows the agent's "not cancelled" answer (`discardedVoiceId`). A cancelling
+    dictation stays the handler's current one until it settles, so a newer dictation, a question
+    opening or the phone leaving still stops it.
   One dictation at a time per agent. The PWA gives up `VOICE_REPLY_MS` after
   the end, since an older agent's `bad_message` is silent. Set up by hand per machine
   (`docs/SETUP-MACHINE.md`, step 11): `alsa-utils`, the user in `audio`, `snd-aloop` loaded at

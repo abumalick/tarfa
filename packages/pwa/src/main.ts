@@ -141,7 +141,7 @@ const connectionLog = createConnectionLog({
   sess: crypto.randomUUID(),
 });
 const logMeta = { ua: navigator.userAgent, shell: 'pwa' };
-const voiceLink = { begin: () => store.voiceLink.begin(), chunk: (pcm: Uint8Array) => store.voiceLink.chunk(pcm), finish: () => store.voiceLink.finish() };
+const voiceLink = { begin: () => store.voiceLink.begin(), chunk: (pcm: Uint8Array) => store.voiceLink.chunk(pcm), finish: () => store.voiceLink.finish(), cancel: () => store.voiceLink.cancel() };
 const recorder = new PresetRecorder(() => store.currentPreset, {
   clip: new MediaRecorderAudio(),
   claude: new ClaudeVoiceRecorder(new WebAudioPcm(), voiceLink),

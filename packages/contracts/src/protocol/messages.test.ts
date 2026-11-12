@@ -124,6 +124,7 @@ describe('clientMessageSchema', () => {
       { type: 'voiceStart', workspaceId: 'perch-a', id: 'v1' },
       { type: 'voiceChunk', id: 'v1', data: 'AAAA' },
       { type: 'voiceEnd', id: 'v1' },
+      { type: 'voiceCancel', id: 'v1' },
     ]) {
       expect(parseClientMessage(msg)).toEqual(msg);
     }

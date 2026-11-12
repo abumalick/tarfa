@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { WakeLockRecorder } from './wake-lock-recorder';
 
-const recorder = () => ({ start: vi.fn(async () => undefined), stop: vi.fn(async () => new Blob(['x'])) });
+const recorder = () => ({ start: vi.fn(async () => undefined), stop: vi.fn(async () => new Blob(['x'])), discard: vi.fn() });
 const lock = () => ({ release: vi.fn(async () => undefined) });
 
 describe('WakeLockRecorder', () => {
@@ -15,6 +15,16 @@ describe('WakeLockRecorder', () => {
     expect(request).toHaveBeenCalledTimes(1);
     expect(held.release).not.toHaveBeenCalled();
     expect(await r.stop()).toBe(await inner.stop.mock.results[0]!.value);
+    await vi.waitFor(() => expect(held.release).toHaveBeenCalledTimes(1));
+  });
+
+  it('releases the lock when the recording is thrown away', async () => {
+    const inner = recorder();
+    const held = lock();
+    const r = new WakeLockRecorder(inner, async () => held);
+    await r.start();
+    r.discard();
+    expect(inner.discard).toHaveBeenCalled();
     await vi.waitFor(() => expect(held.release).toHaveBeenCalledTimes(1));
   });
 

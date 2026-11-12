@@ -304,7 +304,11 @@ export class TarfaStore {
   // Called before the store types into the terminal on its own (a stored file's path, a
   // dictation transcript), so the view can drop input state that assumed it owned the line.
   onInjectedInput: (() => void) | null = null;
-  private voice: { id: string; machineId: string; outcome: Promise<void>; settled: boolean; settle: (e: Error | null) => void } | null = null;
+  // Raw state: the Cancel offer follows it, and identity comparisons need the object itself.
+  private voice = $state.raw<{ id: string; machineId: string; outcome: Promise<void>; settled: boolean; settle: (e: Error | null) => void } | null>(null);
+  // The dictation the phone threw away, until the agent answers: a cancel the agent could not make
+  // (Claude was not listening) leaves Claude typing what it heard, which the user must be told.
+  private discardedVoiceId: string | null = null;
   private voiceSeq = 0;
   // Called when the active terminal's machine recovers from a drop, so the view re-attaches
   // (clear stale rows + resend `attach`) and self-heals instead of staying frozen on the last
@@ -665,6 +669,11 @@ export class TarfaStore {
         if (this.isActive(machineId, message.workspaceId)) this.injectInput(message.path);
         return;
       case 'voiceDone': {
+        if (message.id === this.discardedVoiceId) {
+          this.discardedVoiceId = null;
+          if (!message.ok) this.actionError = message.error ?? msg().dictation.claudeVoiceFailed;
+          return;
+        }
         const voice = this.voice;
         if (voice?.id !== message.id || voice.settled) return;
         if (!message.ok) return this.failVoice(voice, message.error ?? msg().dictation.claudeVoiceFailed);
@@ -893,6 +902,7 @@ export class TarfaStore {
       const active = this.active;
       if (!active) throw new Error(msg().dictation.openWorkspaceFirst);
       this.voice?.settle(new Error(msg().dictation.superseded));
+      this.discardedVoiceId = null;
       const id = `voice-${Date.now().toString(36)}-${++this.voiceSeq}`;
       let settleOutcome!: (e: Error | null) => void;
       const outcome = new Promise<void>((resolve, reject) => (settleOutcome = (e) => (e ? reject(e) : resolve())));
@@ -914,6 +924,19 @@ export class TarfaStore {
     chunk: (pcm) => {
       const voice = this.voice;
       if (voice && !voice.settled) this.send(voice.machineId, { type: 'voiceChunk', id: voice.id, data: bytesToBase64(pcm) });
+    },
+    // The phone drops the dictation at once; whatever the agent answers about it is ignored.
+    cancel: () => {
+      const voice = this.voice;
+      if (!voice) return;
+      this.voice = null;
+      if (!voice.settled) {
+        this.send(voice.machineId, { type: 'voiceCancel', id: voice.id });
+        this.discardedVoiceId = voice.id;
+      }
+      voice.settle(null);
+      // Claude rewrites the line behind the input field's back.
+      this.onInjectedInput?.();
     },
     finish: async () => {
       const voice = this.voice;
@@ -945,6 +968,18 @@ export class TarfaStore {
   // dictation adapters aren't wired.
   toggleDictation(): Promise<void> {
     return this.speech()?.toggle() ?? Promise.resolve();
+  }
+
+  // Throw the recording away: nothing is transcribed or typed.
+  cancelDictation(): void {
+    this.stt?.cancel();
+  }
+
+  // Whether a Claude voice dictation under way can be thrown away: an agent that does not take
+  // `voiceCancel` would drop it, and Claude would type what it heard. A clip can always be.
+  get voiceCancellable(): boolean {
+    const voice = this.voice;
+    return !voice || (this.agentFeatures[voice.machineId] ?? []).includes(AGENT_FEATURES.voiceCancel);
   }
 
   // Dismiss a dictation error (the error banner's ✕), returning the mic to idle.
