@@ -125,7 +125,7 @@ describe('CreateWorkspace', () => {
     );
   });
 
-  it('orders machine pills alphabetically regardless of config order, ignoring last-used for ordering', () => {
+  it('orders machine pills as Settings orders the machines, ignoring last-used for ordering', () => {
     const store = fakeStore(null, {
       machines: [
         { id: 'zeta', name: 'Zeta', addresses: ['wss://zeta'], token: 't' },
@@ -136,9 +136,9 @@ describe('CreateWorkspace', () => {
     });
     render(CreateWorkspace, { props: { store: store as never } });
     const radios = screen.getAllByRole('radio', { name: /Zeta|Alpha/ });
-    expect(radios.map((r) => r.getAttribute('value'))).toEqual(['alpha', 'zeta']);
-    // No last-used machine: falls back to the alphabetically-first connected one.
-    expect((screen.getByRole('radio', { name: 'Alpha' }) as HTMLInputElement).checked).toBe(true);
+    expect(radios.map((r) => r.getAttribute('value'))).toEqual(['zeta', 'alpha']);
+    // No last-used machine: falls back to the first connected one.
+    expect((screen.getByRole('radio', { name: 'Zeta' }) as HTMLInputElement).checked).toBe(true);
   });
 
   it('excludes offline and disabled machines from the pills', () => {
@@ -157,7 +157,7 @@ describe('CreateWorkspace', () => {
     expect(screen.queryByRole('radio', { name: 'Other' })).toBeNull();
   });
 
-  it('falls back to the alphabetically-first connected machine when the last-used one is not connected', () => {
+  it('falls back to the first connected machine when the last-used one is not connected', () => {
     const store = fakeStore('pc', {
       machines: [
         { id: 'mac', name: 'Mac', addresses: ['wss://mac'], token: 't' },

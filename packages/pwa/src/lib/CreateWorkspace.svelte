@@ -8,11 +8,9 @@
   let { store }: { store: TarfaStore } = $props();
 
   // Only enabled machines the agent currently reports online are selectable — an
-  // offline/disabled machine can't create a workspace anyway. Alphabetical by name.
+  // offline/disabled machine can't create a workspace anyway. In the order Settings gives them.
   let connectedMachines = $derived(
-    store.machines
-      .filter((m) => m.enabled !== false && store.statuses[m.id] === 'online')
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    store.machines.filter((m) => m.enabled !== false && store.statuses[m.id] === 'online'),
   );
 
   function initialMachine(list: { id: string }[]): string {
