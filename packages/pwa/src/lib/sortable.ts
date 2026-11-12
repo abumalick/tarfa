@@ -60,7 +60,9 @@ export function sortable(node: HTMLElement, options: SortableOptions) {
     const { from, to, rows } = drag;
     drag = null;
     reset(rows);
-    if (commit && to !== from) opts.onMove(from, to);
+    const now = rowsOf();
+    const unchanged = now.length === rows.length && now.every((r, i) => r === rows[i]);
+    if (commit && unchanged && to !== from) opts.onMove(from, to);
   }
 
   const onPointerUp = (e: PointerEvent) => finish(e, true);
@@ -83,8 +85,11 @@ export function sortable(node: HTMLElement, options: SortableOptions) {
 
   node.addEventListener('pointerdown', onPointerDown);
   node.addEventListener('pointermove', onPointerMove);
-  node.addEventListener('pointerup', onPointerUp);
-  node.addEventListener('pointercancel', onPointerCancel);
+  // On the window: a handle removed mid-drag loses its capture (announced at the document), and
+  // the up then lands outside the list.
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerCancel);
+  window.addEventListener('lostpointercapture', onPointerCancel);
   node.addEventListener('keydown', onKeyDown);
   return {
     update(next: SortableOptions) {
@@ -93,8 +98,9 @@ export function sortable(node: HTMLElement, options: SortableOptions) {
     destroy() {
       node.removeEventListener('pointerdown', onPointerDown);
       node.removeEventListener('pointermove', onPointerMove);
-      node.removeEventListener('pointerup', onPointerUp);
-      node.removeEventListener('pointercancel', onPointerCancel);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+      window.removeEventListener('lostpointercapture', onPointerCancel);
       node.removeEventListener('keydown', onKeyDown);
     },
   };

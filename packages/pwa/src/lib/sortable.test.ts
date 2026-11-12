@@ -19,17 +19,20 @@ function list(count: number) {
   document.body.append(ul);
   const onMove = vi.fn();
   const action = sortable(ul, { onMove });
+  destroy = action.destroy;
   const handles = [...ul.querySelectorAll<HTMLElement>('[data-sort-handle]')];
   return { ul, onMove, action, handles };
 }
 
-function pointer(target: Element, type: string, clientY: number) {
+function pointer(target: EventTarget, type: string, clientY: number) {
   const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientY }) as unknown as PointerEvent;
   Object.defineProperty(e, 'pointerId', { value: 1 });
   target.dispatchEvent(e);
 }
 
+let destroy: (() => void) | null = null;
 afterEach(() => {
+  destroy?.();
   document.body.innerHTML = '';
 });
 
@@ -70,6 +73,31 @@ describe('sortable', () => {
     pointer(handles[0]!, 'pointerdown', 10);
     pointer(handles[0]!, 'pointermove', 90);
     pointer(handles[0]!, 'pointercancel', 90);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('cancels when the dragged row leaves the page, and can drag again', () => {
+    const { onMove, handles } = list(3);
+    pointer(handles[0]!, 'pointerdown', 10);
+    pointer(handles[0]!, 'pointermove', 90);
+    handles[0]!.closest('li')!.remove();
+    pointer(document, 'lostpointercapture', 90);
+    pointer(document.body, 'pointerup', 90);
+    expect(onMove).not.toHaveBeenCalled();
+    pointer(handles[1]!, 'pointerdown', 70);
+    pointer(handles[1]!, 'pointermove', 130);
+    pointer(handles[1]!, 'pointerup', 130);
+    expect(onMove).toHaveBeenCalledWith(0, 1);
+  });
+
+  // A list re-rendered under the finger (an entry added in another window) would make the
+  // indexes name other rows.
+  it('drops nothing when the list changed during the drag', () => {
+    const { ul, onMove, handles } = list(3);
+    pointer(handles[0]!, 'pointerdown', 10);
+    pointer(handles[0]!, 'pointermove', 90);
+    ul.querySelector('[data-sort-row]:nth-child(2)')!.remove();
+    pointer(handles[0]!, 'pointerup', 90);
     expect(onMove).not.toHaveBeenCalled();
   });
 

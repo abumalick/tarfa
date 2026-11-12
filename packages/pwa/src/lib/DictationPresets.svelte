@@ -129,7 +129,14 @@
 <ul class="presets" use:sortable={{ onMove: move }}>
   {#each presets as preset, i (preset.id)}
     <li data-sort-row class="preset" class:current={preset.id === inUseId} aria-current={preset.id === inUseId ? 'true' : undefined}>
-      <DragHandle label={msg().presets.reorder(preset.name)} />
+      <DragHandle
+        label={msg().presets.reorder(preset.name)}
+        upLabel={msg().presets.moveUp(preset.name)}
+        downLabel={msg().presets.moveDown(preset.name)}
+        index={i}
+        count={presets.length}
+        onMove={(to) => move(i, to)}
+      />
       <button type="button" class="open" aria-label={msg().presets.edit(preset.name)} onclick={() => edit(i)}>
         <span class="badge">{preset.badge}</span>
         <span class="label">{preset.name}</span>

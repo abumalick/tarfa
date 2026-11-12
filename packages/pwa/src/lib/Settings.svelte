@@ -109,12 +109,19 @@
 
     <p class="group">{msg().settings.machines}</p>
     <ul class="card list" use:sortable={{ onMove: (from, to) => store.moveMachine(store.machines[from]!.id, to) }}>
-      {#each store.machines as machine (machine.id)}
+      {#each store.machines as machine, index (machine.id)}
         {@const { shown, err } = statusOf(machine)}
         <li data-sort-row>
             <div class="row" class:sortable={canReorder}>
               {#if canReorder}
-                <DragHandle label={msg().settings.reorderMachine(machine.name)} />
+                <DragHandle
+                  label={msg().settings.reorderMachine(machine.name)}
+                  upLabel={msg().settings.moveMachineUp(machine.name)}
+                  downLabel={msg().settings.moveMachineDown(machine.name)}
+                  {index}
+                  count={store.machines.length}
+                  onMove={(to) => store.moveMachine(machine.id, to)}
+                />
               {/if}
               <button type="button" class="open" onclick={() => (openId = machine.id)}>
                 <span class="dot" aria-hidden="true"><StatusDot status={shown} /></span>

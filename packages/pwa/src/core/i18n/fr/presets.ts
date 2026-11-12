@@ -5,6 +5,8 @@ export const presets: Messages['presets'] = {
   edit: (name) => `Modifier ${name}`,
   inUse: 'Utilisé',
   reorder: (name) => `Déplacer ${name}`,
+  moveUp: (name) => `Monter ${name}`,
+  moveDown: (name) => `Descendre ${name}`,
   delete: (name) => `Supprimer ${name}`,
   add: 'Ajouter un préréglage',
   confirmReset: 'Confirmer la réinitialisation',

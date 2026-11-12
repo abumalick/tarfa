@@ -1,7 +1,15 @@
 <script lang="ts">
   // The grip of a row in a `sortable` list: drag it to move the row, or focus it and use the
-  // arrow keys.
-  let { label }: { label: string } = $props();
+  // arrow keys. A screen reader on a phone can do neither, so it also gets up/down buttons that
+  // only it sees.
+  let {
+    label,
+    upLabel,
+    downLabel,
+    index,
+    count,
+    onMove,
+  }: { label: string; upLabel: string; downLabel: string; index: number; count: number; onMove: (to: number) => void } = $props();
 </script>
 
 <button type="button" class="grip" data-sort-handle aria-label={label}>
@@ -11,6 +19,12 @@
     <circle cx="2" cy="14" r="1.5" /><circle cx="8" cy="14" r="1.5" />
   </svg>
 </button>
+{#if index > 0}
+  <button type="button" class="sr-only" onclick={() => onMove(index - 1)}>{upLabel}</button>
+{/if}
+{#if index < count - 1}
+  <button type="button" class="sr-only" onclick={() => onMove(index + 1)}>{downLabel}</button>
+{/if}
 
 <style>
   .grip {
@@ -32,4 +46,15 @@
   }
   .grip:active { cursor: grabbing; color: var(--text); }
   svg { fill: currentColor; }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
 </style>

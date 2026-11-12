@@ -3,6 +3,8 @@ export const presets = {
   edit: (name: string) => `Edit ${name}`,
   inUse: 'In use',
   reorder: (name: string) => `Reorder ${name}`,
+  moveUp: (name: string) => `Move ${name} up`,
+  moveDown: (name: string) => `Move ${name} down`,
   delete: (name: string) => `Delete ${name}`,
   add: 'Add preset',
   confirmReset: 'Confirm reset',

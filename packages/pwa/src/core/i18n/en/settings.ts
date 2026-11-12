@@ -11,6 +11,8 @@ export const settings = {
   connectMachine: (machine: string) => `Connect ${machine}`,
   addMachine: 'Add machine',
   reorderMachine: (machine: string) => `Reorder ${machine}`,
+  moveMachineUp: (machine: string) => `Move ${machine} up`,
+  moveMachineDown: (machine: string) => `Move ${machine} down`,
   workspaceList: 'Workspace list',
   groupByProject: 'Group by project',
   groupByProjectHint: 'A project moves up as soon as one of its workspaces needs you.',

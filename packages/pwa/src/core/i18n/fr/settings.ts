@@ -13,6 +13,8 @@ export const settings: Messages['settings'] = {
   connectMachine: (machine) => `Connecter ${machine}`,
   addMachine: 'Ajouter une machine',
   reorderMachine: (machine) => `Déplacer ${machine}`,
+  moveMachineUp: (machine) => `Monter ${machine}`,
+  moveMachineDown: (machine) => `Descendre ${machine}`,
   workspaceList: 'Liste des espaces de travail',
   groupByProject: 'Regrouper par projet',
   groupByProjectHint: 'Un projet remonte dès qu’un de ses espaces de travail a besoin de vous.',

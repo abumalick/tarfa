@@ -114,6 +114,21 @@ describe('Settings — machines list', () => {
     expect(store.moveMachine).toHaveBeenCalledTimes(1);
   });
 
+  // VoiceOver and TalkBack can neither drag nor send arrow keys.
+  it('gives screen readers a move button for each direction a machine can go', async () => {
+    const store = fakeStore({
+      machines: [
+        { id: 'a', name: 'Alpha', addresses: ['wss://a'], agentKey: KEY },
+        { id: 'b', name: 'Beta', addresses: ['wss://b'], agentKey: KEY },
+      ],
+    });
+    render(Settings, { props: { store: store as never } });
+    expect(screen.queryByRole('button', { name: 'Move Alpha up' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Move Beta down' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Move Beta up' }));
+    expect(store.moveMachine).toHaveBeenCalledWith('b', 0);
+  });
+
   it('offers no grip with a single machine', () => {
     render(Settings, { props: { store: fakeStore() as never } });
     expect(screen.queryByRole('button', { name: 'Reorder Mac' })).toBeNull();
