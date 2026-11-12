@@ -99,7 +99,7 @@ describe('Settings — machines list', () => {
     expect(store.toggleMachine).toHaveBeenCalledWith('mac');
   });
 
-  it('reorders the machines with up and down buttons, in a reorder mode', async () => {
+  it('gives each machine a grip that reorders it, keeping its switch', async () => {
     const store = fakeStore({
       machines: [
         { id: 'a', name: 'Alpha', addresses: ['wss://a'], agentKey: KEY },
@@ -107,23 +107,16 @@ describe('Settings — machines list', () => {
       ],
     });
     render(Settings, { props: { store: store as never } });
-    expect(screen.queryByRole('button', { name: /^Move (Alpha|Beta)/ })).toBeNull();
-    await fireEvent.click(screen.getByRole('button', { name: 'Reorder' }));
-    expect(screen.queryByRole('switch', { name: /^Connect/ })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Move Alpha up' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Move Beta down' })).toBeDisabled();
-    await fireEvent.click(screen.getByRole('button', { name: 'Move Alpha down' }));
-    expect(store.moveMachine).toHaveBeenCalledWith('a', 1);
-    await fireEvent.click(screen.getByRole('button', { name: 'Move Beta up' }));
-    expect(store.moveMachine).toHaveBeenCalledWith('b', -1);
-    await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    expect(screen.queryByRole('button', { name: /^Move (Alpha|Beta)/ })).toBeNull();
     expect(screen.getAllByRole('switch', { name: /^Connect/ })).toHaveLength(2);
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Reorder Alpha' }), { key: 'ArrowDown' });
+    expect(store.moveMachine).toHaveBeenCalledWith('a', 1);
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Reorder Beta' }), { key: 'ArrowDown' });
+    expect(store.moveMachine).toHaveBeenCalledTimes(1);
   });
 
-  it('offers no reorder with a single machine', () => {
+  it('offers no grip with a single machine', () => {
     render(Settings, { props: { store: fakeStore() as never } });
-    expect(screen.queryByRole('button', { name: 'Reorder' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reorder Mac' })).toBeNull();
   });
 
   it('shows a switched-off machine as Off, with no error', () => {

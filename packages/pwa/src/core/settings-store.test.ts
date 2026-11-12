@@ -135,7 +135,7 @@ describe('SettingsStore', () => {
     expect(store.list().map((m) => m.name)).toEqual(['Mac 2', 'Mini']);
   });
 
-  it('moves a machine up or down, leaving its fields alone', () => {
+  it('moves a machine to an index, leaving its fields alone', () => {
     const storage = memStorage();
     const store = new SettingsStore(storage);
     store.add({ id: 'a', name: 'A', addresses: ['wss://a/'], agentKey, enabled: false, pairing: 'secret' });
@@ -144,7 +144,7 @@ describe('SettingsStore', () => {
     store.move('a', 1);
     expect(store.list().map((m) => m.id)).toEqual(['b', 'a', 'c']);
     expect(store.list()[1]).toEqual({ id: 'a', name: 'A', addresses: ['wss://a/'], agentKey, enabled: false, pairing: 'secret' });
-    store.move('c', -1);
+    store.move('c', 1);
     expect(new SettingsStore(storage).list().map((m) => m.id)).toEqual(['b', 'c', 'a']);
   });
 
@@ -155,8 +155,9 @@ describe('SettingsStore', () => {
     store.add({ id: 'b', name: 'B', addresses: ['wss://b/'], agentKey });
     const before = storage.read('tarfa.machines');
     store.move('a', -1);
+    store.move('b', 2);
     store.move('b', 1);
-    store.move('ghost', 1);
+    store.move('ghost', 0);
     expect(storage.read('tarfa.machines')).toBe(before);
   });
 

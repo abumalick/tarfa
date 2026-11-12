@@ -12,6 +12,9 @@
     type ScribeModel,
   } from '../core/dictation-presets';
   import { msg } from '../i18n.svelte';
+  import { moveItem } from '../core/drag-reorder';
+  import DragHandle from './DragHandle.svelte';
+  import { sortable } from './sortable';
 
   let {
     store,
@@ -102,10 +105,8 @@
     editing = null;
   }
 
-  function move(index: number, by: -1 | 1) {
-    const list = [...presets];
-    [list[index], list[index + by]] = [list[index + by]!, list[index]!];
-    store.saveDictationPresets(list);
+  function move(from: number, to: number) {
+    store.saveDictationPresets(moveItem(presets, from, to));
   }
 
   function remove(index: number) {
@@ -125,17 +126,16 @@
   }
 </script>
 
-<ul class="presets">
+<ul class="presets" use:sortable={{ onMove: move }}>
   {#each presets as preset, i (preset.id)}
-    <li class="preset" class:current={preset.id === inUseId} aria-current={preset.id === inUseId ? 'true' : undefined}>
+    <li data-sort-row class="preset" class:current={preset.id === inUseId} aria-current={preset.id === inUseId ? 'true' : undefined}>
+      <DragHandle label={msg().presets.reorder(preset.name)} />
       <button type="button" class="open" aria-label={msg().presets.edit(preset.name)} onclick={() => edit(i)}>
         <span class="badge">{preset.badge}</span>
         <span class="label">{preset.name}</span>
         {#if preset.id === inUseId}<span class="in-use">{msg().presets.inUse}</span>{/if}
         <span class="provider">{providerLabel(preset)}</span>
       </button>
-      <button type="button" class="icon" aria-label={msg().presets.moveUp(preset.name)} disabled={i === 0} onclick={() => move(i, -1)}>↑</button>
-      <button type="button" class="icon" aria-label={msg().presets.moveDown(preset.name)} disabled={i === presets.length - 1} onclick={() => move(i, 1)}>↓</button>
       {#if presets.length > 1}
         <button type="button" class="icon danger" aria-label={msg().presets.delete(preset.name)} onclick={() => remove(i)}>✕</button>
       {/if}
@@ -215,6 +215,7 @@
   .presets { list-style: none; margin: 0.6rem 0 0; padding: 0; }
   .preset { display: flex; align-items: center; gap: 0.3rem; }
   .preset + .preset { border-top: 1px solid var(--border); }
+  .preset:global([data-dragging]) { background: var(--surface-press); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); }
   .preset.current {
     margin: 0 -0.5rem;
     padding: 0 0.5rem;

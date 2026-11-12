@@ -8,6 +8,8 @@
   import { inputLog, type InputLogRecord } from '../core/terminal-input-log';
   import { addressHost } from '../core/machine-addresses';
   import PairMachine from './PairMachine.svelte';
+  import DragHandle from './DragHandle.svelte';
+  import { sortable } from './sortable';
   import MachineDetail from './MachineDetail.svelte';
   import DictationPresets from './DictationPresets.svelte';
   import ReadAloudVoices from './ReadAloudVoices.svelte';
@@ -61,7 +63,6 @@
   const openMachine = $derived(store.machines.find((m) => m.id === openId) ?? null);
 
 
-  let reordering = $state(false);
   const canReorder = $derived(store.machines.length > 1);
 
   let addOpen = $state(false);
@@ -106,19 +107,15 @@
       </div>
     {/if}
 
-    <div class="group-row">
-      <p class="group">{msg().settings.machines}</p>
-      {#if canReorder}
-        <button type="button" class="group-action" onclick={() => (reordering = !reordering)}>
-          {reordering ? msg().settings.reorderDone : msg().settings.reorderMachines}
-        </button>
-      {/if}
-    </div>
-    <ul class="card list">
-      {#each store.machines as machine, index (machine.id)}
+    <p class="group">{msg().settings.machines}</p>
+    <ul class="card list" use:sortable={{ onMove: (from, to) => store.moveMachine(store.machines[from]!.id, to) }}>
+      {#each store.machines as machine (machine.id)}
         {@const { shown, err } = statusOf(machine)}
-        <li>
-            <div class="row">
+        <li data-sort-row>
+            <div class="row" class:sortable={canReorder}>
+              {#if canReorder}
+                <DragHandle label={msg().settings.reorderMachine(machine.name)} />
+              {/if}
               <button type="button" class="open" onclick={() => (openId = machine.id)}>
                 <span class="dot" aria-hidden="true"><StatusDot status={shown} /></span>
                 <span class="text">
@@ -135,39 +132,18 @@
                     <span class="sub diag" data-testid="agent-too-old">{msg().status.agentTooOld("tarfa update")}</span>
                   {/if}
                 </span>
-                {#if !(reordering && canReorder)}
-                  <span class="chevron" aria-hidden="true">›</span>
-                {/if}
+                <span class="chevron" aria-hidden="true">›</span>
               </button>
-              {#if reordering && canReorder}
-                <span class="move">
-                  <button
-                    type="button"
-                    class="move-key"
-                    aria-label={msg().settings.moveMachineUp(machine.name)}
-                    disabled={index === 0}
-                    onclick={() => store.moveMachine(machine.id, -1)}
-                  >↑</button>
-                  <button
-                    type="button"
-                    class="move-key"
-                    aria-label={msg().settings.moveMachineDown(machine.name)}
-                    disabled={index === store.machines.length - 1}
-                    onclick={() => store.moveMachine(machine.id, 1)}
-                  >↓</button>
-                </span>
-              {:else}
-                <button
-                  type="button"
-                  role="switch"
-                  class="switch"
-                  aria-checked={enabled(machine)}
-                  aria-label={msg().settings.connectMachine(machine.name)}
-                  onclick={() => store.toggleMachine(machine.id)}
-                >
-                  <span class="knob"></span>
-                </button>
-              {/if}
+              <button
+                type="button"
+                role="switch"
+                class="switch"
+                aria-checked={enabled(machine)}
+                aria-label={msg().settings.connectMachine(machine.name)}
+                onclick={() => store.toggleMachine(machine.id)}
+              >
+                <span class="knob"></span>
+              </button>
             </div>
         </li>
       {/each}
@@ -300,29 +276,10 @@
     text-transform: uppercase;
     color: var(--text-dim);
   }
-  .group-row { display: flex; align-items: center; justify-content: space-between; }
-  .group-row .group { flex: 1; }
-  .group-action {
-    margin: 1.4rem 0 0.4rem;
-    padding: 0.25rem 0.5rem;
-    min-height: 32px;
-    border: 0;
-    background: transparent;
-    color: var(--accent);
-    font: inherit;
-    font-size: 0.85rem;
-    font-weight: 600;
-  }
-  .move { display: flex; gap: 0.5rem; }
-  .move-key {
-    width: 36px;
-    height: 36px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface-press);
-    color: var(--text);
-  }
-  .move-key:disabled { opacity: 0.4; }
+  .list li:global([data-dragging]) { background: var(--surface-press); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); }
+  .list .row.sortable { gap: 0; }
+  .list .row.sortable .open { padding-left: 0.1rem; }
+  .list .row.sortable .switch { margin-left: 0.6rem; }
   .card {
     margin: 0;
     padding: 0.75rem 0.9rem;

@@ -1805,8 +1805,8 @@ export class TarfaStore {
   }
 
   // Order only: the connections are keyed by id, so none is rebuilt.
-  moveMachine(id: string, delta: -1 | 1): void {
-    this.deps.settings.move(id, delta);
+  moveMachine(id: string, to: number): void {
+    this.deps.settings.move(id, to);
     this.machines = this.deps.settings.list();
   }
 

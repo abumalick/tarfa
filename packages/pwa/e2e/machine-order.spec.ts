@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { dragBy } from './drag';
 import { machineEntry, startFakeAgent, type FakeAgent } from './fake-agent';
 
 // Reordering the machine list in Settings only rewrites the stored order: no connection is
@@ -19,7 +20,7 @@ test.afterAll(async () => {
 const machineNames = (page: Page) =>
   page.evaluate(() => (JSON.parse(localStorage.getItem('tarfa.machines') ?? '[]') as Array<{ name: string }>).map((m) => m.name));
 
-test('machines are reordered from Settings without reconnecting, and the order stays', async ({ page }) => {
+test('machines are reordered by dragging in Settings, without reconnecting, and the order stays', async ({ page }) => {
   const entries = [await machineEntry(alpha, { id: 'alpha', name: 'Alpha' }), await machineEntry(beta, { id: 'beta', name: 'Beta' })];
   // Seeded once: a reload must read what the app stored, not the seed again.
   await page.addInitScript((m) => {
@@ -31,9 +32,8 @@ test('machines are reordered from Settings without reconnecting, and the order s
   await expect(page.getByRole('button', { name: /^Beta.*Online/ })).toBeVisible();
   const upgrades = [alpha.upgrades, beta.upgrades];
 
-  await page.getByRole('button', { name: 'Reorder' }).click();
-  await page.getByRole('button', { name: 'Move Beta up' }).click();
-  await page.getByRole('button', { name: 'Done' }).click();
+  const betaRow = (await page.getByRole('button', { name: /^Beta/ }).boundingBox())!;
+  await dragBy(page, page.getByRole('button', { name: 'Reorder Beta' }), -betaRow.height);
 
   const rows = page.getByRole('button', { name: /^(Alpha|Beta)/ });
   await expect(rows.first()).toHaveAccessibleName(/^Beta/);
@@ -45,4 +45,13 @@ test('machines are reordered from Settings without reconnecting, and the order s
   await page.reload();
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('button', { name: /^(Alpha|Beta)/ }).first()).toHaveAccessibleName(/^Beta/);
+});
+
+test('a machine dropped back where it started changes nothing', async ({ page }) => {
+  const entries = [await machineEntry(alpha, { id: 'alpha', name: 'Alpha' }), await machineEntry(beta, { id: 'beta', name: 'Beta' })];
+  await page.addInitScript((m) => localStorage.setItem('tarfa.machines', JSON.stringify(m)), entries);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await dragBy(page, page.getByRole('button', { name: 'Reorder Alpha' }), 10);
+  expect(await machineNames(page)).toEqual(['Alpha', 'Beta']);
 });

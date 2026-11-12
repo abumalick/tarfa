@@ -1055,7 +1055,7 @@ describe('TarfaStore', () => {
     store.start();
     const macSocket = sockets['wss://mac'];
     const miniSocket = sockets['wss://mini'];
-    store.moveMachine('mini', -1);
+    store.moveMachine('mini', 0);
     expect(store.machines.map((m) => m.id)).toEqual(['mini', 'mac']);
     expect(sockets['wss://mac']).toBe(macSocket);
     expect(sockets['wss://mini']).toBe(miniSocket);

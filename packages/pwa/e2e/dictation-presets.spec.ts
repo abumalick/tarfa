@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { seedMachine, startFakeAgent, type FakeAgent } from './fake-agent';
+import { dragBy } from './drag';
 
 let agent: FakeAgent;
 
@@ -223,4 +224,26 @@ test('out of the box, Claude voice is the mic where the machine can do it, and S
   } finally {
     await claudeAgent.close();
   }
+});
+
+test('presets are reordered by dragging their grip in Settings', async ({ page }) => {
+  await seedMachine(page, agent);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const names = () => page.locator('.presets [data-sort-row] .label').allTextContents();
+  const before = await names();
+  const row = (await page.locator('.presets [data-sort-row]').first().boundingBox())!;
+  await dragBy(page, page.getByRole('button', { name: `Reorder ${before[0]}` }), row.height * 1.6);
+  await expect.poll(names).toEqual([before[1], before[2], before[0], ...before.slice(3)]);
+  const stored = await page.evaluate(() => (JSON.parse(localStorage.getItem('tarfa.dictationPresets') ?? '[]') as Array<{ name: string }>).map((p) => p.name));
+  expect(stored).toEqual(await names());
+});
+
+test('a preset dropped back where it started keeps the built-in defaults', async ({ page }) => {
+  await seedMachine(page, agent);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const first = await page.locator('.presets [data-sort-row] .label').first().textContent();
+  await dragBy(page, page.getByRole('button', { name: `Reorder ${first}` }), 10);
+  expect(await page.evaluate(() => localStorage.getItem('tarfa.dictationPresets'))).toBeNull();
 });

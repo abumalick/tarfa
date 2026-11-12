@@ -1,3 +1,4 @@
+import { moveItem } from './drag-reorder';
 import type { StoragePort } from './ports/storage';
 import { READ_ALOUD_RATES } from './read-aloud';
 import { parseReadAloudVoice, type ReadAloudVoiceChoice } from './read-aloud-voice';
@@ -87,13 +88,11 @@ export class SettingsStore {
     this.persist(next);
   }
 
-  move(id: string, delta: -1 | 1): void {
+  move(id: string, to: number): void {
     const machines = this.list();
     const from = machines.findIndex((m) => m.id === id);
-    const to = from + delta;
-    if (from < 0 || to < 0 || to >= machines.length) return;
-    [machines[from], machines[to]] = [machines[to]!, machines[from]!];
-    this.persist(machines);
+    if (from < 0 || to === from || to < 0 || to >= machines.length) return;
+    this.persist(moveItem(machines, from, to));
   }
 
   update(id: string, patch: { addresses: string[]; defaultPath?: string; agentKey?: string }): void {
