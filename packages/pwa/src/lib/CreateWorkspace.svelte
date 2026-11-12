@@ -7,25 +7,26 @@
 
   let { store }: { store: TarfaStore } = $props();
 
-  // Only enabled machines the agent currently reports online are selectable — an
-  // offline/disabled machine can't create a workspace anyway. Alphabetical by name.
-  let connectedMachines = $derived(
-    store.machines
-      .filter((m) => m.enabled !== false && store.statuses[m.id] === 'online')
-      .sort((a, b) => a.name.localeCompare(b.name)),
-  );
+  // Every enabled machine, in the order Settings lists them; one not online yet shows as a
+  // disabled pill, so the form fills in as machines connect.
+  let machineList = $derived(store.machines.filter((m) => m.enabled !== false));
+  let connectedMachines = $derived(machineList.filter((m) => store.statuses[m.id] === 'online'));
 
-  function initialMachine(list: { id: string }[]): string {
+  // The selection follows the last-used machine (else the first online one) as machines
+  // connect, until the user taps one or starts filling the form; theirs holds while it stays online.
+  let picked = $state<string | null>(null);
+  let machineId = $derived.by(() => {
+    if (picked && connectedMachines.some((m) => m.id === picked)) return picked;
     const last = store.lastMachineId;
-    if (last && list.some((m) => m.id === last)) return last;
-    return list[0]?.id ?? '';
+    if (last && connectedMachines.some((m) => m.id === last)) return last;
+    return connectedMachines[0]?.id ?? '';
+  });
+  function pin(): void {
+    picked ??= machineId || null;
   }
 
   const firstModelOf = (options: LauncherOption[], id: string): string => options.find((o) => o.id === id)?.models[0]?.value ?? '';
 
-  // Deliberately a one-time snapshot at mount, not a live reference: the $effect below
-  // keeps machineId valid if connectedMachines changes afterward.
-  let machineId = $state(initialMachine(connectedMachines));
   let path = $state('');
   // The radios come from the selected machine: what it has installed plus the custom commands
   // launched there before. The form opens on 'claude' (the first option when it is installed);
@@ -79,12 +80,6 @@
     if (!pathEdited) path = recentPaths[0] ?? '';
   });
 
-  // Keep the selection valid if the connected set changes while the form is open
-  // (e.g. the selected machine drops offline).
-  $effect(() => {
-    if (!connectedMachines.some((m) => m.id === machineId)) machineId = initialMachine(connectedMachines);
-  });
-
   function create(event: SubmitEvent): void {
     event.preventDefault();
     if (!machineId || !resolved || !command) return;
@@ -92,6 +87,7 @@
   }
 
   function openPicker(): void {
+    pin();
     store.openFolderPicker();
     browsing = true;
     // A single root: dive straight in. Several: the picker shows the roots list first.
@@ -123,12 +119,14 @@
 
   <fieldset class="radios">
     <legend>{msg().create.machine}</legend>
-    {#if connectedMachines.length > 0}
+    {#if machineList.length > 0}
       <div class="radio-row">
-        {#each connectedMachines as m (m.id)}
-          <label class="radio" class:selected={machineId === m.id}>
-            <input type="radio" name="machine" value={m.id} checked={machineId === m.id} onchange={() => (machineId = m.id)} />
+        {#each machineList as m (m.id)}
+          {@const status = store.statuses[m.id]}
+          <label class="radio" class:selected={machineId === m.id} class:unavailable={status !== 'online'}>
+            <input type="radio" name="machine" value={m.id} checked={machineId === m.id} disabled={status !== 'online'} onchange={() => (picked = m.id)} />
             {m.name}
+            {#if status !== 'online'}<span class="state">{status === 'connecting' ? msg().create.connecting : msg().create.offline}</span>{/if}
           </label>
         {/each}
       </div>
@@ -137,11 +135,19 @@
     {/if}
   </fieldset>
 
+  {#if !machineId}
+    {#if machineList.length > 0}
+      <div class="waiting" data-testid="create-waiting">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>{msg().create.waiting}</p>
+      </div>
+    {/if}
+  {:else}
   {#if recentPaths.length > 0}
     <p class="recent-label">{msg().create.recent}</p>
     <div class="recent">
       {#each recentPaths as recentPath (recentPath)}
-        <button type="button" class:selected={path === recentPath} onclick={() => (path = recentPath)}>{displayProjectPath(defaultPath || undefined, recentPath)}</button>
+        <button type="button" class:selected={path === recentPath} onclick={() => { path = recentPath; pin(); }}>{displayProjectPath(defaultPath || undefined, recentPath)}</button>
       {/each}
     </div>
   {/if}
@@ -153,7 +159,7 @@
         <input
           data-testid="path"
           bind:value={path}
-          oninput={() => (pathEdited = true)}
+          oninput={() => { pathEdited = true; pin(); }}
           placeholder={defaultPath ? msg().create.pathPlaceholder : '/home/u/workspace/project'}
         />
         <button type="button" class="browse" aria-label={msg().create.browse} disabled={roots.length === 0} onclick={openPicker}>{msg().create.browseButton}</button>
@@ -166,7 +172,7 @@
         {#each launchers as c (c.id)}
           <span class="launcher">
             <label class="radio" class:selected={commandId === c.id}>
-              <input type="radio" name="command" value={c.id} checked={commandId === c.id} onchange={() => selectCommand(c.id)} />
+              <input type="radio" name="command" value={c.id} checked={commandId === c.id} onchange={() => { pin(); selectCommand(c.id); }} />
               {c.label}
             </label>
             {#if c.removable}
@@ -175,7 +181,7 @@
           </span>
         {/each}
         <label class="radio" class:selected={commandId === 'custom'}>
-          <input type="radio" name="command" value="custom" checked={commandId === 'custom'} onchange={() => selectCommand('custom')} />
+          <input type="radio" name="command" value="custom" checked={commandId === 'custom'} onchange={() => { pin(); selectCommand('custom'); }} />
           {msg().create.custom}
         </label>
       </div>
@@ -199,8 +205,9 @@
       </label>
     {/if}
     {#if store.createError}<p class="error" role="alert">⚠ {store.createError}</p>{/if}
-    <button type="submit" class="create" disabled={connectedMachines.length === 0}>{msg().create.create}</button>
+    <button type="submit" class="create">{msg().create.create}</button>
   </form>
+  {/if}
 </section>
 {/if}
 
@@ -305,6 +312,23 @@
   .forget:active { background: var(--surface-press); }
   .radio:active { background: var(--surface-press); }
   .radio.selected { border-color: var(--accent); background: var(--surface-press); }
+  .radio.unavailable { opacity: 0.55; }
+  .waiting { text-align: center; padding: 3rem 1rem; color: var(--text-dim); }
+  .waiting p { margin: 0; }
+  .spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 1rem;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none; }
+  }
+  .radio .state { margin-left: 0.35rem; font-size: 0.75rem; color: var(--text-dim); }
   /* The native control fills the chip transparently: selection is shown by the label styling
      above, while the real radio stays the (focusable, tappable) hit target for a11y. */
   .radio input {
