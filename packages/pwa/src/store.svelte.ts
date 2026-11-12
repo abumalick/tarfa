@@ -1798,6 +1798,12 @@ export class TarfaStore {
     this.recomputeGrace();
   }
 
+  // Order only: the connections are keyed by id, so none is rebuilt.
+  moveMachine(id: string, delta: -1 | 1): void {
+    this.deps.settings.move(id, delta);
+    this.machines = this.deps.settings.list();
+  }
+
   toggleMachine(id: string): void {
     const current = this.machines.find((m) => m.id === id);
     if (!current) return;

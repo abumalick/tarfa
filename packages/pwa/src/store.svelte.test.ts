@@ -1049,6 +1049,21 @@ describe('TarfaStore', () => {
     expect(store.machines[0]?.enabled).toBe(false);
   });
 
+  it('moveMachine reorders the machines without reconnecting any', () => {
+    const mini = { id: 'mini', name: 'Mini', addresses: ['wss://mini'], agentKey: generateAgentKeys().x25519.publicKey };
+    const { store, sockets } = build([mac, mini]);
+    store.start();
+    const macSocket = sockets['wss://mac'];
+    const miniSocket = sockets['wss://mini'];
+    store.moveMachine('mini', -1);
+    expect(store.machines.map((m) => m.id)).toEqual(['mini', 'mac']);
+    expect(sockets['wss://mac']).toBe(macSocket);
+    expect(sockets['wss://mini']).toBe(miniSocket);
+    const after = store.machines;
+    store.refreshMachines();
+    expect(store.machines).toBe(after);
+  });
+
   it('toggleMachine re-enables a disabled machine and reconnects', () => {
     const { store, sockets } = build([{ ...mac, enabled: false }]);
     store.start();

@@ -20,6 +20,7 @@ function fakeStore(overrides: Record<string, unknown> = {}) {
     removeMachine: vi.fn(),
     reconnectMachine: vi.fn(),
     toggleMachine: vi.fn(),
+    moveMachine: vi.fn(),
     replaceDeviceKey: vi.fn(),
     pairFromLink: vi.fn(() => ({ error: 'nope' })),
     back: vi.fn(),
@@ -96,6 +97,33 @@ describe('Settings — machines list', () => {
     expect(sw.getAttribute('aria-checked')).toBe('true');
     await fireEvent.click(sw);
     expect(store.toggleMachine).toHaveBeenCalledWith('mac');
+  });
+
+  it('reorders the machines with up and down buttons, in a reorder mode', async () => {
+    const store = fakeStore({
+      machines: [
+        { id: 'a', name: 'Alpha', addresses: ['wss://a'], agentKey: KEY },
+        { id: 'b', name: 'Beta', addresses: ['wss://b'], agentKey: KEY },
+      ],
+    });
+    render(Settings, { props: { store: store as never } });
+    expect(screen.queryByRole('button', { name: /^Move (Alpha|Beta)/ })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Reorder' }));
+    expect(screen.queryByRole('switch', { name: /^Connect/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Move Alpha up' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move Beta down' })).toBeDisabled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Move Alpha down' }));
+    expect(store.moveMachine).toHaveBeenCalledWith('a', 1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Move Beta up' }));
+    expect(store.moveMachine).toHaveBeenCalledWith('b', -1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('button', { name: /^Move (Alpha|Beta)/ })).toBeNull();
+    expect(screen.getAllByRole('switch', { name: /^Connect/ })).toHaveLength(2);
+  });
+
+  it('offers no reorder with a single machine', () => {
+    render(Settings, { props: { store: fakeStore() as never } });
+    expect(screen.queryByRole('button', { name: 'Reorder' })).toBeNull();
   });
 
   it('shows a switched-off machine as Off, with no error', () => {

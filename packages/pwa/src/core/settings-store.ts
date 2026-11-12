@@ -78,9 +78,22 @@ export class SettingsStore {
     }
   }
 
+  // An existing id is replaced where it stands, so a re-pairing keeps the owner's order.
   add(config: MachineConfig): void {
-    const next = [...this.list().filter((m) => m.id !== config.id), config];
+    const machines = this.list();
+    const next = machines.some((m) => m.id === config.id)
+      ? machines.map((m) => (m.id === config.id ? config : m))
+      : [...machines, config];
     this.persist(next);
+  }
+
+  move(id: string, delta: -1 | 1): void {
+    const machines = this.list();
+    const from = machines.findIndex((m) => m.id === id);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= machines.length) return;
+    [machines[from], machines[to]] = [machines[to]!, machines[from]!];
+    this.persist(machines);
   }
 
   update(id: string, patch: { addresses: string[]; defaultPath?: string; agentKey?: string }): void {
