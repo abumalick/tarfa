@@ -4,7 +4,7 @@ export const app = {
   update: {
     testBuild: (label: string) => `New build from ${label}`,
     available: 'New version available',
-    reload: 'Reload',
+    short: 'Update',
   },
   installFirst: {
     title: (name: string) => `Pair ${name} from the Home Screen app`,
