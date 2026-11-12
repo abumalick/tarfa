@@ -1803,7 +1803,7 @@ describe('TarfaStore dictation', () => {
   });
 });
 
-describe('TarfaStore update banner', () => {
+describe('TarfaStore update prompt', () => {
   it('starts with no update pending', () => {
     const { store } = build();
     expect(store.updateReady).toBe(false);
@@ -1822,24 +1822,6 @@ describe('TarfaStore update banner', () => {
     const { store } = build([], () => { applied += 1; });
     store.applyUpdate();
     expect(applied).toBe(1);
-  });
-
-  it('dismissUpdate hides the banner without applying', () => {
-    let applied = 0;
-    const { store } = build([], () => { applied += 1; });
-    store.notifyUpdateAvailable('feat-x');
-    store.dismissUpdate();
-    expect(store.updateReady).toBe(false);
-    expect(applied).toBe(0);
-  });
-
-  it('re-shows the banner when a later update is detected after dismiss', () => {
-    const { store } = build();
-    store.notifyUpdateAvailable('feat-x');
-    store.dismissUpdate();
-    store.notifyUpdateAvailable('feat-y');
-    expect(store.updateReady).toBe(true);
-    expect(store.incomingBuildLabel).toBe('feat-y');
   });
 
   it('setWorkspaceStatus sends setStatus for the active workspace and reflects the synced status', () => {

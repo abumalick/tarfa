@@ -8,6 +8,7 @@
   import type { TarfaStore } from '../store.svelte';
   import ProjectFilterSelect from './ProjectFilterSelect.svelte';
   import MachineLoad from './MachineLoad.svelte';
+  import UpdatePill from './UpdatePill.svelte';
   import { APP_NAME, BUILD_LABEL, isTestBuild } from '../core/build-label';
   import { displayProjectPath } from '../core/resolve-path';
   import { isConnectable } from '../core/settings-store';
@@ -255,6 +256,9 @@
     <button type="button" class="icon" aria-label={msg().home.settings} onclick={() => store.goSettings()}>⚙</button>
   </div>
 </header>
+{#if store.updateReady}
+  <div class="update-row"><UpdatePill {store} /></div>
+{/if}
 
 <!-- Ambient machine load, under the title so it scrolls away with it rather than eating
      screen while the list is scrolled. -->
@@ -431,6 +435,7 @@
 
 <style>
   header { display: flex; justify-content: space-between; align-items: center; }
+  .update-row { display: flex; margin: -0.5rem 0 0.75rem; }
   h1 { font-size: 1.5rem; }
   .build-badge {
     font-size: 0.7rem;

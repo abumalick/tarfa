@@ -50,7 +50,7 @@ the phone's device key, and streams its terminals. No agent listens off loopback
   framing, the device hello, pairing codes and links, and refusals (see "Device keys, enrolment and
   pairing").
 - `packages/pwa` (`@tarfa/pwa`) — Svelte 5 (runes) PWA, launched as Tarfa. xterm.js terminal, vite-plugin-pwa
-  (an update banner, reload on tap: `registerType: 'prompt'`), Playwright e2e. Core logic (connection manager, aggregator, store) is in
+  (an update pill in the list and terminal headers, reload on tap: `registerType: 'prompt'`), Playwright e2e. Core logic (connection manager, aggregator, store) is in
   `src/core` + `src/adapters` and unit-tested with a fake socket; `src/lib` is the UI.
 - **The PWA speaks English and French.** Every string a user reads goes in
   `src/core/i18n/en/<namespace>.ts` and its French twin (typed `Messages['<namespace>']`, so the
@@ -102,7 +102,7 @@ Build each feature in its own git worktree; full runbook in `docs/WORKTREES.md`.
   speed, Funnel). Either way the maintainer gives the verdict. Never call `tmux` without
   `-S <sandbox socket>` against one; `pnpm worktree:remove` takes a worktree's sandbox down.
 - **Test a worktree build on the phone:** `pnpm serve:build .worktrees/<feature>` points the
-  staging PWA on the tailnet at it (the installed PWA offers the update within ~60s, applied on a tap of its banner; the home header shows the
+  staging PWA on the tailnet at it (the installed PWA offers the update within ~60s, applied on a tap of its update pill; the home header shows the
   worktree slug as a badge); `pnpm serve:restore` flips back to main. From a public origin,
   `deploy/pwa-deploy.sh --dev` puts a checkout on a throwaway `tarfa-dev` Worker instead
   (`--dev --delete` afterwards).
@@ -1155,7 +1155,7 @@ So the PWA is on a public origin, tarfa.app, and what follows from that:
   running its cached service-worker build, which can still connect, so the app looks healthy
   while `sw.js` cannot be fetched (on the tailnet staging origin, a device with Tailscale off).
   When one device misses a deploy another picked up (a new field missing, an old badge in the
-  header), ask first whether it can reach the origin. Only then look further: the update banner,
+  header), ask first whether it can reach the origin. Only then look further: the update pill,
   `chrome://serviceworker-internals` → Unregister, or adb. Never suggest "clear site data": it
   deletes the device key, and the device has to pair again.
 
