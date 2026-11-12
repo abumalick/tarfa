@@ -512,8 +512,9 @@ See `docs/DEPLOY.md` for the full runbook. In short:
     unpinned users dictating at once cross over (measured with `arecord`/`aplay`: a recorder
     heard the tone another player sent; pinned subdevices kept apart). Each user's `~/.asoundrc` names `Loopback,1,<n>` and its `TARFA_VOICE_DEVICE` the
     matching `plughw:Loopback,0,<n>` (default `plughw:Loopback,0`, right for one user only).
-  - **A recording can be thrown away** (the ✕ Cancel pill above the mic while it records,
-    `lib/DictationCancel.svelte`): a clip preset discards its recording (`AudioRecorder.discard`)
+  - **A recording can be thrown away** (the controls above the mic while it records,
+    `lib/DictationControls.svelte`: a timer, ✕ to cancel where the dictation can be, and ■ to stop
+    and transcribe, the mic's own second tap made explicit): a clip preset discards its recording (`AudioRecorder.discard`)
     and sends nothing; Claude voice sends `voiceCancel`, offered only to an agent naming the
     `voiceCancel` feature (an older one drops it, and Claude would type what it heard). The agent
     kills the player, keeps holding space until the pane shows `listening…` on the line above

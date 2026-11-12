@@ -161,24 +161,29 @@ describe('KeyboardBar', () => {
     expect(screen.getByRole('button', { name: /dictate/i })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('offers Cancel only while recording, and only when wired', async () => {
+  it('shows Stop above a recording mic, and Cancel only when wired', async () => {
+    const onDictate = vi.fn();
     const onCancelDictation = vi.fn();
-    const { rerender } = render(KeyboardBar, { props: { ...base, dictation: 'idle', onCancelDictation } });
-    expect(screen.queryByRole('button', { name: /cancel dictation/i })).toBeNull();
-    await rerender({ ...base, dictation: 'recording', onCancelDictation });
-    const cancel = screen.getByRole('button', { name: /cancel dictation/i });
+    const { rerender } = render(KeyboardBar, { props: { ...base, dictation: 'idle', onDictate, onCancelDictation } });
+    expect(screen.queryByRole('button', { name: 'Stop and transcribe' })).toBeNull();
+    await rerender({ ...base, dictation: 'recording', onDictate, onCancelDictation });
     expect(screen.getByRole('timer')).toHaveTextContent('0:00');
-    await fireEvent.click(cancel);
+    await fireEvent.click(screen.getByRole('button', { name: 'Stop and transcribe' }));
+    expect(onDictate).toHaveBeenCalledOnce();
+    await fireEvent.click(screen.getByRole('button', { name: /cancel dictation/i }));
     expect(onCancelDictation).toHaveBeenCalledOnce();
-    await rerender({ ...base, dictation: 'recording', onCancelDictation: undefined });
+    await rerender({ ...base, dictation: 'recording', onDictate, onCancelDictation: undefined });
     expect(screen.queryByRole('button', { name: /cancel dictation/i })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Stop and transcribe' })).toBeInTheDocument();
   });
 
-  it('keeps the terminal focused when Cancel is pressed', async () => {
+  it('keeps the terminal focused when Stop or Cancel is pressed', async () => {
     render(KeyboardBar, { props: { ...base, dictation: 'recording', onCancelDictation: vi.fn() } });
-    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
-    screen.getByRole('button', { name: /cancel dictation/i }).dispatchEvent(down);
-    expect(down.defaultPrevented).toBe(true);
+    for (const name of [/cancel dictation/i, /stop and transcribe/i]) {
+      const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+      screen.getByRole('button', { name }).dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(true);
+    }
   });
 
   it('disables the mic button while transcribing', () => {

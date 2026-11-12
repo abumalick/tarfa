@@ -33,7 +33,7 @@ async function fakeMicrophone(page: Page) {
   });
 }
 
-test('Cancel above the recording mic throws the recording away and sends nothing', async ({ page }) => {
+test('Cancel above the recording mic throws the recording away and sends nothing; Stop transcribes', async ({ page }) => {
   await fakeMicrophone(page);
   const transcriptions: string[] = [];
   await page.route('https://api.elevenlabs.io/**', (route) => {
@@ -53,8 +53,9 @@ test('Cancel above the recording mic throws the recording away and sends nothing
   await expect(cancel).toBeVisible();
   await expect(page.getByRole('timer')).toHaveText(/0:0\d/);
 
+  await expect(page.getByRole('button', { name: 'Stop and transcribe' })).toBeVisible();
   // Above the mic, clear of the bar, and inside the screen.
-  const pill = await cancel.boundingBox();
+  const pill = await page.getByRole('button', { name: 'Stop and transcribe' }).boundingBox();
   const micBox = await mic.boundingBox();
   expect(pill!.y + pill!.height).toBeLessThanOrEqual(micBox!.y);
   expect(pill!.x).toBeGreaterThanOrEqual(0);
@@ -66,4 +67,9 @@ test('Cancel above the recording mic throws the recording away and sends nothing
   await expect(mic).toHaveAttribute('aria-pressed', 'false');
   await page.waitForTimeout(300);
   expect(transcriptions).toEqual([]);
+
+  await mic.click();
+  await page.getByRole('button', { name: 'Stop and transcribe' }).click();
+  await expect(page.getByRole('button', { name: 'Stop and transcribe' })).toHaveCount(0);
+  await expect.poll(() => transcriptions.length).toBe(1);
 });
