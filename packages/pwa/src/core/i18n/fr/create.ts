@@ -7,6 +7,7 @@ export const create: Messages['create'] = {
   noMachines: 'Aucune machine',
   connecting: 'connexion…',
   offline: 'hors ligne',
+  waiting: 'En attente de la connexion d’une machine…',
   recent: 'Récents',
   path: 'Chemin',
   pathRelative: (root: string) => `Chemin (relatif à ${root})`,

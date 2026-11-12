@@ -135,6 +135,14 @@
     {/if}
   </fieldset>
 
+  {#if !machineId}
+    {#if machineList.length > 0}
+      <div class="waiting" data-testid="create-waiting">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>{msg().create.waiting}</p>
+      </div>
+    {/if}
+  {:else}
   {#if recentPaths.length > 0}
     <p class="recent-label">{msg().create.recent}</p>
     <div class="recent">
@@ -197,8 +205,9 @@
       </label>
     {/if}
     {#if store.createError}<p class="error" role="alert">⚠ {store.createError}</p>{/if}
-    <button type="submit" class="create" disabled={!machineId}>{msg().create.create}</button>
+    <button type="submit" class="create">{msg().create.create}</button>
   </form>
+  {/if}
 </section>
 {/if}
 
@@ -304,6 +313,21 @@
   .radio:active { background: var(--surface-press); }
   .radio.selected { border-color: var(--accent); background: var(--surface-press); }
   .radio.unavailable { opacity: 0.55; }
+  .waiting { text-align: center; padding: 3rem 1rem; color: var(--text-dim); }
+  .waiting p { margin: 0; }
+  .spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 1rem;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none; }
+  }
   .radio .state { margin-left: 0.35rem; font-size: 0.75rem; color: var(--text-dim); }
   /* The native control fills the chip transparently: selection is shown by the label styling
      above, while the real radio stays the (focusable, tappable) hit target for a11y. */

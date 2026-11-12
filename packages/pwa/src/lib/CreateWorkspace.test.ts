@@ -172,24 +172,28 @@ describe('CreateWorkspace', () => {
     expect((screen.getByRole('radio', { name: 'Box' }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it('disables Create while no machine is connected yet', () => {
-    const store = fakeStore(null, { statuses: { mac: 'connecting', pc: 'connecting' } });
+  it('shows a loader instead of the form while no machine is connected yet', () => {
+    const store = fakeStore(null, { statuses: { mac: 'connecting', pc: 'offline' } });
     render(CreateWorkspace, { props: { store: store as never } });
     expect(screen.getByRole('radio', { name: /Mac/ })).toBeDisabled();
     expect(screen.getByRole('radio', { name: /PC/ })).toBeDisabled();
-    expect(create()).toBeDisabled();
+    expect(screen.getByText(/waiting for a machine to connect/i)).toBeTruthy();
+    expect(screen.queryByTestId('path')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^create$/i })).toBeNull();
   });
 
   it('says so when there is no enabled machine at all', () => {
     const store = fakeStore(null, { machines: [] });
     render(CreateWorkspace, { props: { store: store as never } });
     expect(screen.getByText(/no machines/i)).toBeTruthy();
-    expect(create()).toBeDisabled();
+    expect(screen.queryByTestId('create-waiting')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^create$/i })).toBeNull();
   });
 
   it('fills in as machines connect, moving to the last-used one when it comes up', async () => {
     const store = reactive(fakeStore('pc', { statuses: { mac: 'connecting', pc: 'connecting' } }));
     render(CreateWorkspace, { props: { store: store as never } });
+    expect(screen.getByTestId('create-waiting')).toBeTruthy();
     store.statuses.mac = 'online';
     await tick();
     expect((screen.getByRole('radio', { name: 'Mac' }) as HTMLInputElement).checked).toBe(true);

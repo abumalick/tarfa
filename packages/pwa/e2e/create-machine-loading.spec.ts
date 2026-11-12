@@ -33,3 +33,16 @@ test('creates on the connected machine while the last-used one cannot connect', 
     await up.close();
   }
 });
+
+test('shows a loader instead of the form while no machine is connected', async ({ page }) => {
+  const down = await startFakeAgent();
+  const entry = await machineEntry(down, { id: 'down', name: 'Laptop' });
+  await down.close();
+  await page.addInitScript((m) => localStorage.setItem('tarfa.machines', JSON.stringify([m])), entry);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^new$/i }).click();
+  await expect(page.getByTestId('create-waiting')).toBeVisible();
+  await expect(page.getByRole('radio', { name: /Laptop/ })).toBeDisabled();
+  await expect(page.getByTestId('path')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Create', exact: true })).toHaveCount(0);
+});

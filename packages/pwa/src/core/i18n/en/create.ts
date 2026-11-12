@@ -5,6 +5,7 @@ export const create = {
   noMachines: 'No machines',
   connecting: 'connecting…',
   offline: 'offline',
+  waiting: 'Waiting for a machine to connect…',
   recent: 'Recent',
   path: 'Path',
   pathRelative: (root: string) => `Path (relative to ${root})`,
