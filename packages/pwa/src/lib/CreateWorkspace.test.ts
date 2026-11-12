@@ -1,7 +1,9 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { setLanguage } from '../i18n.svelte';
 import { render, screen, fireEvent } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import CreateWorkspace from './CreateWorkspace.svelte';
+import { reactive } from './reactive-fake.svelte';
 
 function fakeStore(lastMachineId: string | null = null, over: Record<string, unknown> = {}) {
   return {
@@ -125,8 +127,8 @@ describe('CreateWorkspace', () => {
     );
   });
 
-  it('orders machine pills alphabetically regardless of config order, ignoring last-used for ordering', () => {
-    const store = fakeStore(null, {
+  it('orders machine pills as the machines are configured, ignoring last-used for ordering', () => {
+    const store = fakeStore('alpha', {
       machines: [
         { id: 'zeta', name: 'Zeta', addresses: ['wss://zeta'], token: 't' },
         { id: 'alpha', name: 'Alpha', addresses: ['wss://alpha'], token: 't' },
@@ -136,39 +138,32 @@ describe('CreateWorkspace', () => {
     });
     render(CreateWorkspace, { props: { store: store as never } });
     const radios = screen.getAllByRole('radio', { name: /Zeta|Alpha/ });
-    expect(radios.map((r) => r.getAttribute('value'))).toEqual(['alpha', 'zeta']);
-    // No last-used machine: falls back to the alphabetically-first connected one.
-    expect((screen.getByRole('radio', { name: 'Alpha' }) as HTMLInputElement).checked).toBe(true);
+    expect(radios.map((r) => r.getAttribute('value'))).toEqual(['zeta', 'alpha']);
+    expect((screen.getByRole('radio', { name: /Alpha/ }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it('excludes offline and disabled machines from the pills', () => {
+  it('shows machines still connecting as disabled pills and leaves out disabled machines', () => {
     const store = fakeStore(null, {
       machines: [
         { id: 'mac', name: 'Mac', addresses: ['wss://mac'], token: 't' },
         { id: 'pc', name: 'PC', addresses: ['wss://pc'], token: 't', enabled: false },
         { id: 'other', name: 'Other', addresses: ['wss://other'], token: 't' },
       ],
-      statuses: { mac: 'online', pc: 'online', other: 'offline' },
+      statuses: { mac: 'online', pc: 'online', other: 'connecting' },
       recentPaths: {},
     });
     render(CreateWorkspace, { props: { store: store as never } });
-    expect(screen.getByRole('radio', { name: 'Mac' })).toBeTruthy();
-    expect(screen.queryByRole('radio', { name: 'PC' })).toBeNull();
-    expect(screen.queryByRole('radio', { name: 'Other' })).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Mac' })).toBeEnabled();
+    expect(screen.queryByRole('radio', { name: /PC/ })).toBeNull();
+    expect(screen.getByRole('radio', { name: /Other.*connecting/i })).toBeDisabled();
   });
 
-  it('falls back to the alphabetically-first connected machine when the last-used one is not connected', () => {
-    const store = fakeStore('pc', {
-      machines: [
-        { id: 'mac', name: 'Mac', addresses: ['wss://mac'], token: 't' },
-        { id: 'pc', name: 'PC', addresses: ['wss://pc'], token: 't' },
-      ],
-      statuses: { mac: 'online', pc: 'offline' },
-      recentPaths: {},
-    });
+  it('falls back to the first connected machine when the last-used one is not connected', () => {
+    const store = fakeStore('pc', { statuses: { mac: 'online', pc: 'offline' }, recentPaths: {} });
     render(CreateWorkspace, { props: { store: store as never } });
-    expect(screen.queryByRole('radio', { name: 'PC' })).toBeNull();
+    expect(screen.getByRole('radio', { name: /PC.*offline/i })).toBeDisabled();
     expect((screen.getByRole('radio', { name: 'Mac' }) as HTMLInputElement).checked).toBe(true);
+    expect(create()).toBeEnabled();
   });
 
   it('still shows the picker with exactly one connected machine', () => {
@@ -177,13 +172,61 @@ describe('CreateWorkspace', () => {
     expect((screen.getByRole('radio', { name: 'Box' }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it('shows a message and disables Create when no machine is connected', () => {
-    const store = fakeStore(null, { statuses: { mac: 'offline', pc: 'offline' } });
+  it('disables Create while no machine is connected yet', () => {
+    const store = fakeStore(null, { statuses: { mac: 'connecting', pc: 'connecting' } });
     render(CreateWorkspace, { props: { store: store as never } });
-    expect(screen.queryByRole('radio', { name: 'Mac' })).toBeNull();
-    expect(screen.queryByRole('radio', { name: 'PC' })).toBeNull();
-    expect(screen.getByText(/no connected machines/i)).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Mac/ })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /PC/ })).toBeDisabled();
     expect(create()).toBeDisabled();
+  });
+
+  it('says so when there is no enabled machine at all', () => {
+    const store = fakeStore(null, { machines: [] });
+    render(CreateWorkspace, { props: { store: store as never } });
+    expect(screen.getByText(/no machines/i)).toBeTruthy();
+    expect(create()).toBeDisabled();
+  });
+
+  it('fills in as machines connect, moving to the last-used one when it comes up', async () => {
+    const store = reactive(fakeStore('pc', { statuses: { mac: 'connecting', pc: 'connecting' } }));
+    render(CreateWorkspace, { props: { store: store as never } });
+    store.statuses.mac = 'online';
+    await tick();
+    expect((screen.getByRole('radio', { name: 'Mac' }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('path') as HTMLInputElement).value).toBe('/home/u/workspace/api');
+    store.statuses.pc = 'online';
+    await tick();
+    expect((screen.getByRole('radio', { name: 'PC' }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('path') as HTMLInputElement).value).toBe('/home/u/projects/web');
+    await fireEvent.click(create());
+    expect(store.requestCreate).toHaveBeenCalledWith('pc', '/home/u/projects/web', "claude --model 'opus[1m]'", false);
+  });
+
+  it('keeps the machine the user picked when the last-used one connects later', async () => {
+    const store = reactive(
+      fakeStore('pc', {
+        machines: [
+          { id: 'mac', name: 'Mac', addresses: ['wss://mac'], token: 't' },
+          { id: 'box', name: 'Box', addresses: ['wss://box'], token: 't' },
+          { id: 'pc', name: 'PC', addresses: ['wss://pc'], token: 't' },
+        ],
+        statuses: { mac: 'online', box: 'online', pc: 'connecting' },
+      }),
+    );
+    render(CreateWorkspace, { props: { store: store as never } });
+    await fireEvent.click(screen.getByRole('radio', { name: 'Box' }));
+    store.statuses.pc = 'online';
+    await tick();
+    expect((screen.getByRole('radio', { name: 'Box' }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('stays on the machine the form is being filled for when the last-used one connects', async () => {
+    const store = reactive(fakeStore('pc', { statuses: { mac: 'online', pc: 'connecting' } }));
+    render(CreateWorkspace, { props: { store: store as never } });
+    await fireEvent.input(screen.getByTestId('path'), { target: { value: '/home/u/workspace/typed' } });
+    store.statuses.pc = 'online';
+    await tick();
+    expect((screen.getByRole('radio', { name: 'Mac' }) as HTMLInputElement).checked).toBe(true);
   });
 
   it('resolves a relative path against the machine default path', async () => {
