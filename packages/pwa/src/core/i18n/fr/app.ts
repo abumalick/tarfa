@@ -6,7 +6,7 @@ export const app: Messages['app'] = {
   update: {
     testBuild: (label) => `Nouvelle version de test : ${label}`,
     available: 'Mise à jour disponible',
-    reload: 'Recharger',
+    short: 'Mettre à jour',
   },
   installFirst: {
     title: (name) => `Associez ${name} depuis l’app de l’écran d’accueil`,

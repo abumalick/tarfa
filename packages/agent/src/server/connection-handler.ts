@@ -38,7 +38,7 @@ import { browseDir } from '../application/browse-dir';
 import { makeDir } from '../application/make-dir';
 import { readFile } from '../application/read-file';
 import { storePastedFile } from '../application/store-pasted-file';
-import type { ClaudeVoice, VoiceSession } from '../application/claude-voice';
+import { CANCEL_KEY, claudeVoiceListening, type ClaudeVoice, type VoiceSession } from '../application/claude-voice';
 import type { LastReplies } from '../application/last-replies';
 import { runsClaude } from '@tarfa/contracts';
 import type { FileWriterPort } from '../ports/file-writer-port';
@@ -98,7 +98,7 @@ export interface ConnectionHandlerDeps {
 }
 
 // `cancelled` stops a dictation still in its checks, before it has a session to abort.
-type PendingVoice = { id: string; workspaceId: string; session: VoiceSession | null; queue: Uint8Array[]; ended: boolean; cancelled: string | null };
+type PendingVoice = { id: string; workspaceId: string; session: VoiceSession | null; queue: Uint8Array[]; ended: boolean; cancelled: string | null; discarded: boolean };
 
 export class ConnectionHandler {
   private authed = false;
@@ -434,7 +434,7 @@ export class ConnectionHandler {
       case 'voiceStart': {
         const { workspaceId, id } = message;
         this.cancelVoice('Superseded by a newer dictation');
-        const voice: PendingVoice = { id, workspaceId, session: null, queue: [], ended: false, cancelled: null };
+        const voice: PendingVoice = { id, workspaceId, session: null, queue: [], ended: false, cancelled: null, discarded: false };
         this.voice = voice;
         const reply = (error: string | null) => {
           if (this.voice === voice) this.voice = null;
@@ -448,9 +448,15 @@ export class ConnectionHandler {
         // A question or permission menu takes space as a key (into its text field, or toggling a
         // choice), not as /voice. Only a tmux patched for OSC 7501 can tell; elsewhere this passes.
         if (tmuxSession.program?.state === 'blocked') return reply('Answer Claude’s question first, then dictate');
+        if (voice.discarded) return reply(null);
         if (voice.cancelled) return reply(voice.cancelled);
-        const session = this.deps.claudeVoice.start(() => {
-          if (this.attachment?.workspaceId === workspaceId) this.attachment.session.write(' ');
+        const typeInto = (data: string) => {
+          if (this.attachment?.workspaceId === workspaceId) this.attachment.session.write(data);
+        };
+        const tmux = this.deps.tmux;
+        const session = this.deps.claudeVoice.start(() => typeInto(' '), {
+          listening: async () => !!tmux.capturePane && claudeVoiceListening(await tmux.capturePane(workspaceId, 0)),
+          pressCancel: () => typeInto(CANCEL_KEY),
         });
         voice.session = session;
         for (const pcm of voice.queue.splice(0)) session.write(pcm);
@@ -466,9 +472,19 @@ export class ConnectionHandler {
         else voice.queue.push(pcm);
         return;
       }
+      case 'voiceCancel': {
+        const voice = this.voice;
+        if (voice?.id !== message.id || voice.ended) return;
+        // Kept as the current dictation until it settles, so a newer one, a question opening or
+        // the phone leaving still stops it while it waits for Claude to show it listens.
+        voice.ended = true;
+        voice.discarded = true;
+        voice.session?.cancel();
+        return;
+      }
       case 'voiceEnd': {
         const voice = this.voice;
-        if (voice?.id !== message.id) return;
+        if (voice?.id !== message.id || voice.discarded) return;
         voice.ended = true;
         voice.session?.end();
         return;

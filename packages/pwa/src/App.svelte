@@ -9,7 +9,6 @@
   import PdfViewer from './lib/PdfViewer.svelte';
   import AudioViewer from './lib/AudioViewer.svelte';
   import BrowserView from './lib/BrowserView.svelte';
-  import UpdateBanner from './lib/UpdateBanner.svelte';
   import DictationErrorBanner from './lib/DictationErrorBanner.svelte';
   import ActionErrorBanner from './lib/ActionErrorBanner.svelte';
   import DeviceEnrolledNotice from './lib/DeviceEnrolledNotice.svelte';
@@ -181,7 +180,6 @@
     {/if}
   </main>
 {/if}
-<UpdateBanner {store} />
 <DictationErrorBanner {store} />
 <ActionErrorBanner {store} />
 <DeviceEnrolledNotice {store} />

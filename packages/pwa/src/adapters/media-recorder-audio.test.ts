@@ -12,8 +12,11 @@ class FakeMediaRecorder {
   }
 }
 
+const track = { stop: vi.fn() };
+
 function stubMic(): ReturnType<typeof vi.fn> {
-  const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] });
+  track.stop.mockClear();
+  const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [track] });
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
   vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
   return getUserMedia;
@@ -47,6 +50,16 @@ describe('MediaRecorderAudio', () => {
     const blob = await recorder.stop();
     expect(blob.type).toBe('audio/webm');
     expect(blob.size).toBeGreaterThan(0);
+  });
+
+  it('discard releases the mic and keeps nothing', async () => {
+    stubMic();
+    const recorder = new MediaRecorderAudio();
+    await recorder.start();
+    recorder.discard();
+    expect(track.stop).toHaveBeenCalled();
+    await expect(recorder.stop()).rejects.toThrow('not recording');
+    recorder.discard();
   });
 
   it('rejects a stop that was never started', async () => {

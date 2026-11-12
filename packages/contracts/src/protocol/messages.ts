@@ -113,6 +113,9 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('voiceStart'), workspaceId: z.string(), id: z.string() }),
   z.object({ type: z.literal('voiceChunk'), id: z.string(), data: z.string() }),
   z.object({ type: z.literal('voiceEnd'), id: z.string() }),
+  // Throw the dictation away: Claude writes nothing. Sent only to an agent whose authResult names
+  // the `voiceCancel` feature (an older one would drop it, and Claude would type what it heard).
+  z.object({ type: z.literal('voiceCancel'), id: z.string() }),
   // The text of Claude's last reply in a workspace, read aloud on the phone. Sent only to an agent
   // whose authResult names the `lastReply` feature.
   z.object({ type: z.literal('lastReply'), workspaceId: z.string() }),
@@ -149,6 +152,7 @@ export const AGENT_FEATURES = {
   dictationKeys: 'dictationKeys',
   setDictationKey: 'setDictationKey',
   addresses: 'addresses',
+  voiceCancel: 'voiceCancel',
 } as const;
 
 export const agentMessageSchema = z.discriminatedUnion('type', [

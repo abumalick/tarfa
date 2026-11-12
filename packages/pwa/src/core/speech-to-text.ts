@@ -51,6 +51,15 @@ export class SpeechToText {
     this.recorder.stop().catch(() => undefined);
   }
 
+  // Throw a recording away: nothing is transcribed or typed. Only a recording can be cancelled;
+  // a clip already sent is on its way. Returns whether there was one.
+  cancel(): boolean {
+    if (this._state !== 'recording') return false;
+    this.set('idle');
+    this.recorder.discard();
+    return true;
+  }
+
   private set(state: DictationState, error: string | null = null): void {
     this._state = state;
     this._error = error;

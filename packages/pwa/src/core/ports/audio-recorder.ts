@@ -4,4 +4,6 @@
 export interface AudioRecorder {
   start(): Promise<void>;
   stop(): Promise<Blob>;
+  // Ends a recording and throws it away: nothing recorded leaves the phone.
+  discard(): void;
 }

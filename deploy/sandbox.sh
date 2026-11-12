@@ -316,15 +316,15 @@ cmd_pair() { # <root>
   echo "browser $(jq -r .browser "$1/manifest.json") paired"
 }
 
-# The service worker serves the old build until its update banner is tapped (registerType: prompt).
+# The service worker serves the old build until its update pill is tapped (registerType: prompt).
 browser_reload() { # <root>
   local root="$1"
   [ "$(jq -r .browser "${root}/manifest.json")" != null ] || return 0
   browser "${root}" open "http://127.0.0.1:$(jq -r .ports.pwa "${root}/manifest.json")/" > /dev/null
-  if browser "${root}" wait --fn '[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Reload")' --timeout 10000 > /dev/null 2>&1; then
-    browser "${root}" eval '(() => { const b = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Reload"); b?.click(); return !!b; })()' > /dev/null
+  if browser "${root}" wait --fn '!!document.querySelector("button.update")' --timeout 10000 > /dev/null 2>&1; then
+    browser "${root}" eval '(() => { const b = document.querySelector("button.update"); b?.click(); return !!b; })()' > /dev/null
   else
-    echo "no update banner within 10s: if the browser still shows the old build, open the PWA again and tap Reload" >&2
+    echo "no update pill within 10s: if the browser still shows the old build, open the PWA again and tap Update" >&2
   fi
 }
 
