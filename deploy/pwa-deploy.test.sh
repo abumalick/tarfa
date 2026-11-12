@@ -20,7 +20,7 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 mkdir -p "${SB}/bin"
 cat > "${SB}/bin/pnpm" <<'FAKE'
 #!/usr/bin/env bash
-printf '%s|flavor=%s|label=%s|id=%s|account=%s|token=%s|cwd=%s\n' "$*" "${TARFA_APP_FLAVOR:-}" "${TARFA_BUILD_LABEL:-}" "${TARFA_BUILD_ID:-}" "${CLOUDFLARE_ACCOUNT_ID:-}" "${CLOUDFLARE_API_TOKEN:-}" "$(basename "$PWD")" >> "${FAKE_LOG}"
+printf '%s|flavor=%s|label=%s|id=%s|account=%s|token=%s|cwd=%s|operator=%s/%s/%s\n' "$*" "${TARFA_APP_FLAVOR:-}" "${TARFA_BUILD_LABEL:-}" "${TARFA_BUILD_ID:-}" "${CLOUDFLARE_ACCOUNT_ID:-}" "${CLOUDFLARE_API_TOKEN:-}" "$(basename "$PWD")" "${TARFA_OPERATOR_NAME:-}" "${TARFA_OPERATOR_EMAIL:-}" "${TARFA_OPERATOR_LAW:-}" >> "${FAKE_LOG}"
 case "$*" in
   *build*) printf '%s' "${TARFA_BUILD_ID:-}" > "${FAKE_LOG}.built" ;;
   *"wrangler deploy --env dev"*) echo "Deployed tarfa-dev triggers" ; echo "  https://tarfa-dev.someone.workers.dev" ;;
@@ -63,27 +63,38 @@ grep -q "pwa-deploy.env" "${SB}/out" || fail "missing-env message does not name 
 
 # --- 1b. no token command: refused before anything runs, so wrangler never falls back to its
 # own OAuth login -------------------------------------------------------------------------
-printf 'CLOUDFLARE_ACCOUNT_ID=acct-123\n' > "${MAIN}/deploy/pwa-deploy.env"
+OPERATOR="TARFA_OPERATOR_NAME='Jane Doe'\nTARFA_OPERATOR_EMAIL=privacy@example.org\nTARFA_OPERATOR_LAW=Examplestan\n"
+printf 'CLOUDFLARE_ACCOUNT_ID=acct-123\n' > "${MAIN}/deploy/pwa-deploy.env"; printf "%b" "${OPERATOR}" >> "${MAIN}/deploy/pwa-deploy.env"
 for args in "" "--dev" "--dev --delete"; do
   # shellcheck disable=SC2086
   if run "${MAIN}/deploy/pwa-deploy.sh" ${args}; then fail "ran '${args}' without PWA_DEPLOY_TOKEN_CMD"; fi
   grep -q "PWA_DEPLOY_TOKEN_CMD" "${SB}/out" || fail "the missing-token refusal does not name PWA_DEPLOY_TOKEN_CMD"
   [ -f "${FAKE_LOG}" ] && fail "'${args}' ran pnpm without a token"
 done
-printf 'CLOUDFLARE_ACCOUNT_ID=acct-123\nPWA_DEPLOY_TOKEN_CMD=false\n' > "${MAIN}/deploy/pwa-deploy.env"
+printf 'CLOUDFLARE_ACCOUNT_ID=acct-123\nPWA_DEPLOY_TOKEN_CMD=false\n' > "${MAIN}/deploy/pwa-deploy.env"; printf "%b" "${OPERATOR}" >> "${MAIN}/deploy/pwa-deploy.env"
 if run "${MAIN}/deploy/pwa-deploy.sh"; then fail "deployed when the token command failed"; fi
 [ -f "${FAKE_LOG}" ] && fail "a failed token command still ran pnpm"
-printf "CLOUDFLARE_ACCOUNT_ID=acct-123\nPWA_DEPLOY_TOKEN_CMD='printf \"\"'\n" > "${MAIN}/deploy/pwa-deploy.env"
+printf "CLOUDFLARE_ACCOUNT_ID=acct-123\nPWA_DEPLOY_TOKEN_CMD='printf \"\"'\n" > "${MAIN}/deploy/pwa-deploy.env"; printf "%b" "${OPERATOR}" >> "${MAIN}/deploy/pwa-deploy.env"
 if run "${MAIN}/deploy/pwa-deploy.sh"; then fail "deployed with an empty token"; fi
 
+# --- 1c. no operator: production and the dry run refuse before building, whatever the shell holds
+printf "CLOUDFLARE_ACCOUNT_ID=acct-123\nPWA_DEPLOY_TOKEN_CMD='printf tok-SECRET-1'\nTARFA_OPERATOR_NAME='Jane Doe'\n" > "${MAIN}/deploy/pwa-deploy.env"
+for args in "" "--dry-run"; do
+  # shellcheck disable=SC2086
+  if TARFA_OPERATOR_EMAIL=x@y.z TARFA_OPERATOR_LAW=Somewhere run "${MAIN}/deploy/pwa-deploy.sh" ${args}; then fail "'${args}' built without the operator settings"; fi
+  grep -q "TARFA_OPERATOR_EMAIL" "${SB}/out" || fail "the missing-operator refusal does not name the settings"
+  grep -q "build" "${FAKE_LOG}" 2>/dev/null && fail "'${args}' built without the operator settings"
+done
+
 # --- 2. clean main: install, build, deploy production, wait for the build -------
-printf "CLOUDFLARE_ACCOUNT_ID=acct-123\nPWA_DEPLOY_TOKEN_CMD='printf tok-SECRET-1'\n" > "${MAIN}/deploy/pwa-deploy.env"
+printf "CLOUDFLARE_ACCOUNT_ID=acct-123\nPWA_DEPLOY_TOKEN_CMD='printf tok-SECRET-1'\nTARFA_OPERATOR_NAME='Jane Doe'\nTARFA_OPERATOR_EMAIL=privacy@example.org\nTARFA_OPERATOR_LAW=Examplestan\n" > "${MAIN}/deploy/pwa-deploy.env"
 run "${MAIN}/deploy/pwa-deploy.sh" || { cat "${SB}/out"; fail "clean main did not deploy"; }
 grep -q "^install --frozen-lockfile|" "${FAKE_LOG}" || fail "no frozen install before a production deploy"
 # Even production builds outside dist: main's dist is the staging PWA, with the dev identity.
 build="$(grep -- "--filter @tarfa/pwa build --outDir .*/.tmp/pwa-deploy-dist --emptyOutDir|" "${FAKE_LOG}")" || fail "production built into dist: $(cat "${FAKE_LOG}")"
 grep -q -- "wrangler deploy --env production --assets .*/.tmp/pwa-deploy-dist|" "${FAKE_LOG}" || fail "production did not deploy its own build"
 case "${build}" in *"|flavor=production|label=main|"*) ;; *) fail "production build label or flavor: ${build}" ;; esac
+case "${build}" in *"|operator=Jane Doe/privacy@example.org/Examplestan") ;; *) fail "production build without the operator: ${build}" ;; esac
 sha="$(git -C "${MAIN}" rev-parse --short=12 HEAD)"
 case "${build}" in *"|id=${sha}-"*) ;; *) fail "build id does not start with the commit: ${build}" ;; esac
 deployed_with "--env production" || fail "did not deploy env.production: $(cat "${FAKE_LOG}")"

@@ -8,6 +8,7 @@
   import type { TarfaStore } from '../store.svelte';
   import ProjectFilterSelect from './ProjectFilterSelect.svelte';
   import MachineLoad from './MachineLoad.svelte';
+  import LegalLinks from './LegalLinks.svelte';
   import { APP_NAME, BUILD_LABEL, isTestBuild } from '../core/build-label';
   import { displayProjectPath } from '../core/resolve-path';
   import { isConnectable } from '../core/settings-store';
@@ -280,6 +281,7 @@
     <p class="empty-title">{msg().home.noMachines}</p>
     <p class="empty-sub">{msg().home.noMachinesSub}</p>
     <button type="button" class="cta" onclick={() => store.goSettings()}>{msg().home.addMachine}</button>
+    <LegalLinks accept />
   </div>
 {:else if store.homeView === 'connecting'}
   <div class="empty" data-testid="home-connecting">

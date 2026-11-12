@@ -391,7 +391,7 @@ Tarfa is a static-assets Worker (`packages/pwa/wrangler.jsonc`) in the maintaine
 account, on the `tarfa.app` custom domain. Deploy it only with the script, from a clean main that
 matches origin:
 ```sh
-cp deploy/pwa-deploy.env.example deploy/pwa-deploy.env   # once, in the main checkout: CLOUDFLARE_ACCOUNT_ID, PWA_DEPLOY_TOKEN_CMD
+cp deploy/pwa-deploy.env.example deploy/pwa-deploy.env   # once, in the main checkout: CLOUDFLARE_ACCOUNT_ID, PWA_DEPLOY_TOKEN_CMD, TARFA_OPERATOR_*
 deploy/pwa-deploy.sh             # frozen install, build, deploy, then waits until tarfa.app serves this build
 deploy/pwa-deploy.sh --dry-run   # build and check only, from any checkout
 ```
@@ -409,6 +409,13 @@ none). The build writes `dist/_headers` from `src/core/security-headers.ts` (the
 `frame-ancestors`, nosniff, no-referrer, COOP, HSTS and a Permissions-Policy), which the Worker
 applies to every response. Redirecting `http://` to `https://` is the zone's "Always Use HTTPS"
 setting: static assets cannot match on the scheme.
+
+The build also writes `terms.html` and `privacy.html` (served at `/terms` and `/privacy`,
+`src/core/legal-pages.ts`). Who operates a copy is the deployer's fact, so the text in the repo
+names nobody: `TARFA_OPERATOR_NAME`, `TARFA_OPERATOR_EMAIL` and `TARFA_OPERATOR_LAW` (the place
+whose laws govern the terms) come from the env file at build time. A production deploy and a
+`--dry-run` refuse without all three; any other build, staging included, says that its operator is
+not named. Whoever serves their own copy sets their own.
 
 The tailnet copy below is the **staging PWA**, which `pnpm serve:build` points at a worktree
 (the always-on Linux machine only). It is a separate origin, so phones install and pair it

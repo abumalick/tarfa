@@ -16,5 +16,6 @@ import { keyboard } from './keyboard';
 import { dictation } from './dictation';
 import { errors } from './errors';
 import { readAloud } from './read-aloud';
+import { legal } from './legal';
 
-export const fr: Messages = { app, home, load, status, settings, pairing, refusal, presets, create, files, viewer, browser, terminal, keyboard, dictation, errors, readAloud };
+export const fr: Messages = { app, home, load, status, settings, pairing, refusal, presets, create, files, viewer, browser, terminal, keyboard, dictation, errors, readAloud, legal };

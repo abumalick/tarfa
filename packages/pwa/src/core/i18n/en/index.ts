@@ -15,9 +15,10 @@ import { keyboard } from './keyboard';
 import { dictation } from './dictation';
 import { errors } from './errors';
 import { readAloud } from './read-aloud';
+import { legal } from './legal';
 
 // The source of truth: every other language is typed against it, so a missing or misshapen
 // entry fails the typecheck. An entry is a string, or a function when it takes values.
-export const en = { app, home, load, status, settings, pairing, refusal, presets, create, files, viewer, browser, terminal, keyboard, dictation, errors, readAloud };
+export const en = { app, home, load, status, settings, pairing, refusal, presets, create, files, viewer, browser, terminal, keyboard, dictation, errors, readAloud, legal };
 
 export type Messages = typeof en;

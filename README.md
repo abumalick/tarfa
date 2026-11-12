@@ -88,6 +88,14 @@ short is closed without review.
   equivalent. Tarfa itself is built this way, with `CLAUDE.md` as the agent's instructions.
   Output from weaker models is easy to spot and will be closed.
 
-## License
+## Reporting a vulnerability
 
-[MIT](LICENSE)
+Report security flaws privately, as described in [SECURITY.md](SECURITY.md), never in a public
+issue.
+
+## License and terms
+
+The code is under the [MIT](LICENSE) license, provided as is, without warranty. Using the app
+served at tarfa.app is subject to its [terms of use](https://tarfa.app/terms) and
+[privacy notice](https://tarfa.app/privacy). A copy you serve yourself carries its own (see
+`docs/DEPLOY.md`).

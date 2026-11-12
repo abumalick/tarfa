@@ -9,6 +9,7 @@ import { buildVersionJson, VERSION_FILE } from './src/core/version-file';
 import { CONTENT_SECURITY_POLICY } from './src/core/csp';
 import { buildHeadersFile, HEADERS_FILE, SECURITY_HEADERS } from './src/core/security-headers';
 import { appIdentity, parseAppFlavor, type AppIdentity } from './src/core/app-flavor';
+import { LEGAL_FILES, readOperator, renderLegalPage, type LegalPage } from './src/core/legal-pages';
 
 const buildLabel = process.env.TARFA_BUILD_LABEL ?? 'main';
 // A per-build id (timestamp) that changes on every build, even a rebuild of the same
@@ -25,6 +26,20 @@ function emitVersionFile(label: string, id: string): Plugin {
     name: 'tarfa-version-file',
     generateBundle() {
       this.emitFile({ type: 'asset', fileName: VERSION_FILE, source: buildVersionJson(label, id) });
+    },
+  };
+}
+
+// terms.html and privacy.html, with the operator named by the build's TARFA_OPERATOR_* (see legal-pages.ts).
+// Emitted in the bundle, so the service worker precaches them like the app shell.
+function emitLegalPages(): Plugin {
+  const operator = readOperator(process.env);
+  return {
+    name: 'tarfa-legal-pages',
+    generateBundle() {
+      for (const page of Object.keys(LEGAL_FILES) as LegalPage[]) {
+        this.emitFile({ type: 'asset', fileName: LEGAL_FILES[page], source: renderLegalPage(page, operator) });
+      }
     },
   };
 }
@@ -93,6 +108,7 @@ export default defineConfig({
     appHead(identity),
     emitVersionFile(buildLabel, buildId),
     emitHeadersFile(),
+    emitLegalPages(),
     VitePWA({
       // 'prompt', not 'autoUpdate': the new worker waits instead of reloading on its own.
       // main.ts surfaces a banner and reloads only on the user's tap (see UpdateBanner).
