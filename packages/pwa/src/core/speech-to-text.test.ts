@@ -10,6 +10,7 @@ function fakeRecorder(over: Partial<AudioRecorder> = {}): AudioRecorder {
   return {
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(audio),
+    discard: vi.fn(),
     ...over,
   };
 }
@@ -47,6 +48,31 @@ describe('SpeechToText', () => {
     expect(stt.error).toBe('Voice is off');
     expect(recorder.stop).toHaveBeenCalled();
     expect(transcriber.transcribe).not.toHaveBeenCalled();
+  });
+
+  it('cancel throws a recording away and goes back to idle, sending nothing', async () => {
+    const { stt, recorder, transcriber, onText } = setup();
+    expect(stt.cancel()).toBe(false);
+    await stt.toggle();
+    expect(stt.cancel()).toBe(true);
+    expect(stt.state).toBe('idle');
+    expect(stt.error).toBeNull();
+    expect(recorder.discard).toHaveBeenCalledOnce();
+    expect(recorder.stop).not.toHaveBeenCalled();
+    expect(transcriber.transcribe).not.toHaveBeenCalled();
+    expect(onText).not.toHaveBeenCalled();
+  });
+
+  it('cancel leaves a transcription in flight alone', async () => {
+    const pending = deferred<string>();
+    const { stt, recorder } = setup({ transcriber: { transcribe: vi.fn(() => pending.promise) } });
+    await stt.toggle();
+    const stopping = stt.toggle();
+    expect(stt.cancel()).toBe(false);
+    expect(stt.state).toBe('transcribing');
+    expect(recorder.discard).not.toHaveBeenCalled();
+    pending.resolve('hi');
+    await stopping;
   });
 
   it('starts recording on the first toggle', async () => {

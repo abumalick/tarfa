@@ -4,6 +4,7 @@ export const presets: Messages['presets'] = {
   claudeVoiceLabel: 'Voix Claude (sur la machine)',
   edit: (name) => `Modifier ${name}`,
   inUse: 'Utilisé',
+  reorder: (name) => `Déplacer ${name}`,
   moveUp: (name) => `Monter ${name}`,
   moveDown: (name) => `Descendre ${name}`,
   delete: (name) => `Supprimer ${name}`,

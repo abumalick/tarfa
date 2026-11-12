@@ -1,3 +1,4 @@
+import { flushSync } from 'svelte';
 import { generateAgentKeys, pairingLink } from '@tarfa/secure-channel';
 import { audioMediaType, imageMediaType, pdfMediaType } from '@tarfa/contracts';
 import { describe, it, expect, vi } from 'vitest';
@@ -529,6 +530,57 @@ describe('TarfaStore', () => {
       expect(() => store.voiceLink.begin()).toThrow('Open a workspace first');
     });
 
+    it('cancel tells the agent to throw the dictation away and stops streaming, ignoring its late reply', () => {
+      const { store, sockets } = opened();
+      let injected = 0;
+      store.onInjectedInput = () => injected++;
+      store.voiceLink.begin();
+      const id = sentVoice(sockets)[0].id as string;
+      store.voiceLink.cancel();
+      store.voiceLink.chunk(new Uint8Array([1]));
+      expect(sentVoice(sockets).slice(1)).toEqual([{ type: 'voiceCancel', id }]);
+      expect(injected).toBe(1);
+      store.handleMessage('mac', { type: 'voiceDone', id, ok: false, error: 'Cancelled' });
+      expect(store.dictationError).toBeNull();
+    });
+
+    it('tells the user when the agent could not cancel, and stays quiet when it did', () => {
+      const { store, sockets } = opened();
+      store.voiceLink.begin();
+      const id = sentVoice(sockets)[0].id as string;
+      store.voiceLink.cancel();
+      store.handleMessage('mac', { type: 'voiceDone', id, ok: true });
+      expect(store.actionError).toBeNull();
+      store.voiceLink.begin();
+      const second = sentVoice(sockets).at(-1).id as string;
+      store.voiceLink.cancel();
+      store.handleMessage('mac', { type: 'voiceDone', id: second, ok: false, error: 'Dictation not cancelled: Claude was not listening' });
+      expect(store.actionError).toBe('Dictation not cancelled: Claude was not listening');
+    });
+
+    it('withdraws the Cancel offer as soon as a Claude voice dictation starts on an agent without it', () => {
+      const { store } = opened();
+      const seen: boolean[] = [];
+      const stop = $effect.root(() => {
+        $effect(() => void seen.push(store.voiceCancellable));
+      });
+      flushSync();
+      store.voiceLink.begin();
+      flushSync();
+      stop();
+      expect(seen).toEqual([true, false]);
+    });
+
+    it('offers cancel for a Claude voice dictation only when the agent takes one', () => {
+      const { store, sockets } = opened();
+      store.voiceLink.begin();
+      expect(store.voiceCancellable).toBe(false);
+      sockets['wss://mac']!.deliver({ type: 'authResult', ok: true, agent: { protocol: 1, features: ['voiceCancel'] } });
+      expect(store.voiceCancellable).toBe(true);
+      store.voiceLink.cancel();
+      expect(store.voiceCancellable).toBe(true);
+    });
+
     it('rejects with the agent’s reason, even one that came before the end, and stops sending', async () => {
       const { store, sockets } = opened();
       store.voiceLink.begin();
@@ -1047,6 +1099,35 @@ describe('TarfaStore', () => {
     sockets['wss://mac']!.deliver({ type: 'authResult', ok: true });
     store.toggleMachine('mac');
     expect(store.machines[0]?.enabled).toBe(false);
+  });
+
+  it('moveMachine reorders the machines without reconnecting any', () => {
+    const mini = { id: 'mini', name: 'Mini', addresses: ['wss://mini'], agentKey: generateAgentKeys().x25519.publicKey };
+    const { store, sockets } = build([mac, mini]);
+    store.start();
+    const macSocket = sockets['wss://mac'];
+    const miniSocket = sockets['wss://mini'];
+    store.moveMachine('mini', 0);
+    expect(store.machines.map((m) => m.id)).toEqual(['mini', 'mac']);
+    expect(sockets['wss://mac']).toBe(macSocket);
+    expect(sockets['wss://mini']).toBe(miniSocket);
+    const after = store.machines;
+    store.refreshMachines();
+    expect(store.machines).toBe(after);
+  });
+
+  // Another page context reordering the list must not rebuild this one's connections.
+  it('takes up an order changed by another page context without reconnecting', () => {
+    const mini = { id: 'mini', name: 'Mini', addresses: ['wss://mini'], agentKey: generateAgentKeys().x25519.publicKey };
+    const { store, sockets, storage } = build([mac, mini]);
+    store.start();
+    const macSocket = sockets['wss://mac'];
+    const miniSocket = sockets['wss://mini'];
+    storage.write('tarfa.machines', JSON.stringify([...store.machines].reverse()));
+    store.refreshMachines();
+    expect(store.machines.map((m) => m.id)).toEqual(['mini', 'mac']);
+    expect(sockets['wss://mac']).toBe(macSocket);
+    expect(sockets['wss://mini']).toBe(miniSocket);
   });
 
   it('toggleMachine re-enables a disabled machine and reconnects', () => {
@@ -1748,6 +1829,7 @@ describe('TarfaStore dictation', () => {
     const recorder = {
       start: () => Promise.resolve(),
       stop: () => Promise.resolve(new Blob(['x'], { type: 'audio/webm' })),
+      discard: () => undefined,
     };
     const store = new TarfaStore({ settings, manager, aggregator, recorder, transcriber, ...prompts });
     store.start();
@@ -1803,7 +1885,7 @@ describe('TarfaStore dictation', () => {
   });
 });
 
-describe('TarfaStore update banner', () => {
+describe('TarfaStore update prompt', () => {
   it('starts with no update pending', () => {
     const { store } = build();
     expect(store.updateReady).toBe(false);
@@ -1822,24 +1904,6 @@ describe('TarfaStore update banner', () => {
     const { store } = build([], () => { applied += 1; });
     store.applyUpdate();
     expect(applied).toBe(1);
-  });
-
-  it('dismissUpdate hides the banner without applying', () => {
-    let applied = 0;
-    const { store } = build([], () => { applied += 1; });
-    store.notifyUpdateAvailable('feat-x');
-    store.dismissUpdate();
-    expect(store.updateReady).toBe(false);
-    expect(applied).toBe(0);
-  });
-
-  it('re-shows the banner when a later update is detected after dismiss', () => {
-    const { store } = build();
-    store.notifyUpdateAvailable('feat-x');
-    store.dismissUpdate();
-    store.notifyUpdateAvailable('feat-y');
-    expect(store.updateReady).toBe(true);
-    expect(store.incomingBuildLabel).toBe('feat-y');
   });
 
   it('setWorkspaceStatus sends setStatus for the active workspace and reflects the synced status', () => {

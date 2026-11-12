@@ -26,4 +26,10 @@ export class PresetRecorder implements AudioRecorder {
     this.recording = null;
     return recorder ? recorder.stop() : Promise.reject(new Error('not recording'));
   }
+
+  discard(): void {
+    const recorder = this.recording;
+    this.recording = null;
+    recorder?.discard();
+  }
 }

@@ -1,3 +1,4 @@
+import { moveItem } from './drag-reorder';
 import type { StoragePort } from './ports/storage';
 import { READ_ALOUD_RATES } from './read-aloud';
 import { parseReadAloudVoice, type ReadAloudVoiceChoice } from './read-aloud-voice';
@@ -78,9 +79,20 @@ export class SettingsStore {
     }
   }
 
+  // An existing id is replaced where it stands, so a re-pairing keeps the owner's order.
   add(config: MachineConfig): void {
-    const next = [...this.list().filter((m) => m.id !== config.id), config];
+    const machines = this.list();
+    const next = machines.some((m) => m.id === config.id)
+      ? machines.map((m) => (m.id === config.id ? config : m))
+      : [...machines, config];
     this.persist(next);
+  }
+
+  move(id: string, to: number): void {
+    const machines = this.list();
+    const from = machines.findIndex((m) => m.id === id);
+    if (from < 0 || to === from || to < 0 || to >= machines.length) return;
+    this.persist(moveItem(machines, from, to));
   }
 
   update(id: string, patch: { addresses: string[]; defaultPath?: string; agentKey?: string }): void {

@@ -289,7 +289,7 @@ export class TarfaStore {
   // freshly created workspace sets this; opening an existing one leaves it false so the
   // keyboard stays closed (the user is usually reading output, not typing).
   autoFocus = $state(false);
-  // A new build has been installed and is waiting; the update banner offers a reload.
+  // A new build has been installed and is waiting; the update pill offers a reload.
   // `incomingBuildLabel` is the slug of that pending build (null if it couldn't be read).
   updateReady = $state(false);
   incomingBuildLabel = $state<string | null>(null);
@@ -304,7 +304,11 @@ export class TarfaStore {
   // Called before the store types into the terminal on its own (a stored file's path, a
   // dictation transcript), so the view can drop input state that assumed it owned the line.
   onInjectedInput: (() => void) | null = null;
-  private voice: { id: string; machineId: string; outcome: Promise<void>; settled: boolean; settle: (e: Error | null) => void } | null = null;
+  // Raw state: the Cancel offer follows it, and identity comparisons need the object itself.
+  private voice = $state.raw<{ id: string; machineId: string; outcome: Promise<void>; settled: boolean; settle: (e: Error | null) => void } | null>(null);
+  // The dictation the phone threw away, until the agent answers: a cancel the agent could not make
+  // (Claude was not listening) leaves Claude typing what it heard, which the user must be told.
+  private discardedVoiceId: string | null = null;
   private voiceSeq = 0;
   // Called when the active terminal's machine recovers from a drop, so the view re-attaches
   // (clear stale rows + resend `attach`) and self-heals instead of staying frozen on the last
@@ -665,6 +669,11 @@ export class TarfaStore {
         if (this.isActive(machineId, message.workspaceId)) this.injectInput(message.path);
         return;
       case 'voiceDone': {
+        if (message.id === this.discardedVoiceId) {
+          this.discardedVoiceId = null;
+          if (!message.ok) this.actionError = message.error ?? msg().dictation.claudeVoiceFailed;
+          return;
+        }
         const voice = this.voice;
         if (voice?.id !== message.id || voice.settled) return;
         if (!message.ok) return this.failVoice(voice, message.error ?? msg().dictation.claudeVoiceFailed);
@@ -893,6 +902,7 @@ export class TarfaStore {
       const active = this.active;
       if (!active) throw new Error(msg().dictation.openWorkspaceFirst);
       this.voice?.settle(new Error(msg().dictation.superseded));
+      this.discardedVoiceId = null;
       const id = `voice-${Date.now().toString(36)}-${++this.voiceSeq}`;
       let settleOutcome!: (e: Error | null) => void;
       const outcome = new Promise<void>((resolve, reject) => (settleOutcome = (e) => (e ? reject(e) : resolve())));
@@ -914,6 +924,19 @@ export class TarfaStore {
     chunk: (pcm) => {
       const voice = this.voice;
       if (voice && !voice.settled) this.send(voice.machineId, { type: 'voiceChunk', id: voice.id, data: bytesToBase64(pcm) });
+    },
+    // The phone drops the dictation at once; whatever the agent answers about it is ignored.
+    cancel: () => {
+      const voice = this.voice;
+      if (!voice) return;
+      this.voice = null;
+      if (!voice.settled) {
+        this.send(voice.machineId, { type: 'voiceCancel', id: voice.id });
+        this.discardedVoiceId = voice.id;
+      }
+      voice.settle(null);
+      // Claude rewrites the line behind the input field's back.
+      this.onInjectedInput?.();
     },
     finish: async () => {
       const voice = this.voice;
@@ -945,6 +968,18 @@ export class TarfaStore {
   // dictation adapters aren't wired.
   toggleDictation(): Promise<void> {
     return this.speech()?.toggle() ?? Promise.resolve();
+  }
+
+  // Throw the recording away: nothing is transcribed or typed.
+  cancelDictation(): void {
+    this.stt?.cancel();
+  }
+
+  // Whether a Claude voice dictation under way can be thrown away: an agent that does not take
+  // `voiceCancel` would drop it, and Claude would type what it heard. A clip can always be.
+  get voiceCancellable(): boolean {
+    const voice = this.voice;
+    return !voice || (this.agentFeatures[voice.machineId] ?? []).includes(AGENT_FEATURES.voiceCancel);
   }
 
   // Dismiss a dictation error (the error banner's ✕), returning the mic to idle.
@@ -1582,10 +1617,6 @@ export class TarfaStore {
     this.deps.applyUpdate?.();
   }
 
-  dismissUpdate(): void {
-    this.updateReady = false;
-  }
-
   requestCreate(machineId: string, projectPath: string, command: string, remember = false): void {
     // Open the keyboard while the create tap's gesture is still live (see keyboardAnchor).
     this.keyboardAnchor?.();
@@ -1768,6 +1799,12 @@ export class TarfaStore {
   refreshMachines(): void {
     const stored = this.deps.settings.list();
     if (JSON.stringify(stored) === JSON.stringify(this.machines)) return;
+    const byId = (list: MachineConfig[]) => JSON.stringify([...list].sort((a, b) => (a.id < b.id ? -1 : 1)));
+    if (byId(stored) === byId(this.machines)) {
+      // Only reordered: the connections are keyed by id, so none needs rebuilding.
+      this.machines = stored;
+      return;
+    }
     this.machines = stored;
     this.deps.manager.setMachines(this.machines);
     this.pruneDictationKeys();
@@ -1796,6 +1833,12 @@ export class TarfaStore {
     this.deps.manager.setMachines(this.machines);
     this.pruneDictationKeys();
     this.recomputeGrace();
+  }
+
+  // Order only: the connections are keyed by id, so none is rebuilt.
+  moveMachine(id: string, to: number): void {
+    this.deps.settings.move(id, to);
+    this.machines = this.deps.settings.list();
   }
 
   toggleMachine(id: string): void {

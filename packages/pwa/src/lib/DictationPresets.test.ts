@@ -176,8 +176,10 @@ describe('DictationPresets', () => {
   it('deletes and reorders', async () => {
     const store = fakeStore();
     render(DictationPresets, { props: { store: store as never } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Move Fast up' }));
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Reorder Fast' }), { key: 'ArrowUp' });
     expect(saved(store).map((p) => p.id)).toEqual(['scribe', 'fast', 'clean']);
+    await fireEvent.click(screen.getByRole('button', { name: 'Move Scribe v2 down' }));
+    expect(saved(store).map((p) => p.id)).toEqual(['clean', 'scribe', 'fast']);
     await fireEvent.click(screen.getByRole('button', { name: 'Delete Scribe v2' }));
     expect(saved(store).map((p) => p.id)).toEqual(['clean', 'fast']);
   });

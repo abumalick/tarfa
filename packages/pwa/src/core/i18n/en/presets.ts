@@ -2,6 +2,7 @@ export const presets = {
   claudeVoiceLabel: 'Claude voice (on the machine)',
   edit: (name: string) => `Edit ${name}`,
   inUse: 'In use',
+  reorder: (name: string) => `Reorder ${name}`,
   moveUp: (name: string) => `Move ${name} up`,
   moveDown: (name: string) => `Move ${name} down`,
   delete: (name: string) => `Delete ${name}`,

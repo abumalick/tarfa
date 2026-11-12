@@ -126,6 +126,41 @@ describe('SettingsStore', () => {
     expect(store.list()[0]?.name).toBe('New');
   });
 
+  // Re-pairing a known machine goes through add: it must not undo the order the owner chose.
+  it('keeps a replaced machine in its place', () => {
+    const store = new SettingsStore(memStorage());
+    store.add({ id: 'mac', name: 'Mac', addresses: ['wss://mac/'], agentKey });
+    store.add({ id: 'mini', name: 'Mini', addresses: ['wss://mini/'], agentKey });
+    store.add({ id: 'mac', name: 'Mac 2', addresses: ['wss://mac2/'], agentKey });
+    expect(store.list().map((m) => m.name)).toEqual(['Mac 2', 'Mini']);
+  });
+
+  it('moves a machine to an index, leaving its fields alone', () => {
+    const storage = memStorage();
+    const store = new SettingsStore(storage);
+    store.add({ id: 'a', name: 'A', addresses: ['wss://a/'], agentKey, enabled: false, pairing: 'secret' });
+    store.add({ id: 'b', name: 'B', addresses: ['wss://b/'], agentKey });
+    store.add({ id: 'c', name: 'C', addresses: ['wss://c/'], agentKey });
+    store.move('a', 1);
+    expect(store.list().map((m) => m.id)).toEqual(['b', 'a', 'c']);
+    expect(store.list()[1]).toEqual({ id: 'a', name: 'A', addresses: ['wss://a/'], agentKey, enabled: false, pairing: 'secret' });
+    store.move('c', 1);
+    expect(new SettingsStore(storage).list().map((m) => m.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('does not move a machine past either end, nor an unknown one', () => {
+    const storage = memStorage();
+    const store = new SettingsStore(storage);
+    store.add({ id: 'a', name: 'A', addresses: ['wss://a/'], agentKey });
+    store.add({ id: 'b', name: 'B', addresses: ['wss://b/'], agentKey });
+    const before = storage.read('tarfa.machines');
+    store.move('a', -1);
+    store.move('b', 2);
+    store.move('b', 1);
+    store.move('ghost', 0);
+    expect(storage.read('tarfa.machines')).toBe(before);
+  });
+
   it('updates the addresses of an existing machine, preserving id, name and key', () => {
     const store = new SettingsStore(memStorage());
     store.add({ id: 'mac', name: 'MacBook', addresses: ['wss://old/'], agentKey });

@@ -9,6 +9,8 @@
   import { addressHost } from '../core/machine-addresses';
   import PairMachine from './PairMachine.svelte';
   import LegalLinks from './LegalLinks.svelte';
+  import DragHandle from './DragHandle.svelte';
+  import { sortable } from './sortable';
   import MachineDetail from './MachineDetail.svelte';
   import DictationPresets from './DictationPresets.svelte';
   import ReadAloudVoices from './ReadAloudVoices.svelte';
@@ -62,6 +64,8 @@
   const openMachine = $derived(store.machines.find((m) => m.id === openId) ?? null);
 
 
+  const canReorder = $derived(store.machines.length > 1);
+
   let addOpen = $state(false);
   const showAdd = $derived(addOpen || store.machines.length === 0);
 
@@ -105,11 +109,21 @@
     {/if}
 
     <p class="group">{msg().settings.machines}</p>
-    <ul class="card list">
-      {#each store.machines as machine (machine.id)}
+    <ul class="card list" use:sortable={{ onMove: (from, to) => store.moveMachine(store.machines[from]!.id, to) }}>
+      {#each store.machines as machine, index (machine.id)}
         {@const { shown, err } = statusOf(machine)}
-        <li>
-            <div class="row">
+        <li data-sort-row>
+            <div class="row" class:sortable={canReorder}>
+              {#if canReorder}
+                <DragHandle
+                  label={msg().settings.reorderMachine(machine.name)}
+                  upLabel={msg().settings.moveMachineUp(machine.name)}
+                  downLabel={msg().settings.moveMachineDown(machine.name)}
+                  {index}
+                  count={store.machines.length}
+                  onMove={(to) => store.moveMachine(machine.id, to)}
+                />
+              {/if}
               <button type="button" class="open" onclick={() => (openId = machine.id)}>
                 <span class="dot" aria-hidden="true"><StatusDot status={shown} /></span>
                 <span class="text">
@@ -271,6 +285,10 @@
     text-transform: uppercase;
     color: var(--text-dim);
   }
+  .list li:global([data-dragging]) { background: var(--surface-press); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); }
+  .list .row.sortable { gap: 0; }
+  .list .row.sortable .open { padding-left: 0.1rem; }
+  .list .row.sortable .switch { margin-left: 0.6rem; }
   .card {
     margin: 0;
     padding: 0.75rem 0.9rem;

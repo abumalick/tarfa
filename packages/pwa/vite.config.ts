@@ -111,7 +111,7 @@ export default defineConfig({
     emitLegalPages(),
     VitePWA({
       // 'prompt', not 'autoUpdate': the new worker waits instead of reloading on its own.
-      // main.ts surfaces a banner and reloads only on the user's tap (see UpdateBanner).
+      // main.ts surfaces an update pill in the list and terminal headers and reloads only on the user's tap (see UpdatePill).
       registerType: 'prompt',
       // We register the SW ourselves in main.ts so we can poll for updates
       // (detect a new build in an OPEN app, not just on next launch).
