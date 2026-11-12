@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeHtml, readOperator, renderLegalPage, type Operator } from './legal-pages';
+import { escapeHtml, LEGAL_CSP, readOperator, renderLegalPage, type Operator } from './legal-pages';
 
 const op: Operator = { name: 'Jane Doe', email: 'privacy@example.org', law: 'Examplestan' };
 
@@ -46,6 +46,15 @@ describe('renderLegalPage', () => {
 
   it.each(['terms', 'privacy'] as const)('%s runs no script', (page) => {
     expect(renderLegalPage(page, op)).not.toMatch(/<script|\son\w+=|javascript:/i);
+  });
+
+  it.each(['terms', 'privacy'] as const)('%s refuses any script, including one the host injects', (page) => {
+    const html = renderLegalPage(page, op);
+    expect(LEGAL_CSP).toMatch(/default-src 'none'/);
+    expect(LEGAL_CSP).not.toMatch(/script-src/);
+    const meta = html.indexOf(`<meta http-equiv="Content-Security-Policy" content="${LEGAL_CSP}">`);
+    expect(meta).toBeGreaterThan(-1);
+    expect(meta).toBeLessThan(html.indexOf('<style>'));
   });
 
   it('escapes what the operator settings carry', () => {

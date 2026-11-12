@@ -136,13 +136,17 @@ ${controller}
 
 const TITLES: Record<LegalPage, string> = { terms: 'Terms of use', privacy: 'Privacy notice' };
 
-// No script: this origin holds every phone's device keys. The inline style is allowed by the CSP.
+// No script: this origin holds every phone's device keys. The policy also refuses what a host
+// injects into the HTML it serves (Cloudflare's analytics beacon), as the app's own CSP does.
+export const LEGAL_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'";
+
 export function renderLegalPage(page: LegalPage, op: Operator | null): string {
   const body = page === 'terms' ? terms(op) : privacy(op);
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${LEGAL_CSP}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tarfa · ${TITLES[page]}</title>
 <style>
