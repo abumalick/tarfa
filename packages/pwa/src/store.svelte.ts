@@ -289,7 +289,7 @@ export class TarfaStore {
   // freshly created workspace sets this; opening an existing one leaves it false so the
   // keyboard stays closed (the user is usually reading output, not typing).
   autoFocus = $state(false);
-  // A new build has been installed and is waiting; the update pill offers a reload.
+  // A new build has been installed and is waiting; the update bar offers a reload.
   // `incomingBuildLabel` is the slug of that pending build (null if it couldn't be read).
   updateReady = $state(false);
   incomingBuildLabel = $state<string | null>(null);

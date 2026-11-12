@@ -327,7 +327,7 @@ rm -f "${T}/spend"
 sbb rebuild --worktree "${WT}" --pwa > /dev/null
 PWAP="$(jq -r .ports.pwa "${M}")"
 check "rebuild --pwa reloads the browser" "yes" "$(has "agent-browser --session ${SESSION} open http://127.0.0.1:${PWAP}/" "${CALLS}")"
-check "and taps the update pill" "yes" "$(grep -q '^agent-browser .* eval .*button\.update' "${CALLS}" && echo yes || echo no)"
+check "and taps the update bar" "yes" "$(grep -q '^agent-browser .* eval .*button\.update' "${CALLS}" && echo yes || echo no)"
 : > "${CALLS}"
 sbb down --worktree "${WT}" > /dev/null
 check "down closes the browser" "yes" "$(has "agent-browser --session ${SESSION} close" "${CALLS}")"

@@ -18,7 +18,7 @@
   import WorkspaceMenu from './WorkspaceMenu.svelte';
   import SharedFileConfirm from './SharedFileConfirm.svelte';
   import CopyOffer from './CopyOffer.svelte';
-  import UpdatePill from './UpdatePill.svelte';
+  import UpdateBar from './UpdateBar.svelte';
   import ReadAloudPlayer from './ReadAloudPlayer.svelte';
   import { READ_ALOUD_BADGES, elevenLabsVoice } from '../core/read-aloud-voice';
   import VoiceHelp from './VoiceHelp.svelte';
@@ -448,7 +448,6 @@
     <button type="button" class="icon" aria-label={msg().terminal.back} onclick={() => store.back()}>‹</button>
     <span class="title">
       <span class="project-line">
-        {#if !wide}<UpdatePill {store} />{/if}
         <span class="project" data-testid="header-project">{projectLabel}</span>
         {#if showMachine && activeMachine?.name}
           <span class="machine" data-testid="header-machine">{activeMachine.name}</span>
@@ -482,6 +481,9 @@
     <CopyOffer text={copyOffer} onCopy={acceptCopyOffer} onDismiss={() => (copyOffer = null)} />
   {/if}
   <div class="term" class:android={androidDevice} class:selecting={selectMode} bind:this={container}>
+    <!-- Over the terminal's top, never in the header or in the flow: the header keeps its buttons
+         and the terminal keeps its size. A wide screen shows it in the sidebar instead. -->
+    {#if !wide && store.updateReady}<div class="update-overlay"><UpdateBar {store} /></div>{/if}
     {#if snapshot}
       <div
         class="snapshot"
@@ -643,8 +645,6 @@
   header button.icon:disabled { opacity: 0.4; }
   .title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
   .project-line { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
-  /* Line height, so a pending update never makes the header taller and steals terminal rows. */
-  .project-line :global(button.update) { height: 18px; padding: 0 0.45rem; font-size: 0.7rem; }
   .project { min-width: 0; color: var(--text-dim); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .machine {
     flex: 0 0 auto;
@@ -677,6 +677,7 @@
     -webkit-touch-callout: none;
   }
   .term.selecting { touch-action: auto; -webkit-touch-callout: default; }
+  .update-overlay { position: absolute; top: 0.5rem; left: 0.5rem; right: 0.5rem; z-index: 10; }
   /* Drawn inside xterm's screen, under its helper layers and under select mode's snapshot. */
   .term :global(.workspace-id-underlines) { position: absolute; inset: 0; pointer-events: none; }
   .term :global(.workspace-id-underlines > div) { position: absolute; height: 1px; background: rgba(255, 255, 255, 0.7); }

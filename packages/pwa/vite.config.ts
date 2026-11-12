@@ -95,7 +95,7 @@ export default defineConfig({
     emitHeadersFile(),
     VitePWA({
       // 'prompt', not 'autoUpdate': the new worker waits instead of reloading on its own.
-      // main.ts surfaces an update pill in the list and terminal headers and reloads only on the user's tap (see UpdatePill).
+      // main.ts surfaces an update bar above the list's title and over the terminal's top, and reloads only on the user's tap (see UpdateBar).
       registerType: 'prompt',
       // We register the SW ourselves in main.ts so we can poll for updates
       // (detect a new build in an OPEN app, not just on next launch).

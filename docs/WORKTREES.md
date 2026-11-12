@@ -85,7 +85,7 @@ replacing production), temporarily point the live deploy at it:
 
 ```sh
 pnpm serve:build .worktrees/<feature>   # build it and serve it at the live origin
-# … test on the phone; the installed PWA offers the update within ~60s (tap its update pill) …
+# … test on the phone; the installed PWA offers the update within ~60s (tap its update bar) …
 pnpm serve:restore                      # point back at main's build
 ```
 
