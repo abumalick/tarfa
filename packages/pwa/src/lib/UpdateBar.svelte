@@ -21,8 +21,10 @@
 {/if}
 
 <style>
+  /* Wraps the button under the message where the message would not fit beside it (a 240px sidebar). */
   .bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
     padding: 0.4rem 0.4rem 0.4rem 0.75rem;
@@ -32,9 +34,10 @@
     color: #eee;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   }
-  .msg { flex: 1; min-width: 0; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .msg { flex: 1 1 9rem; min-width: 0; font-size: 0.9rem; overflow-wrap: break-word; }
   .update {
     flex: 0 0 auto;
+    margin-left: auto;
     min-height: 36px;
     padding: 0 0.9rem;
     border: 0;

@@ -436,7 +436,7 @@
 <style>
   header { display: flex; justify-content: space-between; align-items: center; }
   /* Above the title and stuck to the top while the list scrolls, so it stays in view. */
-  .update-sticky { position: sticky; top: env(safe-area-inset-top); z-index: 5; padding-top: 0.5rem; }
+  .update-sticky { position: sticky; top: env(safe-area-inset-top); z-index: 5; padding-top: 0.5rem; background: var(--bg); }
   h1 { font-size: 1.5rem; }
   .build-badge {
     font-size: 0.7rem;
