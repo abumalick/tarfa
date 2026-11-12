@@ -98,7 +98,7 @@ function privacy(op: Operator | null): string {
 <h1>Privacy notice</h1>
 <p class="updated">Last updated ${LEGAL_UPDATED}</p>
 ${controller}
-<p><strong>In short:</strong> the app has no accounts, no cookies, no analytics and no advertising. We keep no data about you on a server. What you enter stays on your device and goes only to the machines you pair it with, and to the dictation or read-aloud provider you choose (section 4).</p>
+<p><strong>In short:</strong> the app has no accounts, no cookies, no analytics and no advertising. We keep no data about you on a server, except what you send us by email. What you enter stays on your device and goes only to the machines you pair it with, and to the dictation or read-aloud provider you choose (section 4).</p>
 
 <h2>1. What the host processes</h2>
 <p>The app is a set of static files served by Cloudflare. To deliver them and protect the site, Cloudflare processes technical data about each request: your IP address, the address requested, your browser’s user agent and the time. Your browser may also send Cloudflare network error reports, which carry no content. We do not use this data to identify you or to build a profile. Cloudflare may process it outside your country, including in the United States, under its <a href="https://www.cloudflare.com/privacypolicy/">privacy policy</a>.</p>
@@ -119,7 +119,7 @@ ${controller}
 <p>The processing in section 1 is necessary to deliver the app you ask for, and serves our legitimate interest in keeping it secure and available.</p>
 
 <h2>7. How long it is kept</h2>
-<p>We store nothing. Cloudflare keeps its request logs for a limited time under its own policy. The data on your device stays until you remove a machine or clear the app’s storage; clearing it also deletes this device’s keys, and you will have to pair your machines again.</p>
+<p>Apart from messages you send us, we store nothing: if you write to us, we receive your email address and message through our email providers and keep them as long as we need to answer you. Cloudflare keeps its request logs for a limited time under its own policy. The data on your device stays until you remove a machine or clear the app’s storage; clearing it also deletes this device’s keys, and you will have to pair your machines again.</p>
 
 <h2>8. Your rights</h2>
 <p>Depending on where you live, for example under Saudi Arabia’s Personal Data Protection Law or the EU’s General Data Protection Regulation, you may have the right to be informed about, access, correct or delete your personal data, to object to its processing, and to complain to your data protection authority. To exercise them, or for any question, ${write}</p>
