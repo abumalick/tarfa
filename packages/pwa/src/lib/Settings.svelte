@@ -109,7 +109,7 @@
     <div class="group-row">
       <p class="group">{msg().settings.machines}</p>
       {#if canReorder}
-        <button type="button" class="group-action" aria-pressed={reordering} onclick={() => (reordering = !reordering)}>
+        <button type="button" class="group-action" onclick={() => (reordering = !reordering)}>
           {reordering ? msg().settings.reorderDone : msg().settings.reorderMachines}
         </button>
       {/if}

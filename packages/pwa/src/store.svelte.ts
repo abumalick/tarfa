@@ -1768,6 +1768,12 @@ export class TarfaStore {
   refreshMachines(): void {
     const stored = this.deps.settings.list();
     if (JSON.stringify(stored) === JSON.stringify(this.machines)) return;
+    const byId = (list: MachineConfig[]) => JSON.stringify([...list].sort((a, b) => (a.id < b.id ? -1 : 1)));
+    if (byId(stored) === byId(this.machines)) {
+      // Only reordered: the connections are keyed by id, so none needs rebuilding.
+      this.machines = stored;
+      return;
+    }
     this.machines = stored;
     this.deps.manager.setMachines(this.machines);
     this.pruneDictationKeys();

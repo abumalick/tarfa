@@ -1064,6 +1064,20 @@ describe('TarfaStore', () => {
     expect(store.machines).toBe(after);
   });
 
+  // Another page context reordering the list must not rebuild this one's connections.
+  it('takes up an order changed by another page context without reconnecting', () => {
+    const mini = { id: 'mini', name: 'Mini', addresses: ['wss://mini'], agentKey: generateAgentKeys().x25519.publicKey };
+    const { store, sockets, storage } = build([mac, mini]);
+    store.start();
+    const macSocket = sockets['wss://mac'];
+    const miniSocket = sockets['wss://mini'];
+    storage.write('tarfa.machines', JSON.stringify([...store.machines].reverse()));
+    store.refreshMachines();
+    expect(store.machines.map((m) => m.id)).toEqual(['mini', 'mac']);
+    expect(sockets['wss://mac']).toBe(macSocket);
+    expect(sockets['wss://mini']).toBe(miniSocket);
+  });
+
   it('toggleMachine re-enables a disabled machine and reconnects', () => {
     const { store, sockets } = build([{ ...mac, enabled: false }]);
     store.start();
