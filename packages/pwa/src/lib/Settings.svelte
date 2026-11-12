@@ -8,6 +8,7 @@
   import { inputLog, type InputLogRecord } from '../core/terminal-input-log';
   import { addressHost } from '../core/machine-addresses';
   import PairMachine from './PairMachine.svelte';
+  import LegalLinks from './LegalLinks.svelte';
   import DragHandle from './DragHandle.svelte';
   import { sortable } from './sortable';
   import MachineDetail from './MachineDetail.svelte';
@@ -268,6 +269,7 @@
         {/if}
       </div>
     </details>
+    <LegalLinks />
   </section>
 {/if}
 

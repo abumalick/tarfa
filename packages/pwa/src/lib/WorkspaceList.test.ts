@@ -133,6 +133,13 @@ describe('WorkspaceList', () => {
     expect(store.goSettings).toHaveBeenCalled();
   });
 
+  it('says using the app accepts its terms and privacy notice, with links to both', () => {
+    render(WorkspaceList, { props: { store: fakeStore([], [], null, 'add-machine') as never } });
+    expect(screen.getByTestId('legal-accept')).toHaveTextContent(/by using tarfa you accept/i);
+    expect(screen.getByRole('link', { name: 'Terms of use' })).toHaveAttribute('href', '/terms');
+    expect(screen.getByRole('link', { name: 'Privacy notice' })).toHaveAttribute('href', '/privacy');
+  });
+
   it('shows a loading screen while connecting', () => {
     render(WorkspaceList, { props: { store: fakeStore([], [], null, 'connecting') as never } });
     expect(screen.getByTestId('home-connecting')).toBeInTheDocument();

@@ -59,7 +59,8 @@ the phone's device key, and streams its terminals. No agent listens off loopback
   The language follows the phone (`navigator.languages`), unless Settings → Language pins one
   (`tarfa.language`); `main.ts` applies it before the pairing prompt. Not translated: what the
   agent sends, commands inside messages, key caps, model and provider names, the default
-  dictation presets, and anything that only reaches a log. Connection diagnostics stay English
+  dictation presets, the body of the `/terms` and `/privacy` pages (one authoritative English
+  text; their link labels are translated), and anything that only reaches a log. Connection diagnostics stay English
   at the source (the connection log keeps them) and are worded at display
   (`lib/machine-status.ts`).
 
@@ -326,6 +327,11 @@ See `docs/DEPLOY.md` for the full runbook. In short:
   production included, builds into `.tmp/pwa-deploy-dist` and deploys that, never main's `dist`,
   which the staging PWA serves with its own name and icon; `--dry-run` does not combine with `--dev`. The account is
   `CLOUDFLARE_ACCOUNT_ID` in main's gitignored `deploy/pwa-deploy.env` (or `--env-file`), with `PWA_DEPLOY_TOKEN_CMD` printing the scoped API token wrangler gets (never a wrangler login).
+  **The build also emits `/terms` and `/privacy`** (`core/legal-pages.ts`, script-free, precached by
+  the service worker), linked from the first-run screen (whose line says using the app accepts them)
+  and Settings. The repo's text names no operator: the name, contact and governing law come from
+  `TARFA_OPERATOR_*` in the env file at build, HTML-escaped, so a self-hoster's copy names its own;
+  a production deploy and `--dry-run` refuse without them. Keep personal names out of the repo.
   **Its storage keys are `tarfa.*`** (localStorage), `tarfa-device` (IndexedDB) and
   `tarfa-shared` (Cache Storage): it reads nothing an older build stored and needs no migration.
 - The tailnet origin is the **staging PWA** for worktree tests: it is built and served on the

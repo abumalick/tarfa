@@ -56,6 +56,17 @@ fetch_token() {
   token="$(bash -c "$token_cmd")" || { echo "PWA_DEPLOY_TOKEN_CMD failed: no token, nothing deployed" >&2; exit 1; }
   [ -n "$token" ] || { echo "PWA_DEPLOY_TOKEN_CMD printed nothing: no token, nothing deployed" >&2; exit 1; }
 }
+# Who operates this copy, for the terms and privacy pages (packages/pwa/src/core/legal-pages.ts):
+# read from the file alone, so a variable left in the caller's shell never names the operator.
+operator_var() { ( unset TARFA_OPERATOR_NAME TARFA_OPERATOR_EMAIL TARFA_OPERATOR_LAW; . "$env_file" >/dev/null && printf '%s' "${!1:-}" ); }
+operator_name="$(operator_var TARFA_OPERATOR_NAME)"
+operator_email="$(operator_var TARFA_OPERATOR_EMAIL)"
+operator_law="$(operator_var TARFA_OPERATOR_LAW)"
+# A production build without them would publish terms and a privacy notice that name nobody.
+require_operator() {
+  [ -n "$operator_name" ] && [ -n "$operator_email" ] && [ -n "$operator_law" ] \
+    || { echo "set TARFA_OPERATOR_NAME, TARFA_OPERATOR_EMAIL and TARFA_OPERATOR_LAW in $env_file: the terms and privacy pages name the operator" >&2; exit 1; }
+}
 # Wrangler with the token in its own environment only; the build and git never see it.
 wrangler() { CLOUDFLARE_API_TOKEN="$token" pnpm exec wrangler "$@"; }
 
@@ -79,10 +90,12 @@ if [ "$production" = 1 ]; then
     || { echo "refusing to deploy: could not fetch $upstream to compare main with" >&2; exit 1; }
   [ "$(git -C "$root" rev-parse HEAD)" = "$(git -C "$root" rev-parse "refs/remotes/$upstream")" ] \
     || { echo "refusing to deploy: main is not $upstream (push or pull first)" >&2; exit 1; }
+  require_operator
   fetch_token
   (cd "$root" && pnpm install --frozen-lockfile) || { echo "refusing to deploy: pnpm install --frozen-lockfile failed" >&2; exit 1; }
 fi
 # A dry run reaches no account, so it needs no token.
+[ "$dry_run" = 0 ] || require_operator
 [ "$dev" = 0 ] || fetch_token
 
 # The build's id names the commit and the time, so the check below can tell this build from the
@@ -96,7 +109,8 @@ flavor=production
 out="$root/.tmp/pwa-deploy-dist"
 assets=(--assets "$out")
 build=(pnpm --filter @tarfa/pwa build --outDir "$out" --emptyOutDir)
-(cd "$root" && TARFA_APP_FLAVOR="$flavor" TARFA_BUILD_LABEL="$label" TARFA_BUILD_ID="$build_id" "${build[@]}")
+(cd "$root" && TARFA_APP_FLAVOR="$flavor" TARFA_BUILD_LABEL="$label" TARFA_BUILD_ID="$build_id" \
+  TARFA_OPERATOR_NAME="$operator_name" TARFA_OPERATOR_EMAIL="$operator_email" TARFA_OPERATOR_LAW="$operator_law" "${build[@]}")
 
 cd "$pwa"
 if [ "$dev" = 1 ]; then
