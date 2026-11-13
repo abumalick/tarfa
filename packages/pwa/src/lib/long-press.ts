@@ -1,5 +1,6 @@
 export const LONG_PRESS_MS = 500;
 export const LONG_PRESS_SLOP_PX = 10;
+const CLICK_AFTER_HOLD_MS = 400;
 
 // A long press on an element that also has an ordinary tap action (a list row). Holding past
 // LONG_PRESS_MS marks the element `data-held`; `onHold` runs on the release, never from the
@@ -13,6 +14,7 @@ export function longPress(node: HTMLElement, onHold: () => void) {
   let origin: { x: number; y: number } | null = null;
   let held = false;
   let swallowClick = false;
+  let swallowTimer: ReturnType<typeof setTimeout> | undefined;
 
   const hold = () => {
     timer = undefined;
@@ -37,11 +39,19 @@ export function longPress(node: HTMLElement, onHold: () => void) {
   const move = (e: PointerEvent) => {
     if (origin && Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > LONG_PRESS_SLOP_PX) cancel();
   };
+  // The hold's own click follows its release at once, and Android sends none: the swallow is
+  // short-lived, or the next Enter or TalkBack activation of the row would be eaten.
   const up = () => {
     if (!held) return cancel();
     cancel();
     swallowClick = true;
+    clearTimeout(swallowTimer);
+    swallowTimer = setTimeout(() => (swallowClick = false), CLICK_AFTER_HOLD_MS);
     handler();
+  };
+  // A mouse has no implicit capture, so a release off the row would leave it marked held.
+  const leave = (e: PointerEvent) => {
+    if (e.pointerType === 'mouse') cancel();
   };
   const click = (e: MouseEvent) => {
     if (!swallowClick) return;
@@ -64,6 +74,7 @@ export function longPress(node: HTMLElement, onHold: () => void) {
   node.addEventListener('pointermove', move);
   node.addEventListener('pointerup', up);
   node.addEventListener('pointercancel', cancel);
+  node.addEventListener('pointerleave', leave);
   node.addEventListener('click', click);
   node.addEventListener('contextmenu', contextMenu);
   return {
@@ -71,11 +82,13 @@ export function longPress(node: HTMLElement, onHold: () => void) {
       handler = next;
     },
     destroy() {
+      clearTimeout(swallowTimer);
       cancel();
       node.removeEventListener('pointerdown', down);
       node.removeEventListener('pointermove', move);
       node.removeEventListener('pointerup', up);
       node.removeEventListener('pointercancel', cancel);
+      node.removeEventListener('pointerleave', leave);
       node.removeEventListener('click', click);
       node.removeEventListener('contextmenu', contextMenu);
     },

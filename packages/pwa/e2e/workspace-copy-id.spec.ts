@@ -33,6 +33,8 @@ test('a long press on a workspace copies its id and leaves the list open', async
 
   await expect(page.getByTestId('copy-id-notice')).toHaveText('Copied perch-demo');
   expect(await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied)).toEqual(['perch-demo']);
-  await expect(page.locator('.xterm')).toHaveCount(0);
+  // An open marks the row current at once; give a swallowed click time to have gone through.
+  await page.waitForTimeout(300);
+  await expect(row).not.toHaveAttribute('aria-current', 'true');
   await expect(row).toBeVisible();
 });

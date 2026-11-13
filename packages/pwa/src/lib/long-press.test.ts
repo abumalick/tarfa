@@ -90,4 +90,13 @@ describe('longPress', () => {
     pointer(node, 'click');
     expect(onClick).toHaveBeenCalledOnce();
   });
+
+  it('lets a later keyboard click through when the hold sent no click (Android)', () => {
+    pointer(node, 'pointerdown');
+    vi.advanceTimersByTime(LONG_PRESS_MS);
+    pointer(node, 'pointerup');
+    vi.advanceTimersByTime(1000);
+    pointer(node, 'click');
+    expect(onClick).toHaveBeenCalledOnce();
+  });
 });
