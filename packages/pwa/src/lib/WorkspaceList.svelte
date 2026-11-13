@@ -21,6 +21,7 @@
   import { risers, urgency, type Ranked } from '../core/risers';
   import { statusAge } from '../core/status-age';
   import { msg } from '../i18n.svelte';
+  import { longPress } from './long-press';
 
   const AGE_TICK_MS = 30_000;
 
@@ -155,6 +156,31 @@
   $effect(() => () => riseTimers.forEach(clearTimeout));
   const expanded = (ws: Workspace) => store.expandedParents.has(rowKey(ws));
 
+  // A long press copies the workspace's id. The write is started synchronously inside the
+  // release (see longPress); where the browser refuses it anyway, the notice becomes a button
+  // whose own tap copies.
+  const COPY_NOTICE_MS = 2000;
+  let copyNotice = $state<{ id: string; copied: boolean } | null>(null);
+  let copyNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+  const showCopyNotice = (id: string, copied: boolean) => {
+    copyNotice = { id, copied };
+    clearTimeout(copyNoticeTimer);
+    copyNoticeTimer = setTimeout(() => (copyNotice = null), copied ? COPY_NOTICE_MS : 3 * COPY_NOTICE_MS);
+  };
+  const copyId = (id: string) => {
+    let write: Promise<void>;
+    try {
+      write = navigator.clipboard.writeText(id);
+    } catch {
+      write = Promise.reject();
+    }
+    write.then(
+      () => showCopyNotice(id, true),
+      () => showCopyNotice(id, false),
+    );
+  };
+  $effect(() => () => clearTimeout(copyNoticeTimer));
+
   const toggleFolder = (key: string) => {
     const next = new Set(selected);
     if (next.has(key)) next.delete(key);
@@ -188,6 +214,7 @@
     data-status={ws.status}
     aria-current={ws.machineId === store.active?.machineId && ws.id === store.active?.id ? 'true' : undefined}
     onclick={() => store.open(ws)}
+    use:longPress={() => copyId(ws.id)}
   >
     <span class="body">
       <span class="path-line">
@@ -435,6 +462,17 @@
   {/if}
 {/if}
 
+{#if copyNotice}
+  <div class="copy-notice" role="status" data-testid="copy-id-notice">
+    {#if copyNotice.copied}
+      {msg().home.copiedId(copyNotice.id)}
+    {:else}
+      {@const id = copyNotice.id}
+      <button type="button" onclick={() => copyId(id)}>{msg().home.tapToCopyId(id)}</button>
+    {/if}
+  </div>
+{/if}
+
 <style>
   header { display: flex; justify-content: space-between; align-items: center; }
   /* Above the title and stuck to the top while the list scrolls, so it stays in view. */
@@ -536,8 +574,28 @@
     background: var(--surface);
     color: var(--text);
     touch-action: manipulation;
+    /* A long press copies the id: no text selection or iOS callout may start instead. */
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
   .row:active { background: var(--surface-press); }
+  .row:global([data-held]) { border-color: var(--accent); background: var(--surface-press); }
+  .copy-notice {
+    position: fixed;
+    left: 50%;
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 20;
+    max-width: calc(100vw - 2rem);
+    padding: 0.5rem 0.9rem;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+  .copy-notice button { all: unset; cursor: pointer; text-decoration: underline; }
   /* The currently-open workspace, highlighted so the persistent sidebar (wide layout)
      shows which session the right pane is rendering. Harmless on mobile, where the list
      is hidden while a workspace is open. */

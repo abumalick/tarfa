@@ -4,6 +4,7 @@ import { SvelteSet } from 'svelte/reactivity';
 import WorkspaceList from './WorkspaceList.svelte';
 import { deriveHomeView, type HomeView } from '../core/home-view';
 import { setLanguage } from '../i18n.svelte';
+import { LONG_PRESS_MS } from './long-press';
 
 const AGENT_KEY = 'A'.repeat(42) + 'Q';
 
@@ -766,5 +767,42 @@ describe('WorkspaceList grouped by project', () => {
     const { container } = render(WorkspaceList, { props: { store: fakeStore(list, machines) as never } });
     expect(container.querySelector('section.project')).toBeNull();
     expect(container.querySelectorAll('.path')).toHaveLength(3);
+  });
+});
+
+describe('WorkspaceList long press', () => {
+  const writeText = vi.fn<(text: string) => Promise<void>>();
+  beforeEach(() => {
+    vi.useFakeTimers();
+    writeText.mockReset();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const row = () => screen.getByRole('button', { name: /api/ });
+  const hold = async (el: Element) => {
+    el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(LONG_PRESS_MS);
+    el.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    await fireEvent.click(el);
+  };
+
+  it('copies the workspace id on release and does not open it', async () => {
+    writeText.mockResolvedValue();
+    const store = fakeStore([ws]);
+    render(WorkspaceList, { props: { store: store as never } });
+    await hold(row());
+    expect(writeText).toHaveBeenCalledWith('perch-a');
+    expect(store.open).not.toHaveBeenCalled();
+    expect(await screen.findByTestId('copy-id-notice')).toHaveTextContent('Copied perch-a');
+  });
+
+  it('offers a tap to copy when the browser refuses the write', async () => {
+    writeText.mockRejectedValueOnce(new DOMException('no gesture', 'NotAllowedError')).mockResolvedValue();
+    render(WorkspaceList, { props: { store: fakeStore([ws]) as never } });
+    await hold(row());
+    await fireEvent.click(await screen.findByRole('button', { name: 'Tap to copy perch-a' }));
+    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(await screen.findByTestId('copy-id-notice')).toHaveTextContent('Copied perch-a');
   });
 });

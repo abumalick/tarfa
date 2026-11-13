@@ -1,5 +1,7 @@
 export const home = {
   agentAddress: 'Address other Claude sessions message this one by',
+  copiedId: (id: string) => `Copied ${id}`,
+  tapToCopyId: (id: string) => `Tap to copy ${id}`,
   urgent: 'Urgent',
   timeInStatus: 'Time in this status',
   forAge: (age: string) => `for ${age}`,

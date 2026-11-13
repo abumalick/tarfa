@@ -4,6 +4,8 @@ const plural = (n: number, one: string, many: string) => (n <= 1 ? one : many);
 
 export const home: Messages['home'] = {
   agentAddress: 'Adresse par laquelle les autres sessions Claude écrivent à celle-ci',
+  copiedId: (id: string) => `${id} copié`,
+  tapToCopyId: (id: string) => `Touchez pour copier ${id}`,
   urgent: 'Urgent',
   timeInStatus: 'Temps passé dans ce statut',
   forAge: (age) => `depuis ${age}`,
