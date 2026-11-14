@@ -77,7 +77,7 @@ exec systemd-run --user --scope -q -p MemoryMax="${HEAVY_MEM:-8G}" -p MemorySwap
 
 `heavy pnpm test`, `HEAVY_MEM=12G heavy uv run train.py`: a job past its cap is killed alone, in
 under a second. Tarfa's home screen shows how much memory is left before the slowdown and before
-the kill (`CLAUDE.md`, "Machine load strip").
+the kill (`docs/MACHINE-LOAD.md`).
 
 ## 3. Toolchain
 

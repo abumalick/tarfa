@@ -265,3 +265,43 @@ unix socket path over 107 bytes and a deep `CODEX_HOME` would exceed it. The age
   daemon's `appServerVersion` differ (the CLI would open on an update chooser), creates the thread
   with the brief as its first turn (`thread/start` + `turn/start`, and a child's orchestrator
   note as `developerInstructions`), then launches exactly `codex resume <thread id>`.
+
+## Things not to simplify
+
+- **Cross-agent messaging (`tarfa send`).** `tarfa send <id> "<message>"` (or stdin) lets one
+  workspace message another on the same machine, for Claude, Codex and Pi; how it works and the
+  authority text each CLI needs are above. Things not to "simplify":
+  - **The agent delivers, not the CLI** (`POST /message`, the hooks secret, as `unpark`): one
+    process serialises deliveries and owns the sender's marks and the log.
+  - **The sender is proven, never named by the caller:** pane ancestry for Claude and Pi, and for
+    Codex `CODEX_THREAD_ID` matched to `@tarfa_codex_thread` (its tools run in the daemon's
+    sandbox, outside the pane).
+  - **Tarfa writes the header, and only the first line of the whole message grants authority**
+    (`from your ORCHESTRATOR` = the owner). Body lines that begin `[Tarfa message` or `[Perch message` (after any
+    whitespace, any case, `[` or `［`) are quoted `> `, and Claude's text has both envelope tags
+    escaped so a body cannot close its envelope or open another.
+  - **Each message carries a random `msg` id on its `from:` line:** Claude's inbox drops a body
+    equal to one the same peer sent within 30 s, and every Tarfa delivery is the same peer.
+  - **The body is inline only.** No `--file`: a path in a message is an instruction, not data.
+  - **No queue for a parked recipient:** it is refused ("run `tarfa unpark` first"), because a
+    held message would be delivered into a conversation nobody chose to reopen.
+  - **`sentDuringTool` keeps the sender's "Needs orchestrator" mark:** the send's own
+    `PostToolUse` arrives after the mark is set and would clear it. **Under Codex it holds until
+    the next `PreToolUse`,** since a `write_stdin` poll that sees an earlier command exit fires
+    that command's `PostToolUse` with no `PreToolUse`, and its payload looks like any other
+    (Codex 0.166). Claude's rule stays: any other main-loop `PostToolUse` clears it.
+    Accepted edge: a `tarfa send` run by a subagent marks the parent workspace too, since the
+    sender is proven by pane and the subagent's Bash runs in the parent's pane.
+  - **A `claude -p` or SDK run yields to an interactive session:** it registers an inbox on the
+    same pane with the same `kind`, so `inboxOf` tells them apart by `entrypoint` (`sdk-*`,
+    measured on 2.1.319). `several Claude sessions` is left for two interactive ones. The address
+    the PWA and `tarfa ls` show follows the same preference (`addressesByTmuxSession`).
+  - **A refusal that passes says `retry in a few seconds`** (several sessions, agent not running):
+    without it, senders went to Claude's `SendMessage` during an agent restart.
+  - **Codex takes messages only in workspaces made by `tarfa spawn --cli codex`:** Tarfa creates
+    the thread, records `@tarfa_codex_thread` and launches exactly `codex resume <thread id>`
+    (no `-c`, which would force an in-process thread nothing can reach). A phone-created Codex
+    keeps `--no-daemon`. Spawn refuses when the CLI and daemon versions differ.
+  - **Accepted limit: one Linux user.** A process of that user can still write an inbox socket or
+    re-parent a session; `tarfa-guard.sh` and the CLIs' reviewers refuse only the obvious routes
+    (see above).

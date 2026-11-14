@@ -101,3 +101,34 @@ Tarfa:
   directly; the browser view goes through the Tarfa agent's authenticated session.
 - Saved `--restore` states hold live session cookies. Treat `~/.agent-browser/` like a
   credential store.
+
+## Things not to simplify
+
+- **Browser-view typing reads the hidden input's text, and every key event carries `text`.**
+  Two causes made soft-keyboard typing in the browser view do nothing. The PWA forwarded only
+  the hidden input's `keydown`, and an Android keyboard's is `Unidentified` (229) with the text
+  delivered as a field edit; so `lib/browser-typing.ts` lets the browser apply each edit and
+  sends `editMessages(sent, field)` (backspace to the common prefix, type the tail, per code
+  point), like the terminal's Android adapter. Only keys that edit nothing go from `keydown`
+  (Enter, Tab, arrows, Escape, Ctrl/Meta shortcuts, Backspace on an empty field); the field
+  starts over on those, a page tap, the keyboard bar and blur. And agent-browser's stream
+  (0.31.1) **silently drops an `input_keyboard` with no `text` field**, while Chrome acts on a
+  named key only with `windowsVirtualKeyCode` (a Backspace without it fires a keydown and
+  deletes nothing) and submits a form on Enter only with `text: '\r'`; so the keyboard bar's
+  keys never worked either. `keyMessages` always sets `text` and the virtual key code; measured
+  against a live session's stream socket, not assumed. The agent forwards the message verbatim.
+- **Every browser command replays the launch env of the session it targets.** agent-browser
+  (0.31.1) relaunches a session's browser when a command's launch config differs from the one
+  that created it (headed, profile, executable, args, init scripts, proxy, user agent…), and
+  restarts its daemon when the idle timeout or a policy differs. A session started on a
+  persistent profile, headed under Xvfb (Google/Shopify/Cloudflare logins), came back as a
+  profile-less `about:blank` on the first Tarfa command, so opening the viewer (it sends
+  `set viewport`) logged it out. The CLI hands each setting to the daemon it spawns as an
+  `AGENT_BROWSER_*` variable, so `procSessionLaunchEnv` reads `<session>.pid` →
+  `/proc/<pid>/environ` (only when it says `AGENT_BROWSER_DAEMON=1` and names that session)
+  and `execFileRunner` **replaces** the agent's inherited `AGENT_BROWSER_*` with it, plus
+  `DISPLAY`: extending would keep a variable the session was created without (the service
+  inherits an idle timeout and init scripts from the user's environment). Plumbing
+  (`_DAEMON`, `_SESSION`, `_STREAM_PORT`, `_NAMESPACE`, `_SOCKET_DIR`) is never replayed;
+  `_DAEMON` would make the CLI run as a daemon. With nothing to read (Tarfa's own `start`,
+  macOS) the inherited env is kept, and Tarfa never imposes a setting of its own.

@@ -3,7 +3,7 @@
 Can a phone on the same Wi-Fi as an agent connect to it directly, without Tailscale? This note
 answers that from the browsers' rules and the agent's own code. Sources were read on 2026-11-10.
 Each claim says whether it is **documented** (a cited source), **in the code** (this repository),
-**measured** (by this project, see CLAUDE.md) or **unmeasured**.
+**measured** (by this project, see `docs/PWA-HOSTING.md`) or **unmeasured**.
 
 ## Verdict: document only, build nothing
 
@@ -32,7 +32,7 @@ All documented. Tarfa refuses `ws://` to anything but loopback whatever the brow
 `isMachineUrl` (`packages/secure-channel/src/pairing-link.ts`), `tarfa setup --address` and the
 PWA's CSP `connect-src` (`packages/pwa/src/core/csp.ts`). In the code. Allowing it would mean
 changing all three plus the agent's bind, for Android Chrome alone, so it is not worth it. Android
-Chrome already asks this prompt for tailnet addresses (CLAUDE.md; measured), and would ask it the
+Chrome already asks this prompt for tailnet addresses (`docs/PWA-HOSTING.md`; measured), and would ask it the
 same way for a LAN address.
 
 ### `wss://`: which certificate
@@ -57,7 +57,7 @@ DNS (Android) or iCloud Private Relay may not ask the router at all. Unmeasured.
 
 Nothing in Tarfa limits where an address points. `TARFA_PHONE_ADDRESSES` takes up to four
 `wss://host[:port][/slug]` entries, `tarfa pair` puts them all in the link, and the phone tries them
-in order (CLAUDE.md, "The PWA connects to each agent directly"). In the code. A LAN address is one
+in order (`docs/CONNECTIONS.md`). In the code. A LAN address is one
 more entry. For example, with Caddy (built with a DNS provider module for the DNS-01 challenge) on
 the agent's own machine:
 
@@ -127,8 +127,8 @@ Whether it comes through a proxy as above or through the agent bound to the LAN,
 open sockets to the phone port. So can any web page a LAN browser loads, subject to the prompts
 above: a WebSocket is not bound by the same-origin policy, and the agent checks no `Origin`. That
 costs nothing, because authentication is the Noise session, and a non-browser client can forge
-`Origin` anyway. What the peer gets (in the code; CLAUDE.md, "The phone port" and "Device keys,
-enrolment and pairing"):
+`Origin` anyway. What the peer gets (in the code; `docs/CONNECTIONS.md` and
+`docs/DEVICE-KEYS.md`):
 - **Nothing readable or forgeable.** IK needs the agent's static key, and an unknown device key
   may send `auth` and nothing else. It is enrolled only with a live one-time `tarfa pair` code, and
   only while enrolment is `open`. Passive sniffing sees ciphertext.
@@ -146,8 +146,7 @@ enrolment and pairing"):
 **DNS rebinding.** There are two separate issues. (1) *Availability:* router rebinding protection
 dropping the LAN name (above). (2) *Attack:* a hostile page rebinds its own name to the agent's
 address. That gains nothing a direct WebSocket does not already give it, and the hooks port, the
-only one with bearer-token routes, stays on loopback and is never proxied (CLAUDE.md, "The phone
-port").
+only one with bearer-token routes, stays on loopback and is never proxied (`docs/AGENT-RUNTIME.md`).
 
 ## Sources (read 2026-11-10)
 - [chrome-lna-guide]: Chrome, "Local Network Access" developer guide (undated).

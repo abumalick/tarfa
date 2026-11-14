@@ -297,7 +297,7 @@ phone at its next connect, with no restart. Rules the phone follows:
 - The phone keeps the key in memory for the session and never writes it to storage, and the
   machine's page shows only whether a key is set. A phone that is lost or revoked may still hold
   a key it already fetched, and anything served from the PWA's origin can read it (see
-  `CLAUDE.md`, "the PWA's origin"). The remedy is to rotate the key at the provider, then set the
+  `docs/PWA-HOSTING.md`). The remedy is to rotate the key at the provider, then set the
   new one.
 - An agent from before phones could set a key (no `setDictationKey` feature) still hands out what
   `tarfa dictation-key` stored; its machine page asks for an agent update instead of offering a

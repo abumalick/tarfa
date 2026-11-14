@@ -9,22 +9,24 @@ listens off loopback.
 ## Instruction sources
 
 This is Codex's repository entry point (`AGENTS.md`, plural). It adapts the shared
-working rules from [CLAUDE.md](CLAUDE.md). That file remains the detailed architecture,
-deployment, and regression reference for both clients. Read its relevant sections
-before changing a subsystem; search by symbol or topic rather than loading all 84 KB.
+working rules from [CLAUDE.md](CLAUDE.md). That file is the entry point for both clients; the per-subsystem architecture, deployment
+and regression decisions live in the `docs/*.md` files its "Subsystem docs" section indexes. Read the matching one before
+changing a subsystem.
 Keep shared rules consistent when updating either guide. Codex tool and workflow
 instructions here and in `.agents/skills/` take precedence over Claude-specific
 workflow instructions. References to Claude's runtime behavior describe the product;
 do not mechanically rename its commands, hooks, or protocol fields to Codex.
 
-Useful routes into `CLAUDE.md`:
+Useful routes:
 
-- **Runtime & deployment:** machine configuration, workspace lifecycle, parking,
-  resource limits, reconnect, the phone port, Noise, device keys, enrolment and pairing.
-- **CRITICAL: the PWA's origin and what it can reach:** tarfa.app, what a public origin
+- **Runtime and machines:** [agent runtime](docs/AGENT-RUNTIME.md),
+  [connections](docs/CONNECTIONS.md), [device keys and pairing](docs/DEVICE-KEYS.md),
+  [workspaces and parking](docs/WORKSPACES.md), [machine load](docs/MACHINE-LOAD.md).
+- **The PWA's origin:** [PWA hosting](docs/PWA-HOSTING.md): tarfa.app, what a public origin
   can reach, and the device-key trust that follows.
-- **Gotchas already fixed:** terminal input, mobile keyboards, browser typing,
-  schema drift, attention hooks (including Codex), media and file uploads.
+- **Regressions to avoid:** [terminal input](docs/TERMINAL-INPUT.md),
+  [attention status and hooks](docs/ATTENTION-STATUS.md) (including Codex),
+  [voice](docs/VOICE.md), [browser](docs/BROWSER.md), and `CLAUDE.md`'s "Gotchas already fixed".
 - Runbooks: [deployment](docs/DEPLOY.md), [worktrees](docs/WORKTREES.md),
   [machine setup](docs/SETUP-MACHINE.md).
 

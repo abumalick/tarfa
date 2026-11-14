@@ -46,7 +46,7 @@ against fakes, with a Playwright e2e suite driving the PWA against a fake agent.
 - `docs/BROWSER.md` — naming agent-browser sessions so Tarfa's browser view attaches them
   to a workspace.
 - `CLAUDE.md` and `.claude/skills/` — the instructions the project was built with, using
-  Claude Code as the main developer. The "Gotchas already fixed" section records the
+  Claude Code as the main developer. The topic docs it indexes (`docs/*.md`) record the
   non-obvious lessons (iOS WebKit, Android IMEs, tmux, reconnect handling).
 
 ## Security
