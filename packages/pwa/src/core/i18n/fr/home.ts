@@ -31,6 +31,8 @@ export const home: Messages['home'] = {
   createFirst: '＋ Créer votre premier espace de travail',
   hiddenByFilter: (n) => `${n} ${plural(n, 'session masquée', 'sessions masquées')} par votre filtre.`,
   showAll: 'Tout afficher',
+  workspaceCount: (shown, total) =>
+    `${shown} ${plural(shown, 'affiché', 'affichés')} sur ${total} ${plural(total, 'espace de travail', 'espaces de travail')}`,
   toggleChildren: (expanded, n) =>
     `${expanded ? 'Masquer' : 'Afficher'} ${n} ${plural(n, 'espace de travail enfant', 'espaces de travail enfants')}`,
   parked: (n) => `En veille · ${n}`,

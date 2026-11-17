@@ -281,6 +281,13 @@
     {#if isTestBuild(buildLabel)}
       <span class="build-badge" title={msg().home.testBuild}>{buildLabel}</span>
     {/if}
+    {#if store.homeView === 'list'}
+      <span
+        class="workspace-count"
+        data-testid="workspace-count"
+        aria-label={msg().home.workspaceCount(visibleWorkspaces.length, store.workspaces.length)}
+      >{visibleWorkspaces.length} / {store.workspaces.length}</span>
+    {/if}
   </h1>
   <div class="actions">
     <button type="button" class="icon" aria-label={msg().home.new} onclick={() => store.goCreate()}>＋</button>
@@ -488,6 +495,7 @@
     background: #4a3a10;
     color: #f0c040;
   }
+  .workspace-count { margin-left: 0.4rem; font-size: 0.9rem; font-weight: 400; color: var(--text-dim); }
   .actions { display: flex; gap: 0.5rem; }
   .actions button.icon {
     width: 44px;

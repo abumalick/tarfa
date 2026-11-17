@@ -353,6 +353,28 @@ describe('WorkspaceList', () => {
     expect(container.querySelectorAll('.row')).toHaveLength(1);
   });
 
+  it('counts the workspaces the filter shows out of all of them, by the title', () => {
+    const wsWeb = { ...ws, id: 'perch-b', name: 'web', projectPath: '/home/u/workspace/web' };
+    const wsParked = { ...wsWeb, id: 'perch-c', status: 'parked' };
+    const store = fakeStore([ws, wsWeb, wsParked], [{ id: 'mac', name: 'Mac' }], null, undefined, [
+      '/home/u/workspace/web',
+    ]);
+    render(WorkspaceList, { props: { store: store as never } });
+    const count = screen.getByTestId('workspace-count');
+    expect(count).toHaveTextContent('2 / 3');
+    expect(count).toHaveAttribute('aria-label', '2 of 3 workspaces shown');
+  });
+
+  it('counts every workspace when no filter is set', () => {
+    render(WorkspaceList, { props: { store: fakeStore([ws, wsUbuntu]) as never } });
+    expect(screen.getByTestId('workspace-count')).toHaveTextContent('2 / 2');
+  });
+
+  it('shows no count when there is no list', () => {
+    render(WorkspaceList, { props: { store: fakeStore([]) as never } });
+    expect(screen.queryByTestId('workspace-count')).not.toBeInTheDocument();
+  });
+
   it('does not wipe a persisted filter while the workspace list has not loaded yet', () => {
     // Right after a reload, store.workspaces starts empty until the agent's async `list`
     // reply arrives — that must not look like "the selected folder vanished".

@@ -25,6 +25,8 @@ export const home = {
   createFirst: '＋ Create your first workspace',
   hiddenByFilter: (n: number) => `${n} session${n === 1 ? '' : 's'} hidden by your filter.`,
   showAll: 'Show all',
+  workspaceCount: (shown: number, total: number) =>
+    `${shown} of ${total} workspace${total === 1 ? '' : 's'} shown`,
   toggleChildren: (expanded: boolean, n: number) =>
     `${expanded ? 'Hide' : 'Show'} ${n} child workspace${n === 1 ? '' : 's'}`,
   parked: (n: number) => `Parked · ${n}`,
