@@ -282,11 +282,10 @@
       <span class="build-badge" title={msg().home.testBuild}>{buildLabel}</span>
     {/if}
     {#if store.homeView === 'list'}
-      <span
-        class="workspace-count"
-        data-testid="workspace-count"
-        aria-label={msg().home.workspaceCount(visibleWorkspaces.length, store.workspaces.length)}
-      >{visibleWorkspaces.length} / {store.workspaces.length}</span>
+      <span class="workspace-count" data-testid="workspace-count">
+        <span aria-hidden="true">{visibleWorkspaces.length} / {store.workspaces.length}</span>
+        <span class="sr-only">{msg().home.workspaceCount(visibleWorkspaces.length, store.workspaces.length)}</span>
+      </span>
     {/if}
   </h1>
   <div class="actions">
@@ -496,6 +495,17 @@
     color: #f0c040;
   }
   .workspace-count { margin-left: 0.4rem; font-size: 0.9rem; font-weight: 400; color: var(--text-dim); }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .actions { display: flex; gap: 0.5rem; }
   .actions button.icon {
     width: 44px;

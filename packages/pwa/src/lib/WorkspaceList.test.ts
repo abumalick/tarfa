@@ -361,13 +361,13 @@ describe('WorkspaceList', () => {
     ]);
     render(WorkspaceList, { props: { store: store as never } });
     const count = screen.getByTestId('workspace-count');
-    expect(count).toHaveTextContent('2 / 3');
-    expect(count).toHaveAttribute('aria-label', '2 of 3 workspaces shown');
+    expect(count.querySelector('[aria-hidden="true"]')).toHaveTextContent('2 / 3');
+    expect(count.querySelector('.sr-only')).toHaveTextContent('2 of 3 workspaces shown');
   });
 
   it('counts every workspace when no filter is set', () => {
     render(WorkspaceList, { props: { store: fakeStore([ws, wsUbuntu]) as never } });
-    expect(screen.getByTestId('workspace-count')).toHaveTextContent('2 / 2');
+    expect(screen.getByTestId('workspace-count').querySelector('[aria-hidden="true"]')).toHaveTextContent('2 / 2');
   });
 
   it('shows no count when there is no list', () => {
