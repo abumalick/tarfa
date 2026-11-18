@@ -33,6 +33,7 @@ describe('loadConfig', () => {
       devicesPath: '/home/u/.tarfa/devices.json',
       pairingPath: '/home/u/.tarfa/pairing.json',
       claudeSessionsDir: '/home/u/.claude/sessions',
+      claudeProjectsDir: '/home/u/.claude/projects',
       inboxDir: '/home/u/.tarfa/inbox',
       sessionPrefix: 'perch-',
       phonePort: 8797,

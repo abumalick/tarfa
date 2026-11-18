@@ -14,6 +14,7 @@ import { detectInstalled, loginShellResolver } from './infrastructure/installed-
 import { FileKeytermsStore } from './infrastructure/file-keyterms-store';
 import { FileDictationKeysStore } from './infrastructure/file-dictation-keys-store';
 import { FileClaudeSessionsStore } from './infrastructure/file-claude-sessions-store';
+import { FileTranscripts } from './infrastructure/file-transcripts';
 import { ProcSystemStats } from './infrastructure/proc-system-stats';
 import { SystemdScopeReaper } from './infrastructure/systemd-scope-reaper';
 import { FileClientLogStore } from './infrastructure/file-client-log-store';
@@ -138,6 +139,7 @@ export async function main(): Promise<void> {
     connectUpstream: connectBrowserUpstream,
     repoRemote: new GitRepoRemote(),
     claudeSessions,
+    transcripts: new FileTranscripts(config.claudeProjectsDir),
     scopes: new SystemdScopeReaper(),
     ...(config.stats === false ? {} : { systemStats: new ProcSystemStats() }),
     claudeVoice:

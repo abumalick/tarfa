@@ -171,7 +171,13 @@ The 🎤 presets and their keys, Claude voice on Linux, and 🔊 read-aloud with
 - **🔊 reads Claude's last reply with the phone's own voice (free), or with ElevenLabs.** The agent
   keeps each workspace's `last_assistant_message` from the `Stop`/`StopFailure` payload in memory
   (`application/last-replies.ts`, capped at 64 000 characters, dropped with the workspace's state,
-  never logged), and answers `lastReply` with it, or `null`. Claude workspaces only (`runsClaude`).
+  never logged), and answers `lastReply` with it. An agent restart empties that memory, so when it
+  holds nothing the agent reads the reply back from the transcript of the workspace's last known
+  Claude session (`~/.claude/projects/*/<claudeSessionId>.jsonl`, its last 4 MB only), taking the
+  text blocks of the last main-chain message whose `stop_reason` is `end_turn`, which is exactly
+  what the Stop hook carries (`application/transcript-reply.ts`). The fallback is read on each
+  request and never cached, so memory stays the record of the latest Stop. Otherwise it answers
+  `null`. Claude workspaces only (`runsClaude`).
   The hooks route joins a body's chunks before decoding: decoding each chunk alone broke any
   multibyte character split between two, which status never noticed and a voice reads out.
   Things not to "simplify":
