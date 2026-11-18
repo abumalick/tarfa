@@ -9,6 +9,8 @@
     ontoggle,
     onmode,
     onclear,
+    shown,
+    total,
   }: {
     folders: ProjectFolder[];
     selected: ReadonlySet<string>;
@@ -16,6 +18,8 @@
     ontoggle: (key: string) => void;
     onmode: (mode: FilterMode) => void;
     onclear: () => void;
+    shown: number;
+    total: number;
   } = $props();
 
   // Collapsed summary: no selection means the list is unfiltered in either mode; one selection
@@ -57,6 +61,7 @@
       }}
     >
       <span class="summary-text">{summary}</span>
+      <span class="count-total" data-testid="workspace-count" aria-hidden="true">{shown} / {total}</span>
       <span class="chev" aria-hidden="true">▾</span>
     </summary>
     {#if open}
@@ -94,6 +99,9 @@
       </div>
     {/if}
   </details>
+  <!-- The summary's aria-label replaces its text, so the count is spoken from here: outside
+       <details> too, which hides all but its <summary> while closed. -->
+  <span class="sr-only">{msg().home.workspaceCount(shown, total)}</span>
   <!-- Outside <details>, which hides everything but its <summary> while closed, and outside
        <summary>, whose click toggles the menu. Laid over the summary's right edge. -->
   {#if selected.size > 0}
@@ -129,6 +137,18 @@
   summary::-webkit-details-marker { display: none; }
   summary:active { background: var(--surface-press); }
   .summary-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .count-total { flex: 0 0 auto; margin-left: auto; font-weight: 400; color: var(--text-dim); }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .chev { flex: 0 0 auto; color: var(--text-dim); font-size: 0.8rem; }
   details[open] .chev { transform: rotate(180deg); }
 

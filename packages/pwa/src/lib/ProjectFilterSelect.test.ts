@@ -16,10 +16,19 @@ const props = (over: Record<string, unknown> = {}) => ({
   ontoggle: vi.fn(),
   onmode: vi.fn(),
   onclear: vi.fn(),
+  shown: 4,
+  total: 4,
   ...over,
 });
 
 describe('ProjectFilterSelect', () => {
+  it('shows the count of workspaces shown out of all, spoken as a sentence', () => {
+    render(ProjectFilterSelect, { props: props({ selected: new Set(['other']), shown: 1, total: 4 }) });
+    expect(screen.getByTestId('workspace-count')).toHaveTextContent('1 / 4');
+    expect(screen.getByTestId('workspace-count')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByText('1 of 4 workspaces shown')).toBeInTheDocument();
+  });
+
   it('shows a nested folder by its short label, indented under its parent', async () => {
     const tree: ProjectFolder[] = [
       { key: 'bar', label: 'bar', count: 2, depth: 0 },

@@ -281,12 +281,6 @@
     {#if isTestBuild(buildLabel)}
       <span class="build-badge" title={msg().home.testBuild}>{buildLabel}</span>
     {/if}
-    {#if store.homeView === 'list'}
-      <span class="workspace-count" data-testid="workspace-count">
-        <span aria-hidden="true">{visibleWorkspaces.length} / {store.workspaces.length}</span>
-        <span class="sr-only">{msg().home.workspaceCount(visibleWorkspaces.length, store.workspaces.length)}</span>
-      </span>
-    {/if}
   </h1>
   <div class="actions">
     <button type="button" class="icon" aria-label={msg().home.new} onclick={() => store.goCreate()}>＋</button>
@@ -362,6 +356,8 @@
     ontoggle={toggleFolder}
     onmode={(mode) => store.setFolderFilterMode(mode)}
     onclear={() => setSelected([])}
+    shown={visibleWorkspaces.length}
+    total={store.workspaces.length}
   />
   {#if visibleWorkspaces.length === 0}
     <!-- Reachable only in hide mode (an `only` selection always keeps at least one session,
@@ -493,18 +489,6 @@
     border-radius: 0.6rem;
     background: #4a3a10;
     color: #f0c040;
-  }
-  .workspace-count { margin-left: 0.4rem; font-size: 0.9rem; font-weight: 400; color: var(--text-dim); }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-    border: 0;
   }
   .actions { display: flex; gap: 0.5rem; }
   .actions button.icon {
