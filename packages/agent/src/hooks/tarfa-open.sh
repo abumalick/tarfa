@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # A Tarfa workspace's BROWSER: asks the phone viewing this workspace to open the page, as a card it
 # opens with one tap. Usage: tarfa-open.sh <url>. The agent writes this file at startup with its
-# hooks port in place of the placeholder below.
+# hooks port and state directory in place of the placeholders below.
 # On a refusal it exits non-zero, so the caller falls back to printing the link.
 port=__TARFA_HOOKS_PORT__
+token_file='__TARFA_STATE_DIR__/token'
 url="${1:-}"
 case "${url}" in
   http://* | https://*) ;;
@@ -21,7 +22,7 @@ thread_field=""
 # Codex under its daemon runs tools outside the pane: its thread names the workspace instead.
 [[ "${CODEX_THREAD_ID:-}" =~ ^[0-9A-Za-z-]+$ ]] && thread_field=",\"codexThread\":\"${CODEX_THREAD_ID}\""
 token=""
-[ -r "${HOME}/.tarfa/token" ] && token="$(cat "${HOME}/.tarfa/token")"
+[ -r "${token_file}" ] && token="$(cat "${token_file}")"
 # The secret goes in as a header file and the body (the URL may hold a login code) on stdin, so
 # neither shows on a command line another local user could read.
 answer="$(printf '{"pane":"%s","pid":%s,"url":"%s"%s}' "${pane}" "$$" "${url}" "${thread_field}" |

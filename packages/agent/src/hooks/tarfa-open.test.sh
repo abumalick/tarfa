@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SANDBOX="$(mktemp -d)"
 trap 'rm -rf "${SANDBOX}"' EXIT
 OPEN="${SANDBOX}/tarfa-open.sh"
-sed 's/__TARFA_HOOKS_PORT__/8799/' "${HERE}/tarfa-open.sh" > "${OPEN}"
+sed -e 's/__TARFA_HOOKS_PORT__/8799/' -e "s#__TARFA_STATE_DIR__#${SANDBOX}/.tarfa#" "${HERE}/tarfa-open.sh" > "${OPEN}"
 chmod +x "${OPEN}"
 
 BIN="${SANDBOX}/bin"

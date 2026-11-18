@@ -700,6 +700,7 @@ export class TarfaStore {
       case 'detached':
         if (this.isActive(machineId, message.workspaceId) && message.reason === 'opened-elsewhere') {
           this.terminalState = 'moved';
+          this.openRequest = null;
         }
         return;
       case 'closed':

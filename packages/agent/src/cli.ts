@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import { homedir, hostname, userInfo } from 'node:os';
-import { existsSync } from 'node:fs';
 import { readFile, mkdir, realpath } from 'node:fs/promises';
 import { dirname, join as joinPath, resolve as resolvePath } from 'node:path';
 import { installKind, isEntrypoint, packageRoot, packageVersion, type InstallKind } from './infrastructure/package-root';
@@ -23,7 +22,7 @@ import { getRecentPaths } from './application/get-recent-paths';
 import { browseDir } from './application/browse-dir';
 import { isHiddenPath } from './application/is-hidden-path';
 import { hooksFiles } from './infrastructure/hooks-files';
-import { OPEN_SCRIPT } from './infrastructure/open-script';
+import { workspaceSessionEnv } from './infrastructure/open-script';
 import { parseSetupFlags, planSetup, type PortOwner, type SetupState } from './application/setup-machine';
 import { runSetup } from './application/run-setup';
 import { runApply } from './application/apply-agent';
@@ -74,7 +73,7 @@ import type { TmuxPort } from './ports/tmux-port';
 import type { StatusStorePort } from './ports/status-store-port';
 
 function wire(config: AgentConfig) {
-  const tmux = new TmuxAdapter();
+  const tmux = new TmuxAdapter(workspaceSessionEnv(config.stateDir));
   const recent = new FileRecentStore(config.recentStorePath);
   const lister = new FsProjectLister();
   const hiddenFolders = new FileHiddenFoldersStore(config.hiddenFoldersPath);
@@ -271,9 +270,7 @@ const WAIT_USAGE = 'usage: tarfa wait <workspace id>... [--timeout <seconds, at 
 async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rename' | 'link' | 'send' | 'close' | 'wait', argv: string[], env: NodeJS.ProcessEnv, home: string, io: CliIo): Promise<string> {
   const values = await agentEnvValues(env, home).catch(() => ({}) as Record<string, string>);
   const config = loadConfig({ TARFA_MACHINE_ID: hostname().split('.')[0], ...env, ...values }, home);
-  // The agent writes the opener at startup; one that has not yet since this release leaves BROWSER unset.
-  const opener = joinPath(config.stateDir, OPEN_SCRIPT);
-  const tmux = io.tmux ?? new TmuxAdapter(existsSync(opener) ? { sessionEnv: { BROWSER: opener } } : {});
+  const tmux = io.tmux ?? new TmuxAdapter(workspaceSessionEnv(config.stateDir));
   const claudeSessions = new FileClaudeSessionsStore(config.claudeSessionsDir);
   const args = [...argv];
   const flag = (name: string) => {

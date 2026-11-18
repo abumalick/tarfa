@@ -715,6 +715,14 @@ describe('TarfaStore', () => {
       expect(sent().filter((m) => m.type === 'openUrlDone')).toEqual([]);
     });
 
+    it('drops the card when the workspace is opened on another device, which gets it instead', () => {
+      const { store, sent } = viewing();
+      store.handleMessage('mac', { type: 'openUrl', workspaceId: 'perch-a', id: '2', url: 'https://a.example/' });
+      store.handleMessage('mac', { type: 'detached', workspaceId: 'perch-a', reason: 'opened-elsewhere' });
+      expect(store.openRequest).toBeNull();
+      expect(sent().filter((m) => m.type === 'openUrlDone')).toEqual([]);
+    });
+
     it('drops the card on leaving the workspace; the agent shows it again on the next attach', () => {
       const { store, sent } = viewing();
       store.handleMessage('mac', { type: 'openUrl', workspaceId: 'perch-a', id: '2', url: 'https://a.example/' });
