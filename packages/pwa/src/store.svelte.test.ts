@@ -678,6 +678,52 @@ describe('TarfaStore', () => {
     });
   });
 
+  describe('openUrl', () => {
+    const wsA = { machineId: 'mac', id: 'perch-a', name: 'a', projectPath: '/a', command: 'claude', createdAt: 0, lastActivityAt: 0, status: 'idle' as const };
+    function viewing() {
+      const { store, sockets } = build([mac]);
+      store.start();
+      sockets['wss://mac']!.open();
+      sockets['wss://mac']!.deliver({ type: 'authResult', ok: true });
+      store.open(wsA);
+      const sent = () => sockets['wss://mac']!.sent.map((s) => JSON.parse(s) as { type: string });
+      return { store, sent };
+    }
+
+    it('holds the page the workspace on screen asked to open', () => {
+      const { store } = viewing();
+      store.handleMessage('mac', { type: 'openUrl', workspaceId: 'perch-b', id: '1', url: 'https://b.example/' });
+      expect(store.openRequest).toBeNull();
+      store.handleMessage('mac', { type: 'openUrl', workspaceId: 'perch-a', id: '2', url: 'https://a.example/' });
+      expect(store.openRequest).toEqual({ machineId: 'mac', workspaceId: 'perch-a', id: '2', url: 'https://a.example/' });
+    });
+
+    it('answers the agent and clears the card', () => {
+      const { store, sent } = viewing();
+      store.handleMessage('mac', { type: 'openUrl', workspaceId: 'perch-a', id: '2', url: 'https://a.example/' });
+      store.answerOpenRequest('2');
+      expect(store.openRequest).toBeNull();
+      expect(sent()).toContainEqual({ type: 'openUrlDone', workspaceId: 'perch-a', id: '2' });
+    });
+
+    it('does not let an answer to an older page clear a newer one', () => {
+      const { store, sent } = viewing();
+      store.handleMessage('mac', { type: 'openUrl', workspaceId: 'perch-a', id: '2', url: 'https://a.example/' });
+      store.handleMessage('mac', { type: 'openUrl', workspaceId: 'perch-a', id: '3', url: 'https://c.example/' });
+      store.answerOpenRequest('2');
+      expect(store.openRequest?.id).toBe('3');
+      expect(sent().filter((m) => m.type === 'openUrlDone')).toEqual([]);
+    });
+
+    it('drops the card on leaving the workspace; the agent shows it again on the next attach', () => {
+      const { store, sent } = viewing();
+      store.handleMessage('mac', { type: 'openUrl', workspaceId: 'perch-a', id: '2', url: 'https://a.example/' });
+      store.back();
+      expect(store.openRequest).toBeNull();
+      expect(sent().filter((m) => m.type === 'openUrlDone')).toEqual([]);
+    });
+  });
+
   it('fileStored tells the view before typing the path', () => {
     const { store, sockets } = build([mac]);
     store.start();

@@ -51,6 +51,8 @@ import type { HookEventLogPort } from '../ports/hook-event-log-port';
 import { listWorkspaces } from '../application/list-workspaces';
 import { isHiddenPath } from '../application/is-hidden-path';
 import { closeWorkspaceBrowserSessions } from '../application/close-workspace-browsers';
+import { OpenRequests, type OpenRequest } from '../application/open-requests';
+import { openUrl } from '../application/open-url';
 
 export interface WsServerDeps {
   config: AgentConfig;
@@ -157,6 +159,7 @@ export class WsServer {
   // Hooks posted by Codex thread, applied one after another in arrival order.
   private threadHooks: Promise<void> = Promise.resolve();
   private readonly lastReplies = new LastReplies();
+  private readonly openRequests = new OpenRequests();
   // The panes showing a question or menu at the last poll.
   private asking = new Set<string>();
   // The last OSC 7501 record seen per pane, so only a change is applied (applyProgramStatus).
@@ -195,6 +198,7 @@ export class WsServer {
     this.oscTurnEnded.delete(id);
     this.programSeen.delete(id);
     this.lastReplies.forget(id);
+    this.openRequests.forget(id);
   }
 
   // pollTitles logs and drops a workspace it saw go, but it runs only while a phone is connected
@@ -310,6 +314,7 @@ export class WsServer {
       broadcastClosed: (id: string) => this.broadcastClosed(id),
       messagedLast: this.messagedLast,
       lastReplies: this.lastReplies,
+      openRequests: this.openRequests,
     });
     this.handlers.add(handler);
     conn.onClose(() => {
@@ -317,12 +322,12 @@ export class WsServer {
     });
   }
 
-  // Four routes, all behind the hooks secret: `/hooks` for Claude Code's hook events; `/unpark` for
+  // Five routes, all behind the hooks secret: `/hooks` for Claude Code's hook events; `/unpark` for
   // `tarfa unpark` and `/close` for `tarfa close`, which must go through the agent because it holds
   // status.json in memory, writes parked.json itself and tells the phones; and `/message` for
-  // `tarfa send`, whose marks live here too.
+  // `tarfa send`, whose marks live here too; `/open` for tarfa-open.sh, a workspace's BROWSER.
   private handleHttp(req: IncomingMessage, res: ServerResponse): void {
-    const routes = this.deps.messaging ? ['/hooks', '/unpark', '/close', '/message'] : ['/hooks', '/unpark', '/close'];
+    const routes = this.deps.messaging ? ['/hooks', '/unpark', '/close', '/message', '/open'] : ['/hooks', '/unpark', '/close'];
     if (req.method !== 'POST' || !routes.includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
@@ -362,6 +367,10 @@ export class WsServer {
       }
       if (route === '/message') {
         void this.handleMessage(body, res);
+        return;
+      }
+      if (route === '/open') {
+        void this.handleOpen(body, res);
         return;
       }
       try {
@@ -500,6 +509,41 @@ export class WsServer {
       void finishClose(this.deps, id, scope);
     } catch (err) {
       json(500, { error: (err as Error).message });
+    }
+  }
+
+  pendingOpen(workspaceId: string): OpenRequest | undefined {
+    return this.openRequests.get(workspaceId);
+  }
+
+  private async handleOpen(body: string, res: ServerResponse): Promise<void> {
+    let req: { pane?: unknown; pid?: unknown; url?: unknown; codexThread?: unknown } | null;
+    try {
+      req = JSON.parse(body) as typeof req;
+    } catch {
+      req = null;
+    }
+    const { pane, pid, url, codexThread } = req ?? {};
+    if (typeof pane !== 'string' || !Number.isInteger(pid) || typeof url !== 'string' || (codexThread !== undefined && typeof codexThread !== 'string')) {
+      res.writeHead(400).end();
+      return;
+    }
+    try {
+      const result = await openUrl(
+        {
+          tmux: this.deps.tmux,
+          ancestry: this.deps.messaging!.ancestry,
+          sessionPrefix: this.deps.config.sessionPrefix,
+          requests: this.openRequests,
+          push: (workspaceId, request) => {
+            for (const handler of this.handlers) handler.pushOpenUrl(workspaceId, request);
+          },
+        },
+        { pane, pid: pid as number, url, ...(codexThread !== undefined ? { codexThread } : {}) },
+      );
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
+    } catch {
+      res.writeHead(500).end();
     }
   }
 

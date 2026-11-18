@@ -20,6 +20,7 @@
     "dist",
     "src/hooks/tarfa-hook.sh",
     "src/hooks/tarfa-guard.sh",
+    "src/hooks/tarfa-open.sh",
     "templates"
   ],
   "scripts": {

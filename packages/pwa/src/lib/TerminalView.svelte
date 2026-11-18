@@ -18,6 +18,8 @@
   import WorkspaceMenu from './WorkspaceMenu.svelte';
   import SharedFileConfirm from './SharedFileConfirm.svelte';
   import CopyOffer from './CopyOffer.svelte';
+  import OpenUrlCard from './OpenUrlCard.svelte';
+  import { isOpenableUrl } from '@tarfa/contracts';
   import UpdateBar from './UpdateBar.svelte';
   import ReadAloudPlayer from './ReadAloudPlayer.svelte';
   import { READ_ALOUD_BADGES, elevenLabsVoice } from '../core/read-aloud-voice';
@@ -110,6 +112,12 @@
     const seq = ++copySeq;
     copyOffer = null;
     if (!(await writeClipboard(text)) && seq === copySeq) copyOffer = text;
+  };
+  // Opened inside the tap, with nothing awaited first: the share sheet and a new tab both need the
+  // tap's user activation. The scheme is checked again here, right before the link is followed.
+  const openRequested = (request: { id: string; url: string }) => {
+    if (isOpenableUrl(request.url)) openTerminalLink(request.url, { ios: isIOSWebKit(navigator.userAgent, navigator.maxTouchPoints), share: store.shareLinks });
+    store.answerOpenRequest(request.id);
   };
   const acceptCopyOffer = async () => {
     if (copyOffer !== null && (await writeClipboard(copyOffer))) copyOffer = null;
@@ -483,7 +491,15 @@
   <div class="term" class:android={androidDevice} class:selecting={selectMode} bind:this={container}>
     <!-- Over the terminal's top, never in the header or in the flow: the header keeps its buttons
          and the terminal keeps its size. A wide screen shows it in the sidebar instead. -->
-    {#if !wide && store.updateReady}<div class="update-overlay"><UpdateBar {store} /></div>{/if}
+    {#if (!wide && store.updateReady) || store.openRequest}
+      <div class="overlays">
+        {#if !wide && store.updateReady}<UpdateBar {store} />{/if}
+        {#if store.openRequest}
+          {@const request = store.openRequest}
+          <OpenUrlCard url={request.url} onOpen={() => openRequested(request)} onDismiss={() => store.answerOpenRequest(request.id)} />
+        {/if}
+      </div>
+    {/if}
     {#if snapshot}
       <div
         class="snapshot"
@@ -677,7 +693,8 @@
     -webkit-touch-callout: none;
   }
   .term.selecting { touch-action: auto; -webkit-touch-callout: default; }
-  .update-overlay { position: absolute; top: 0.5rem; left: 0.5rem; right: 0.5rem; z-index: 10; }
+  /* Above xterm and select mode's snapshot: the card must be seen, and never shrinks the terminal. */
+  .overlays { position: absolute; top: 0.5rem; left: 0.5rem; right: 0.5rem; z-index: 11; display: flex; flex-direction: column; gap: 0.5rem; }
   /* Drawn inside xterm's screen, under its helper layers and under select mode's snapshot. */
   .term :global(.workspace-id-underlines) { position: absolute; inset: 0; pointer-events: none; }
   .term :global(.workspace-id-underlines > div) { position: absolute; height: 1px; background: rgba(255, 255, 255, 0.7); }

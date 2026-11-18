@@ -98,12 +98,17 @@ export interface TmuxAdapterOptions {
   env?: NodeJS.ProcessEnv;
   // The tmux executable; `tmux` on PATH by default. Tests point it at a patched build.
   binary?: string;
+  // Set in every workspace this adapter creates, under the session's own env: BROWSER, so a tool
+  // that opens a page reaches the phone (tarfa-open.sh).
+  sessionEnv?: Record<string, string>;
 }
 
 export class TmuxAdapter implements TmuxPort {
   private readonly tmux: (args: string[]) => Promise<{ stdout: string; stderr: string }>;
+  private readonly sessionEnv: Record<string, string>;
 
   constructor(options: TmuxAdapterOptions = {}) {
+    this.sessionEnv = options.sessionEnv ?? {};
     const prefix = [
       ...(options.socket ? ['-S', options.socket] : []),
       ...(options.config ? ['-f', options.config] : []),
@@ -174,7 +179,7 @@ export class TmuxAdapter implements TmuxPort {
   }
 
   async createSession(input: { name: string; cwd: string; command: string; parent?: string; storedCommand?: string; codexThread?: string; env?: Record<string, string> }): Promise<void> {
-    const env = Object.entries(input.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
+    const env = Object.entries({ ...this.sessionEnv, ...input.env }).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
     try {
       await this.tmux(['new-session', '-d', '-s', input.name, '-c', input.cwd, ...env, input.command]);
     } catch (err) {

@@ -59,7 +59,7 @@ export interface NoiseClientConnectionOptions {
   features?: readonly string[];
 }
 
-const FEATURES = [AGENT_FEATURES.lastReply, AGENT_FEATURES.dictationKeys, AGENT_FEATURES.setDictationKey, AGENT_FEATURES.voiceCancel];
+const FEATURES = [AGENT_FEATURES.lastReply, AGENT_FEATURES.dictationKeys, AGENT_FEATURES.setDictationKey, AGENT_FEATURES.voiceCancel, AGENT_FEATURES.openUrl];
 
 type State =
   | { kind: 'handshake' }

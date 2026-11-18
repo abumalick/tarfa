@@ -2676,6 +2676,19 @@ describe('WsServer POST /message', () => {
     expect(status.get('perch-cx-1')).toBe('needs-feedback');
   });
 
+  it('keeps a page a workspace asks to open and refuses one from outside it', async () => {
+    const { post } = await messagingServer(true);
+    const open = { pane: '%3', pid: 4242, url: 'https://claude.ai/code/artifact/x' };
+    expect(await (await post('/open', open)).json()).toEqual({ result: 'shown' });
+    expect(server!.pendingOpen('perch-child-1')?.url).toBe('https://claude.ai/code/artifact/x');
+    expect(await (await post('/open', { ...open, url: 'javascript:alert(1)' })).json()).toEqual({ result: 'refused', reason: 'not a web page' });
+    expect(await (await post('/open', { ...open, pane: '%4' })).json()).toEqual({ result: 'refused', reason: 'not run from a Tarfa workspace' });
+    expect((await post('/open', { ...open, url: 42 })).status).toBe(400);
+    expect((await post('/open', open, 'wrong')).status).toBe(401);
+    server!.dropWorkspaceState('perch-child-1');
+    expect(server!.pendingOpen('perch-child-1')).toBeUndefined();
+  });
+
   it('401 without the secret, 400 for a malformed body', async () => {
     const { delivered, post } = await messagingServer(true);
     expect((await post('/message', send, 'wrong')).status).toBe(401);

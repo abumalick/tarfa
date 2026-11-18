@@ -47,6 +47,7 @@ import { DiskReadLimiter } from './application/disk-read-limiter';
 import { loadOrCreateAgentKeys } from './infrastructure/agent-key-file';
 import { FileDeviceStore } from './infrastructure/file-device-store';
 import { FilePairingStore } from './infrastructure/file-pairing-store';
+import { writeOpenScript } from './infrastructure/open-script';
 import { writeHookToken } from './infrastructure/token-file';
 import { assertPrivateFiles, securePrivateDir } from './infrastructure/private-dir';
 import { ensureUtf8Locale } from './infrastructure/ensure-utf8-locale';
@@ -83,7 +84,12 @@ export async function main(): Promise<void> {
     await locateAgentEnv(env, homedir()),
   ]);
   const hookToken = await writeHookToken(config.stateDir);
-  const tmux = new TmuxAdapter();
+  // A workspace without it only loses the card on the phone: not worth refusing to start over.
+  const browserOpener = await writeOpenScript(config.stateDir, config.port).catch((err: unknown) => {
+    process.stderr.write(`tarfa agent: no BROWSER for workspaces: ${(err as Error).message}\n`);
+    return null;
+  });
+  const tmux = new TmuxAdapter(browserOpener ? { sessionEnv: { BROWSER: browserOpener } } : {});
   const status = new FileStatusStore(config.statusStorePath);
   const parked = new FileParkedStore(config.parkedStorePath);
   const liveSnapshot = new FileLiveSnapshotStore(config.liveSnapshotPath);

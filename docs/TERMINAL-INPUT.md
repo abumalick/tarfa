@@ -139,6 +139,26 @@ Android input, the keyboard bar, select mode, the clipboard, links, media previe
   the share sheet" (`tarfa.shareLinks`, off by default) sends terminal links to
   `navigator.share({ url })`, where LinkSheet's share target takes them. Don't go back to
   intent URLs; a one-tap handoff needs a native shell.
+- **A tool that opens a browser in a workspace reaches the phone through `BROWSER`, as a card.**
+  Every workspace starts with `BROWSER` set to `~/.tarfa/tarfa-open.sh` (`TmuxAdapter`'s
+  `sessionEnv`, an absolute path: tmux `-e` does not expand `~`), which the agent rewrites at
+  each startup with its hooks port. Claude Code, `xdg-open` on a machine with no desktop, `gh`
+  and Python's `webbrowser` all run `$BROWSER <url>`, so no `xdg-open` stand-in is needed (and
+  one calling the real `xdg-open`, which honours `BROWSER`, would loop). On macOS only tools that
+  read `BROWSER` are covered; `open` is not intercepted. The script posts the pane, its pid and
+  the URL to `POST /open`, which proves the workspace like `tarfa send` (`resolveCaller`), keeps
+  the latest page per workspace in memory (`OpenRequests`: never on disk or in a log, since a
+  login URL carries a code), and pushes `openUrl` to the device viewing it, again on each attach,
+  until that device answers `openUrlDone` with its id (a stale answer cannot clear a newer page).
+  It changes no status and raises no notification, so a program asking in a loop shows one card.
+  The phone shows `OpenUrlCard` over the terminal's top, never in the keyboard bar, and only in
+  that workspace. Any program in the workspace can ask, so the card says "This workspace", shows
+  the full punycode host, keeps Open disabled for a moment after its page changes, and the URL is
+  checked to be a plain http(s) page without credentials (`isOpenableUrl`) in the script, the
+  agent, the client parser and the tap handler. Open calls `openTerminalLink` inside the tap with
+  nothing awaited before it (the share sheet needs the tap's activation), so with "Open links with
+  the share sheet" on it reaches LinkSheet. A workspace started before the agent learned this has
+  no `BROWSER` until it is recreated; a `localhost` URL does not resolve on the phone.
 - **A dropdown inside the keyboard bar must be `position: fixed`, not `absolute`.** The bar
   is a horizontal scroller (`overflow-x: auto`), and CSS forces the cross axis to a clipping
   value when one axis scrolls — `overflow-y: visible` is impossible there. So an

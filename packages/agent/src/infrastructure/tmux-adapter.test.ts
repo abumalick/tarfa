@@ -87,6 +87,19 @@ describe('TmuxAdapter (real tmux)', () => {
     expect(out).toContain('/srv/my codex');
   });
 
+  it('starts every pane with its sessionEnv, under the session env', async () => {
+    const adapter = new TmuxAdapter({ sessionEnv: { BROWSER: '/home/u/.tarfa/tarfa-open.sh', CODEX_HOME: '/default' } });
+    const name = `${PREFIX}senv-${Date.now()}`;
+    created.push(name);
+    await adapter.createSession({ name, cwd: tmpdir(), command: 'printf "[%s|%s]" "$BROWSER" "$CODEX_HOME"; sleep 30', env: { CODEX_HOME: '/mine' } });
+    let out = '';
+    for (let i = 0; i < 50 && !out.includes(']'); i++) {
+      out = (await exec('tmux', ['capture-pane', '-p', '-t', `=${name}:`])).stdout;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(out).toContain('[/home/u/.tarfa/tarfa-open.sh|/mine]');
+  });
+
   // On its own server: a re-tag acts on every session the server holds.
   it('lists a session an older agent tagged @perch_*, and re-tags it @tarfa_* once', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tarfa-retag-'));

@@ -80,10 +80,7 @@ export async function sendMessage(
 
   if (req.body.trim() === '') return refuse('empty message');
 
-  const sender =
-    req.codexThread !== undefined
-      ? sessionOfCodexThread(await deps.tmux.listSessions(deps.sessionPrefix), req.codexThread)
-      : await resolveSender(deps, req.pane, req.pid);
+  const sender = await resolveCaller(deps, req);
   if (!sender) return refuse('not run from a Tarfa workspace');
   from = sender.name;
 
@@ -134,7 +131,18 @@ export async function sendMessage(
 
 // Proven against the pane $TMUX_PANE names, not the session's first one: a send from a second
 // window descends from its own pane only.
-async function resolveSender(deps: SendMessageDeps, pane: string, pid: number): Promise<TmuxSessionInfo | null> {
+// The workspace a local command (`tarfa send`, tarfa-open.sh) runs in: the session of its pane,
+// proven by the pane's process being one of its ancestors, or the workspace of a Codex thread.
+export async function resolveCaller(
+  deps: Pick<SendMessageDeps, 'tmux' | 'ancestry' | 'sessionPrefix'>,
+  req: { pane: string; pid: number; codexThread?: string },
+): Promise<TmuxSessionInfo | null> {
+  return req.codexThread !== undefined
+    ? sessionOfCodexThread(await deps.tmux.listSessions(deps.sessionPrefix), req.codexThread)
+    : resolveSender(deps, req.pane, req.pid);
+}
+
+async function resolveSender(deps: Pick<SendMessageDeps, 'tmux' | 'ancestry' | 'sessionPrefix'>, pane: string, pid: number): Promise<TmuxSessionInfo | null> {
   if (!deps.tmux.sessionOfPane || !deps.tmux.pidOfPane) return null;
   const name = await deps.tmux.sessionOfPane(pane);
   if (!name) return null;

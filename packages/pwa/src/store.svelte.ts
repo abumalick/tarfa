@@ -176,6 +176,8 @@ export class TarfaStore {
   // The command run for the last create, so the New workspace view can preselect it.
   lastCommand = $state<string | null>(null);
   active = $state<Workspace | null>(null);
+  // A page the workspace on screen asked to open (its BROWSER), shown as a card until answered.
+  openRequest = $state<{ machineId: string; workspaceId: string; id: string; url: string } | null>(null);
   recentPaths = $state<Record<string, string[]>>({});
   // The agent's configured project roots, per machine, used as the folder picker's
   // top-level browse points. Filled from the `roots` reply to `listRoots` (sent on goCreate).
@@ -663,6 +665,11 @@ export class TarfaStore {
       case 'output':
         if (this.isActive(machineId, message.workspaceId)) this.onOutput?.(decode(message.data));
         return;
+      case 'openUrl':
+        if (this.isActive(machineId, message.workspaceId)) {
+          this.openRequest = { machineId, workspaceId: message.workspaceId, id: message.id, url: message.url };
+        }
+        return;
       case 'fileStored':
         // The agent saved a pasted file under the workspace cwd; type its relative path
         // into the terminal at the cursor, exactly like typed input.
@@ -797,7 +804,10 @@ export class TarfaStore {
   }
 
   open(workspace: Workspace, focus = false): void {
-    if (!this.isActive(workspace.machineId, workspace.id)) this.closeReadAloud();
+    if (!this.isActive(workspace.machineId, workspace.id)) {
+      this.closeReadAloud();
+      this.openRequest = null;
+    }
     this.active = workspace;
     this.terminalState = 'live';
     this.autoFocus = focus;
@@ -1199,8 +1209,19 @@ export class TarfaStore {
     this.view = 'settings';
   }
 
+  // The card was opened or dismissed. Named by id: a tap on a card a newer page has just replaced
+  // must not clear the newer one.
+  answerOpenRequest(id: string): void {
+    const request = this.openRequest;
+    if (request?.id !== id) return;
+    this.openRequest = null;
+    this.send(request.machineId, { type: 'openUrlDone', workspaceId: request.workspaceId, id });
+  }
+
   back(): void {
     this.closeReadAloud();
+    // Not answered: the agent shows it again on the next attach.
+    this.openRequest = null;
     if (this.active) this.send(this.active.machineId, { type: 'detach', workspaceId: this.active.id });
     this.active = null;
     this.view = 'list';

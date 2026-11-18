@@ -49,6 +49,10 @@ export const app: Messages['app'] = {
     newDevice: (machine, name, id) => `Nouvel appareil associé à ${machine} : ${name} (${id})`,
     notYou: (id) => `Ce n’est pas vous ? Révoquez-le sur cette machine : tarfa devices revoke ${id}`,
   },
+  openUrl: {
+    label: 'Cet espace de travail veut ouvrir une page',
+    open: 'Ouvrir',
+  },
   copyOffer: {
     label: 'Copier depuis le terminal',
     copy: 'Copier',

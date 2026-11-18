@@ -25,9 +25,9 @@ the phone's device key, and streams its terminals. No agent listens off loopback
 - `packages/agent` (`@tarfa/cli`) — per-machine agent. tmux via `node:child_process`,
   terminal streaming via `node-pty`, a loopback phone port phones connect to directly (served
   through `NoiseClientConnection`), and a `node:http` server on
-  `127.0.0.1` with four bearer-token-guarded routes: `POST /hooks` (Claude Code hooks report
-  attention here), `POST /unpark` (`tarfa unpark`), `POST /close` (`tarfa close`) and
-  `POST /message` (`tarfa send`).
+  `127.0.0.1` with five bearer-token-guarded routes: `POST /hooks` (Claude Code hooks report
+  attention here), `POST /unpark` (`tarfa unpark`), `POST /close` (`tarfa close`),
+  `POST /message` (`tarfa send`) and `POST /open` (`tarfa-open.sh`, a workspace's `BROWSER`).
   Domain/application in `application/` + `ports/`, adapters in `infrastructure/`, wiring in
   `server/`. It is also the published npm package; packaging and releases: `docs/AGENT-RUNTIME.md`.
 - `packages/secure-channel` (`@tarfa/secure-channel`) — the Noise IK session both ends run, its

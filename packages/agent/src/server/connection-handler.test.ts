@@ -3,6 +3,7 @@ import type { DictationKeysPort, DictationKeysWriter } from '../ports/dictation-
 import type { DictationKeys } from '../application/dictation-keys';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ConnectionHandler, type ConnectionHandlerDeps } from './connection-handler';
+import { OpenRequests } from '../application/open-requests';
 import { ViewerRegistry } from './viewer-registry';
 import type { ClientConnection } from '../ports/client-connection';
 import type { PtyPort } from '../ports/pty-port';
@@ -1668,5 +1669,43 @@ describe('ConnectionHandler side channels in the connection', () => {
     await c.send({ type: 'browser', stream: 'b1', data: JSON.stringify({ type: 'auth', token: '' }) });
     expect(c.sent.map((m) => m.type)).toEqual(['browser', 'browser', 'browserClosed']);
     expect(JSON.parse((c.sent[1] as { data: string }).data)).toEqual({ type: 'ended', reason: 'not-found' });
+  });
+});
+
+describe('ConnectionHandler openUrl', () => {
+  async function viewing(requests: OpenRequests, workspaceId = 'perch-aa') {
+    const conn = fakeConn();
+    const handler = new ConnectionHandler(conn.conn, { ...baseDeps(), pty: fakePty().pty, openRequests: requests });
+    conn.emit({ type: 'auth', token: '' });
+    conn.emit({ type: 'attach', workspaceId, cols: 80, rows: 24 });
+    await new Promise((r) => setTimeout(r, 0));
+    return { conn, handler };
+  }
+  const opens = (sent: AgentMessage[]) => sent.filter((m) => m.type === 'openUrl');
+
+  it('shows the waiting page right after attaching', async () => {
+    const requests = new OpenRequests();
+    const request = requests.set('perch-aa', 'https://claude.ai/a')!;
+    const { conn } = await viewing(requests);
+    const types = conn.sent.map((m) => m.type);
+    expect(types.indexOf('openUrl')).toBeGreaterThan(types.indexOf('attached'));
+    expect(opens(conn.sent)).toEqual([{ type: 'openUrl', workspaceId: 'perch-aa', id: request.id, url: 'https://claude.ai/a' }]);
+  });
+
+  it('pushes a new page only to the device viewing that workspace', async () => {
+    const requests = new OpenRequests();
+    const { conn, handler } = await viewing(requests);
+    handler.pushOpenUrl('perch-bb', { id: 'x', url: 'https://b.example/' });
+    handler.pushOpenUrl('perch-aa', { id: 'y', url: 'https://a.example/' });
+    expect(opens(conn.sent)).toEqual([{ type: 'openUrl', workspaceId: 'perch-aa', id: 'y', url: 'https://a.example/' }]);
+  });
+
+  it('forgets a page once the device answers it', async () => {
+    const requests = new OpenRequests();
+    const request = requests.set('perch-aa', 'https://claude.ai/a')!;
+    const { conn } = await viewing(requests);
+    conn.emit({ type: 'openUrlDone', workspaceId: 'perch-aa', id: request.id });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(requests.get('perch-aa')).toBeUndefined();
   });
 });

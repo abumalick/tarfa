@@ -1,4 +1,5 @@
 import { exactTarget } from '../infrastructure/tmux-adapter';
+import type { OpenRequest, OpenRequests } from '../application/open-requests';
 import { parseClientMessage, isWorkspaceStatus, type BrowserSession, type ClientMessage, type Workspace, type MachineStats } from '@tarfa/contracts';
 import type { ClientConnection } from '../ports/client-connection';
 import type { PtyPort, PtySession } from '../ports/pty-port';
@@ -95,6 +96,8 @@ export interface ConnectionHandlerDeps {
   claudeVoice?: Pick<ClaudeVoice, 'start' | 'available'>;
   // WsServer's record of each workspace's last reply, read aloud on the phone.
   lastReplies?: Pick<LastReplies, 'get'>;
+  // The pages workspaces asked to open (tarfa-open.sh), shown to the device viewing each.
+  openRequests?: Pick<OpenRequests, 'get' | 'done'>;
 }
 
 // `cancelled` stops a dictation still in its checks, before it has a session to abort.
@@ -145,6 +148,12 @@ export class ConnectionHandler {
   pushClosed(workspaceId: string): void {
     if (this.authed) {
       this.conn.send({ type: 'closed', workspaceId });
+    }
+  }
+
+  pushOpenUrl(workspaceId: string, request: OpenRequest): void {
+    if (this.authed && this.attachment?.workspaceId === workspaceId) {
+      this.conn.send({ type: 'openUrl', workspaceId, id: request.id, url: request.url });
     }
   }
 
@@ -489,6 +498,10 @@ export class ConnectionHandler {
         voice.session?.end();
         return;
       }
+      case 'openUrlDone': {
+        this.deps.openRequests?.done(message.workspaceId, message.id);
+        return;
+      }
       case 'lastReply': {
         this.conn.send({ type: 'lastReply', workspaceId: message.workspaceId, text: this.deps.lastReplies?.get(message.workspaceId) ?? null });
         return;
@@ -642,6 +655,8 @@ export class ConnectionHandler {
     });
 
     this.conn.send({ type: 'attached', workspaceId });
+    const pending = this.deps.openRequests?.get(workspaceId);
+    if (pending) this.pushOpenUrl(workspaceId, pending);
   }
 
   // Any enrolled phone of this machine may change its key: it can already run anything in a

@@ -84,6 +84,10 @@ export interface FakeAgent {
   // client messages that the agent answers with nothing.
   received: Array<Record<string, unknown>>;
   sendOutput: (workspaceId: string, data: string) => void;
+  // A program in the workspace asked for a browser: faithful to the real agent, the page waits
+  // per workspace (latest wins), goes to the device viewing it now and on each attach, until that
+  // device answers openUrlDone with its id.
+  openUrl: (workspaceId: string, id: string, url: string) => void;
   // Every message received on a browser stream, so specs can assert input/navigate.
   browserReceived: Array<{ session: string; message: Record<string, unknown> }>;
   // The live browser-session set the fake reports (mutable): `list` replies with it.
@@ -190,6 +194,7 @@ export async function startFakeAgent(
     // evicts the prior holder with `detached: opened-elsewhere`, which is what drives the
     // "Opened on another device" overlay in the PWA.
     const holders = new Map<string, Conn>();
+    const openRequests = new Map<string, { id: string; url: string }>();
     const conns = new Set<Conn>();
     const clientLogs: unknown[] = [];
     const mediaOverrides = new Map<string, { type: string; bytes: Buffer }>();
@@ -370,8 +375,13 @@ export async function startFakeAgent(
             // covered by the WebLinksAddon; OSC 8 links need the terminal's linkHandler.
             const osc8 = '\x1b]8;;https://example.com/osc8\x1b\\OSC8LINK\x1b]8;;\x1b\\\r\n';
             send({ type: 'output', workspaceId: attached, data: Buffer.from(`TARFA_READY ${attached}\r\n${osc8}`, 'utf8').toString('base64') });
+            const pending = openRequests.get(attached);
+            if (pending) send({ type: 'openUrl', workspaceId: attached, ...pending });
             break;
           }
+          case 'openUrlDone':
+            if (openRequests.get(String(msg.workspaceId))?.id === msg.id) openRequests.delete(String(msg.workspaceId));
+            break;
           case 'input':
             send({ type: 'output', workspaceId: attached, data: Buffer.from('echoed\r\n').toString('base64') });
             break;
@@ -553,6 +563,10 @@ export async function startFakeAgent(
       },
       created,
       received,
+      openUrl: (workspaceId, id, url) => {
+        openRequests.set(workspaceId, { id, url });
+        holders.get(workspaceId)?.send({ type: 'openUrl', workspaceId, id, url });
+      },
       sendOutput: (workspaceId, data) => {
         holders.get(workspaceId)?.send({
           type: 'output', workspaceId, data: Buffer.from(data).toString('base64'),

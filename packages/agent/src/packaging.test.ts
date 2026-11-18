@@ -94,6 +94,7 @@ describe.skipIf(!ENABLED)('the packed @tarfa/cli', () => {
         'templates/tarfa-cli-wrapper.sh',
         'src/hooks/tarfa-hook.sh',
         'src/hooks/tarfa-guard.sh',
+        'src/hooks/tarfa-open.sh',
       ]) {
         expect(listing).toContain(`package/${wanted}`);
       }

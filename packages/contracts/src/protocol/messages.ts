@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { WORKSPACE_STATUSES, type WorkspaceStatus } from '../domain/workspace-status';
 import type { Workspace } from '../domain/workspace';
 import { sessionAgentMessageSchemas, sessionClientMessageSchemas } from './session-channels';
+import { isOpenableUrl } from '../domain/openable-url';
 
 const workspaceStatusSchema = z.enum(
   WORKSPACE_STATUSES as unknown as [WorkspaceStatus, ...WorkspaceStatus[]],
@@ -132,6 +133,8 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   // generic unknown-message error; the PWA only offers this once the agent has proven
   // support by sending `browserSessions`.
   z.object({ type: z.literal('startBrowser'), workspaceId: z.string() }),
+  // The phone opened or dismissed the openUrl card with this id; a newer request is kept.
+  z.object({ type: z.literal('openUrlDone'), workspaceId: z.string(), id: z.string() }),
   // Liveness probe: the PWA pings periodically so it can detect a half-open socket that
   // never fires a `close` event (common on mobile) and force a reconnect. The agent answers
   // with `pong`.
@@ -153,6 +156,7 @@ export const AGENT_FEATURES = {
   setDictationKey: 'setDictationKey',
   addresses: 'addresses',
   voiceCancel: 'voiceCancel',
+  openUrl: 'openUrl',
 } as const;
 
 export const agentMessageSchema = z.discriminatedUnion('type', [
@@ -230,6 +234,10 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('voiceDone'), id: z.string(), ok: z.boolean(), error: z.string().optional() }),
   z.object({ type: z.literal('detached'), workspaceId: z.string(), reason: detachReasonSchema }),
   z.object({ type: z.literal('closed'), workspaceId: z.string() }),
+  // A program in the workspace asked for a browser (BROWSER → tarfa-open.sh). Sent to the device
+  // viewing it, and again on each attach until that device answers openUrlDone. The URL is checked
+  // here too, so a phone never puts anything but a web page in a link.
+  z.object({ type: z.literal('openUrl'), workspaceId: z.string(), id: z.string(), url: z.string().refine(isOpenableUrl) }),
   // A phone was just enrolled on this machine (a pairing code), told to every other
   // phone connected to it: a device nobody meant to add must not go unnoticed. An older PWA drops
   // the unknown type.

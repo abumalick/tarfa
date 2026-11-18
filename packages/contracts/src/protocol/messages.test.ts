@@ -448,3 +448,20 @@ describe('workspaceSchema', () => {
     expect(() => workspaceSchema.parse({ ...sampleWorkspace, waitingOn: 'user' })).toThrow();
   });
 });
+
+describe('openUrl', () => {
+  it('carries a web page a workspace asked to open', () => {
+    const msg = { type: 'openUrl', workspaceId: 'w1', id: '3', url: 'https://claude.ai/code/artifact/x' };
+    expect(parseAgentMessage(msg)).toEqual(msg);
+  });
+
+  it('is refused by the client parser when the URL is not a plain web page', () => {
+    for (const url of ['javascript:alert(1)', 'data:text/html,x', 'https://claude.ai@evil.example/']) {
+      expect(() => parseAgentMessage({ type: 'openUrl', workspaceId: 'w1', id: '3', url })).toThrow();
+    }
+  });
+
+  it('is answered by openUrlDone naming the request', () => {
+    expect(parseClientMessage({ type: 'openUrlDone', workspaceId: 'w1', id: '3' })).toEqual({ type: 'openUrlDone', workspaceId: 'w1', id: '3' });
+  });
+});
