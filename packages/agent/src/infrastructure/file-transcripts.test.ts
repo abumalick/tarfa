@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileTranscripts } from './file-transcripts';
@@ -22,6 +22,17 @@ describe('FileTranscripts', () => {
   it('finds the session in whichever project folder holds it and reads its last reply', async () => {
     await writeFile(join(root, '-home-foo-project', `${SESSION}.jsonl`), `${reply('m1', 'Old.')}\n${reply('m2', 'Réponse, صحيح.')}\n`);
     expect(await new FileTranscripts(root).lastReply(SESSION)).toBe('Réponse, صحيح.');
+  });
+
+  it('follows a project folder that is a link', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'tarfa-transcripts-target-'));
+    try {
+      await writeFile(join(outside, `${SESSION}.jsonl`), `${reply('m1', 'Linked.')}\n`);
+      await symlink(outside, join(root, '-home-foo-linked'));
+      expect(await new FileTranscripts(root).lastReply(SESSION)).toBe('Linked.');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it('reads only the tail of a long transcript, skipping the line it starts inside', async () => {

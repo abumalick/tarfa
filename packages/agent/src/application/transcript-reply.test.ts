@@ -7,7 +7,8 @@ const text = (t: string) => ({ type: 'text', text: t });
 const user = (t: string) => JSON.stringify({ type: 'user', message: { role: 'user', content: t } });
 
 describe('lastReplyInTranscript', () => {
-  it('returns the text of the last message that ended a turn, joining its blocks across lines', () => {
+  // Claude Code's rule: the last assistant line's text blocks, joined by a newline and trimmed.
+  it('returns the text of the last line that ended a turn, as the Stop hook builds it', () => {
     const lines = [
       user('first'),
       assistant('m1', 'end_turn', [text('Old reply.')]),
@@ -15,10 +16,10 @@ describe('lastReplyInTranscript', () => {
       assistant('m2', 'tool_use', [{ type: 'thinking', thinking: 'hm' }]),
       assistant('m2', 'tool_use', [{ type: 'tool_use', id: 't', name: 'Read', input: {} }]),
       assistant('m3', 'end_turn', [{ type: 'thinking', thinking: 'ok' }]),
-      assistant('m3', 'end_turn', [text('First paragraph.')]),
-      assistant('m3', 'end_turn', [text('Second paragraph.')]),
+      assistant('m3', 'end_turn', [text('An earlier block.')]),
+      assistant('m3', 'end_turn', [text('  First paragraph.'), text('Second paragraph.\n')]),
     ];
-    expect(lastReplyInTranscript(lines)).toBe('First paragraph.\n\nSecond paragraph.');
+    expect(lastReplyInTranscript(lines)).toBe('First paragraph.\nSecond paragraph.');
   });
 
   it('skips a turn still running, sidechains, and lines that do not parse', () => {
@@ -35,6 +36,7 @@ describe('lastReplyInTranscript', () => {
   it('returns null when no turn ended with text', () => {
     expect(lastReplyInTranscript([])).toBeNull();
     expect(lastReplyInTranscript([user('hi'), assistant('m1', 'end_turn', [{ type: 'thinking', thinking: 'x' }])])).toBeNull();
+    expect(lastReplyInTranscript([assistant('m1', 'end_turn', [text('Earlier.')]), assistant('m1', 'end_turn', [{ type: 'thinking', thinking: 'x' }])])).toBeNull();
     expect(lastReplyInTranscript([assistant('m1', 'end_turn', [text('   ')])])).toBeNull();
   });
 });

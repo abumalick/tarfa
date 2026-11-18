@@ -1,4 +1,4 @@
-import { open, readdir } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { TranscriptsPort } from '../ports/transcripts-port';
 import { lastReplyInTranscript } from '../application/transcript-reply';
@@ -28,10 +28,9 @@ export class FileTranscripts implements TranscriptsPort {
   }
 
   private async find(file: string): Promise<string | null> {
-    for (const project of await readdir(this.projectsDir, { withFileTypes: true })) {
-      if (!project.isDirectory()) continue;
-      const entries = await readdir(join(this.projectsDir, project.name)).catch(() => [] as string[]);
-      if (entries.includes(file)) return join(this.projectsDir, project.name, file);
+    for (const project of await readdir(this.projectsDir)) {
+      const path = join(this.projectsDir, project, file);
+      if (await stat(path).then((s) => s.isFile(), () => false)) return path;
     }
     return null;
   }

@@ -174,8 +174,10 @@ The 🎤 presets and their keys, Claude voice on Linux, and 🔊 read-aloud with
   never logged), and answers `lastReply` with it. An agent restart empties that memory, so when it
   holds nothing the agent reads the reply back from the transcript of the workspace's last known
   Claude session (`~/.claude/projects/*/<claudeSessionId>.jsonl`, its last 4 MB only), taking the
-  text blocks of the last main-chain message whose `stop_reason` is `end_turn`, which is exactly
-  what the Stop hook carries (`application/transcript-reply.ts`). The fallback is read on each
+  last main-chain line whose `stop_reason` is `end_turn`, its text blocks joined by a newline and
+  trimmed: Claude builds the hook's text from its last assistant line the same way, and `end_turn`
+  keeps a turn still running from being read mid-way (`application/transcript-reply.ts`). After an
+  API error the hook carries the error text, the fallback the reply before it. The fallback is read on each
   request and never cached, so memory stays the record of the latest Stop. Otherwise it answers
   `null`. Claude workspaces only (`runsClaude`).
   The hooks route joins a body's chunks before decoding: decoding each chunk alone broke any

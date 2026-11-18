@@ -549,9 +549,6 @@ export class ConnectionHandler {
     }
   }
 
-  // Names only — the stream port stays agent-side (the PWA reaches a stream through a
-  // `browserOpen` side channel in its session, never the upstream port directly). Discovery failure degrades to an
-  // empty list so a broken agent-browser install can never break the `list` reply.
   // The last Stop hook's reply, else the transcript's: an agent restart forgets the former.
   private async lastReply(workspaceId: string): Promise<string | null> {
     const remembered = this.deps.lastReplies?.get(workspaceId);
@@ -561,6 +558,9 @@ export class ConnectionHandler {
     return this.deps.transcripts.lastReply(sessionId).catch(() => null);
   }
 
+  // Names only — the stream port stays agent-side (the PWA reaches a stream through a
+  // `browserOpen` side channel in its session, never the upstream port directly). Discovery failure degrades to an
+  // empty list so a broken agent-browser install can never break the `list` reply.
   private async sendBrowserSessions(): Promise<void> {
     let sessions: Array<{ name: string }> = [];
     try {
