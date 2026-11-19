@@ -7,6 +7,7 @@ import type { ViewerRegistry, Viewer } from './viewer-registry';
 import type { TmuxPort } from '../ports/tmux-port';
 import type { RepoRemotePort } from '../ports/repo-remote-port';
 import type { ClaudeSessionsPort } from '../ports/claude-sessions-port';
+import type { TranscriptsPort } from '../ports/transcripts-port';
 import type { RecentStorePort } from '../ports/recent-store-port';
 import type { ProjectListerPort } from '../ports/project-lister-port';
 import type { FileReaderPort } from '../ports/file-reader-port';
@@ -91,6 +92,7 @@ export interface ConnectionHandlerDeps {
   messagedLast?: Pick<ReadonlySet<string>, 'has'>;
   repoRemote?: RepoRemotePort;
   claudeSessions?: ClaudeSessionsPort;
+  transcripts?: TranscriptsPort;
   scopes?: ProcessScopePort;
   // Shared by every connection (one virtual mic per machine); absent where it can't work.
   claudeVoice?: Pick<ClaudeVoice, 'start' | 'available'>;
@@ -503,7 +505,7 @@ export class ConnectionHandler {
         return;
       }
       case 'lastReply': {
-        this.conn.send({ type: 'lastReply', workspaceId: message.workspaceId, text: this.deps.lastReplies?.get(message.workspaceId) ?? null });
+        this.conn.send({ type: 'lastReply', workspaceId: message.workspaceId, text: await this.lastReply(message.workspaceId) });
         return;
       }
       case 'ping': {
@@ -558,6 +560,15 @@ export class ConnectionHandler {
         this.conn.send({ type: 'error', code: 'unsupported', message: 'unhandled message' });
       }
     }
+  }
+
+  // The last Stop hook's reply, else the transcript's: an agent restart forgets the former.
+  private async lastReply(workspaceId: string): Promise<string | null> {
+    const remembered = this.deps.lastReplies?.get(workspaceId);
+    if (remembered) return remembered;
+    const sessionId = this.deps.status.getClaudeSessionId(workspaceId);
+    if (!sessionId || !this.deps.transcripts) return null;
+    return this.deps.transcripts.lastReply(sessionId).catch(() => null);
   }
 
   // Names only — the stream port stays agent-side (the PWA reaches a stream through a

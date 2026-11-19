@@ -18,6 +18,7 @@ import type { PtyPort } from '../ports/pty-port';
 import type { StatusStorePort } from '../ports/status-store-port';
 import type { RepoRemotePort } from '../ports/repo-remote-port';
 import type { ClaudeSessionsPort } from '../ports/claude-sessions-port';
+import type { TranscriptsPort } from '../ports/transcripts-port';
 import type { FileWriterPort } from '../ports/file-writer-port';
 import type { BrowserDiscoveryPort } from '../ports/browser-discovery-port';
 import type { BrowserCommandPort } from '../ports/browser-command-port';
@@ -90,6 +91,8 @@ export interface WsServerDeps {
   connectUpstream: ConnectUpstream;
   repoRemote?: RepoRemotePort;
   claudeSessions?: ClaudeSessionsPort;
+  // Claude Code's transcripts: where a reply is read back after an agent restart forgot it.
+  transcripts?: TranscriptsPort;
   scopes?: ProcessScopePort;
   claudeVoice?: Pick<ClaudeVoice, 'start' | 'available'>;
   // Absent on a platform with no collector: the agent then never sends `stats` and the

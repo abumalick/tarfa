@@ -1,6 +1,7 @@
 // The text of each workspace's last reply, from the turn-end hooks' `last_assistant_message`
 // (Claude Code's Stop and StopFailure payloads). In memory only, and never logged: it is what the
-// assistant wrote. An agent restart forgets it until the next turn ends.
+// assistant wrote. An agent restart forgets it; the phone is then answered from the session's
+// transcript (`FileTranscripts`) until the next turn ends.
 export const MAX_REPLY_CHARS = 64_000;
 
 const TURN_ENDS = new Set(['Stop', 'StopFailure']);

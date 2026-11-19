@@ -200,6 +200,7 @@ function testConfig(home: string, overrides: Partial<AgentConfig> = {}): AgentCo
     devicesPath: join(home, 'devices.json'),
     pairingPath: join(home, 'pairing.json'),
     claudeSessionsDir: join(home, 'claude-sessions'),
+    claudeProjectsDir: join(home, 'claude-projects'),
     inboxDir: join(home, 'inbox'),
     sessionPrefix: 'perch-',
     ...overrides,
@@ -546,6 +547,70 @@ describe('WsServer (E2E, real tmux)', () => {
     server.dropWorkspaceState('perch-reply');
     socket.send(JSON.stringify({ type: 'lastReply', workspaceId: 'perch-reply' }));
     expect(await nextMessage(socket)).toEqual({ type: 'lastReply', workspaceId: 'perch-reply', text: null });
+    socket.close();
+  });
+
+  // An agent restart forgets every reply; the transcript of the workspace's last known Claude
+  // session still holds it.
+  it('answers lastReply from the transcript when no Stop hook has carried one since the agent started', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tarfa-hook-'));
+    dirs.push(home);
+    const config = testConfig(home);
+    const status = new InMemoryStatusStore();
+    status.setClaudeSessionId('perch-restarted', 'session-1');
+    status.setClaudeSessionId('perch-unreadable', 'session-2');
+    server = new WsServer({
+      config,
+      hookToken: HOOK_TOKEN,
+      tmux: new TmuxAdapter(),
+      recent: new FileRecentStore(config.recentStorePath),
+      lister: new FsProjectLister(),
+      reader: new FsFileReader(),
+      resolvePath: systemPathResolver,
+      isDirectory: fsIsDirectory,
+      clock: systemClock,
+      ids: new RandomIdGenerator(),
+      pty: new NodePtyAdapter(),
+      status,
+      writer: new FsFileWriter(),
+      browserDiscovery: noBrowserDiscovery,
+      browserCommands: noBrowserCommands,
+      hiddenFolders: noHiddenFolders,
+      launchers: noLaunchers,
+      detectInstalled: async () => [],
+      keyterms: noKeyterms,
+      clientLog: noClientLog,
+      workspaceLog: noWorkspaceLog,
+      parked: new FileParkedStore(config.parkedStorePath),
+      connectUpstream: noConnectUpstream,
+      transcripts: {
+        lastReply: async (id) => {
+          if (id === 'session-2') throw new Error('unreadable');
+          return id === 'session-1' ? 'From the transcript.' : null;
+        },
+      },
+    });
+    await server.start();
+    const socket = new WebSocket(await clientUrl());
+    await new Promise((r) => socket.once('open', r));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
+    await nextMessage(socket); // authResult
+
+    socket.send(JSON.stringify({ type: 'lastReply', workspaceId: 'perch-restarted' }));
+    expect(await nextMessage(socket)).toEqual({ type: 'lastReply', workspaceId: 'perch-restarted', text: 'From the transcript.' });
+    socket.send(JSON.stringify({ type: 'lastReply', workspaceId: 'perch-unreadable' }));
+    expect(await nextMessage(socket)).toEqual({ type: 'lastReply', workspaceId: 'perch-unreadable', text: null });
+    socket.send(JSON.stringify({ type: 'lastReply', workspaceId: 'perch-unknown' }));
+    expect(await nextMessage(socket)).toEqual({ type: 'lastReply', workspaceId: 'perch-unknown', text: null });
+
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/hooks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer hook-secret' },
+      body: JSON.stringify({ sessionName: 'perch-restarted', event: 'Stop', claude: { last_assistant_message: 'From the hook.' } }),
+    });
+    expect(res.status).toBe(204);
+    socket.send(JSON.stringify({ type: 'lastReply', workspaceId: 'perch-restarted' }));
+    expect(await nextMessage(socket)).toEqual({ type: 'lastReply', workspaceId: 'perch-restarted', text: 'From the hook.' });
     socket.close();
   });
 

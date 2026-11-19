@@ -32,6 +32,7 @@ export interface AgentConfig {
   parkedStorePath: string;
   liveSnapshotPath: string;
   claudeSessionsDir: string;
+  claudeProjectsDir: string;
   // The sockets the Tarfa extension for Pi binds, one per workspace (docs/MESSAGING.md).
   inboxDir: string;
   sessionPrefix: string;
@@ -103,6 +104,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv, home: string): AgentConfig
     // Claude Code's own registry, not Tarfa's — read-only, and absent on a machine
     // without Claude Code.
     claudeSessionsDir: join(home, '.claude', 'sessions'),
+    claudeProjectsDir: join(home, '.claude', 'projects'),
     inboxDir: join(stateDir, 'inbox'),
     // The prefix of the oldest workspace ids, perch-<6 hex>: data from before the rename, kept as is.
     sessionPrefix: 'perch-',
