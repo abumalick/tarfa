@@ -84,4 +84,27 @@ describe('homeSections', () => {
       ['b', [], [['In review', 1]]],
     ]);
   });
+
+  it('places a section where its first group sits, even when it only has folded groups', () => {
+    const list = [
+      ws('f1', 'idle', 'folded-only', staged('Done', 'done')),
+      ws('x1', 'working', 'active'),
+      ws('f2', 'idle', 'folded-only', staged('Done', 'done')),
+    ];
+    expect(homeSections(list, labelOf).sections.map((s) => s.label)).toEqual(['folded-only', 'active']);
+  });
+
+  it('orders folded buckets by each project own stage list', () => {
+    const order = (names: string[]) => names.map((name) => ({ name, kind: 'waiting' as const }));
+    const inP = (id: string, project: string, name: string, names: string[]) =>
+      ws(id, 'idle', project, { stage: { name, kind: 'waiting', since: 1 }, stages: order(names) });
+    const list = [
+      inP('a1', 'a', 'Beta', ['Alpha', 'Beta']),
+      inP('a2', 'a', 'Alpha', ['Alpha', 'Beta']),
+      inP('b1', 'b', 'Alpha', ['Beta', 'Alpha']),
+      inP('b2', 'b', 'Beta', ['Beta', 'Alpha']),
+    ];
+    const names = homeSections(list, labelOf).sections.map((s) => s.folded.map((b) => b.name));
+    expect(names).toEqual([['Alpha', 'Beta'], ['Beta', 'Alpha']]);
+  });
 });

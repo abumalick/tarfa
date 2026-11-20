@@ -1,6 +1,6 @@
 import type { Workspace } from '@tarfa/contracts';
 import { nestWorkspaces, nestedOrder, type WorkspaceGroup } from './nest-workspaces';
-import { homeGroups, type FoldedBucket } from './stage-groups';
+import { splitGroups, type FoldedBucket } from './stage-groups';
 
 export type ProjectSection = { label: string; groups: WorkspaceGroup[] };
 
@@ -30,30 +30,20 @@ export function homeSections(
   sorted: readonly Workspace[],
   labelOf: (ws: Workspace) => string,
 ): { needsYou: WorkspaceGroup[]; sections: StageSection[] } {
-  const { needsYou, active, folded } = homeGroups(sorted);
-  const lead = new Map<WorkspaceGroup, number>();
-  nestWorkspaces(sorted).forEach((g, i) => lead.set(g, i));
-  const sections = new Map<string, StageSection & { lead: number }>();
-  const sectionFor = (group: WorkspaceGroup) => {
+  const groups = nestWorkspaces(sorted);
+  const { needsYou } = splitGroups(groups);
+  const lifted = new Set(needsYou);
+  const byLabel = new Map<string, WorkspaceGroup[]>();
+  for (const group of groups) {
+    if (lifted.has(group) || group.workspace.status === 'parked') continue;
     const label = labelOf(group.workspace);
-    let section = sections.get(label);
-    if (!section) sections.set(label, (section = { label, active: [], folded: [], lead: Infinity }));
-    section.lead = Math.min(section.lead, lead.get(group) ?? Infinity);
-    return section;
-  };
-  for (const group of active) sectionFor(group).active.push(group);
-  for (const bucket of folded) {
-    for (const group of bucket.groups) {
-      const section = sectionFor(group);
-      let into = section.folded.find((b) => b.name === bucket.name && b.kind === bucket.kind);
-      if (!into) section.folded.push((into = { name: bucket.name, kind: bucket.kind, groups: [] }));
-      into.groups.push(group);
-    }
+    byLabel.set(label, [...(byLabel.get(label) ?? []), group]);
   }
-  return {
-    needsYou,
-    sections: [...sections.values()].sort((a, b) => a.lead - b.lead).map(({ lead: _lead, ...s }) => s),
-  };
+  const sections = [...byLabel].map(([label, members]) => {
+    const { active, folded } = splitGroups(members);
+    return { label, active, folded };
+  });
+  return { needsYou, sections };
 }
 
 // The order the home list reads in: grouped by project when `labelOf` is given, parked last.

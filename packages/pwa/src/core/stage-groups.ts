@@ -25,10 +25,13 @@ const stageIndex = (ws: Workspace, name: string): number => {
 
 // Splits the nested list. A group needing you anywhere (parent or child) goes to needsYou whole,
 // so nothing needing you is ever folded. `sorted` order is kept within every bucket.
-export function homeGroups(sorted: readonly Workspace[]): HomeGroups {
+export const homeGroups = (sorted: readonly Workspace[]): HomeGroups => splitGroups(nestWorkspaces(sorted));
+
+// Same split over groups already nested; bucket order comes from the stage lists of these groups only.
+export function splitGroups(groups: readonly WorkspaceGroup[]): HomeGroups {
   const result: HomeGroups = { needsYou: [], active: [], folded: [] };
   const buckets = new Map<string, FoldedBucket & { index: number; order: number }>();
-  for (const group of nestWorkspaces(sorted)) {
+  for (const group of groups) {
     if (group.workspace.status === 'parked') continue;
     if (needsYou(group.workspace) || group.children.some(needsYou)) {
       result.needsYou.push(group);
