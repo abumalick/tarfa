@@ -94,6 +94,16 @@ describe('WaitTracker', () => {
     expect(t.observe([messaged], T0 + 2000 + WAIT_SETTLE_MS)).toEqual([{ id: 'a', state: 'needs-orchestrator' }]);
   });
 
+  // A turn that ended on a waiting stage stays `working` until its next prompt or tool call.
+  it('reports a turn that ended on a waiting stage once the settle window has passed', () => {
+    const t = new WaitTracker(['a'], T0);
+    const staged = ws('a', 'working', { waiting: true });
+    t.observe([ws('a', 'working')], T0);
+    expect(t.observe([staged], T0 + 2000)).toEqual([]);
+    expect(t.observe([staged], T0 + 2000 + WAIT_SETTLE_MS - 1)).toEqual([]);
+    expect(t.observe([staged], T0 + 2000 + WAIT_SETTLE_MS)).toEqual([{ id: 'a', state: 'waiting' }]);
+  });
+
   it('reports every named workspace that stopped, and only those', () => {
     const t = new WaitTracker(['a', 'b', 'c'], T0);
     const out = t.observe([ws('a', 'parked'), ws('b', 'working'), ws('other', 'parked')], T0);

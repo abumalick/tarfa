@@ -20,9 +20,11 @@ function shorten(text: string): string {
   return text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX - 1)}…` : text;
 }
 
-// A child waiting on its orchestrator stays `working`; the CLI names what it waits for.
+// A child waiting on its orchestrator, and a turn that ended on a waiting stage, stay `working`;
+// the CLI names what they wait for.
 export function workspaceState(w: Workspace): string {
-  return w.waitingOn === 'parent' ? 'needs-orchestrator' : w.status;
+  if (w.waitingOn === 'parent') return 'needs-orchestrator';
+  return w.status === 'working' && w.waiting ? 'waiting' : w.status;
 }
 
 function statusCell(w: Workspace): string {

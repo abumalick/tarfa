@@ -187,7 +187,8 @@ How workspaces are created, closed, parked, recovered, named and linked, and the
   able to take the message, while a longer one is blocked on a prompt and is reporting truly).
   **A stop seen after working must last two polls:** a queued message's prompt lands 0.1 s after
   the `Stop` of the turn it waited behind. **`needs-orchestrator` always takes the 10 s:** the mark
-  stands from the send until the next tool starts, while the model may be thinking on. **`idle` under 60 s old counts as starting**, since a
+  stands from the send until the next tool starts, while the model may be thinking on. A turn that
+  ended on a waiting stage (`working` with `waiting`) reads `waiting` in `ls` and `wait`, and takes the 10 s for the same reason. **`idle` under 60 s old counts as starting**, since a
   workspace with no status entry reads `idle` until its first hook; past that it is reported, so a
   child stuck before its first hook cannot hang the wait. **`gone` and `parked` report at once.**
   **tmux listing no session at all on the first look is an error, not `gone`:** tmux says

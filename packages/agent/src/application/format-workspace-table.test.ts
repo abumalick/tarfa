@@ -63,4 +63,9 @@ describe('formatWorkspaceTable', () => {
     const out = formatWorkspaceTable([ws({ parentId: 'perch-pppppp', waitingOn: 'parent', role: 'child' })], { now: NOW, home: '/home/u' });
     expect(out.split('\n')[1]).toMatch(/^perch-aaaaaa +- +needs-orchestrator +5m +child +perch-pppppp/);
   });
+
+  it('shows a turn that ended on a waiting stage as waiting', () => {
+    const out = formatWorkspaceTable([ws({ waiting: true })], { now: NOW, home: '/home/u' });
+    expect(out.split('\n')[1]).toMatch(/^perch-aaaaaa +- +waiting +5m /);
+  });
 });

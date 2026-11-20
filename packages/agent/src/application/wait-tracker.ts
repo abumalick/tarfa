@@ -11,6 +11,7 @@ export const WAIT_HOLD_MS = WAIT_POLL_MS;
 // on a permission prompt say, would never wake anyone. The cost is one needless wake at worst.
 // `needs-orchestrator` always takes this long: the mark stands from the send until the next tool
 // starts, while the model may be thinking on, and that child's message woke the orchestrator anyway.
+// `waiting` (a turn that ended on a waiting stage) takes it too, for the same reason.
 export const WAIT_SETTLE_MS = 10_000;
 // No status entry reads as `idle`, which is what a child looks like until its first hook.
 export const WAIT_STARTING_MS = 60_000;
@@ -50,7 +51,7 @@ export class WaitTracker {
       } else {
         const since = this.stoppedSince.get(id) ?? (this.seenWorking.has(id) ? now : this.startedAt);
         this.stoppedSince.set(id, since);
-        const hold = this.seenWorking.has(id) && state !== 'needs-orchestrator' ? WAIT_HOLD_MS : WAIT_SETTLE_MS;
+        const hold = this.seenWorking.has(id) && state !== 'needs-orchestrator' && state !== 'waiting' ? WAIT_HOLD_MS : WAIT_SETTLE_MS;
         if (now - since >= hold) reports.push({ id, state });
       }
     }
