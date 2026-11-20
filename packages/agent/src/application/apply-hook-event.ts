@@ -105,6 +105,12 @@ export function markStaged(marks: Pick<Marks, 'stagedDuringTool' | 'stagedLast'>
   marks.stagedLast.add(id);
 }
 
+// `tarfa stage` to an active or done stage: the turn waits only if the last stage set was a waiting one.
+export function clearStaged(marks: Pick<Marks, 'stagedDuringTool' | 'stagedLast'>, id: string): void {
+  marks.stagedDuringTool.delete(id);
+  marks.stagedLast.delete(id);
+}
+
 // The sessions whose needs-feedback an OSC 7501 turn end set (applyProgramStatus); optional, as
 // only WsServer reads OSC.
 

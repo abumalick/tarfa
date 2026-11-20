@@ -2575,8 +2575,6 @@ describe('WsServer lost-workspace tracking', () => {
   });
 });
 
-// `tarfa send` asks the agent, which proves the caller runs inside the pane it names and holds
-// the marks the send sets.
 describe('WsServer POST /stage', () => {
   async function stageServer(opts: { stageConfig?: boolean } = {}) {
     const home = await mkdtemp(join(tmpdir(), 'perch-stage-'));
@@ -2654,6 +2652,15 @@ describe('WsServer POST /stage', () => {
     expect(status.get('perch-child-1')).toBe('needs-feedback');
   });
 
+  it('a non-waiting stage set after a waiting one in the same turn clears the wait', async () => {
+    const { status, post } = await stageServer();
+    await post('/stage', stage);
+    await post('/stage', { ...stage, stage: 'In progress' });
+    expect(status.getStagedLast('perch-child-1')).toBe(false);
+    await endTurn(post);
+    expect(status.get('perch-child-1')).toBe('needs-feedback');
+  });
+
   it('refuses an unknown stage and a caller outside a workspace, changing nothing', async () => {
     const { status, post } = await stageServer();
     expect(await (await post('/stage', { ...stage, stage: 'Nope' })).json()).toMatchObject({ result: 'refused', reason: expect.stringContaining('In progress, In review') });
@@ -2673,6 +2680,8 @@ describe('WsServer POST /stage', () => {
   });
 });
 
+// `tarfa send` asks the agent, which proves the caller runs inside the pane it names and holds
+// the marks the send sets.
 describe('WsServer POST /message', () => {
   const sockets: WebSocket[] = [];
   afterEach(() => {

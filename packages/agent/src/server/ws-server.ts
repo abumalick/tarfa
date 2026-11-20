@@ -40,7 +40,7 @@ import { trackLiveWorkspaces } from '../application/track-live-workspaces';
 import type { Workspace } from '@tarfa/contracts';
 import { ConnectionHandler } from './connection-handler';
 import { ViewerRegistry } from './viewer-registry';
-import { applyHookEvent, markSent, markStaged } from '../application/apply-hook-event';
+import { applyHookEvent, markSent, markStaged, clearStaged } from '../application/apply-hook-event';
 import { LastReplies } from '../application/last-replies';
 import { sessionOfCodexThread } from '../application/agent-message';
 import { sendMessage } from '../application/send-message';
@@ -338,10 +338,11 @@ export class WsServer {
     });
   }
 
-  // Five routes, all behind the hooks secret: `/hooks` for Claude Code's hook events; `/unpark` for
+  // Six routes, all behind the hooks secret: `/hooks` for Claude Code's hook events; `/unpark` for
   // `tarfa unpark` and `/close` for `tarfa close`, which must go through the agent because it holds
   // status.json in memory, writes parked.json itself and tells the phones; and `/message` for
-  // `tarfa send`, whose marks live here too; `/open` for tarfa-open.sh, a workspace's BROWSER.
+  // `tarfa send`, whose marks live here too; `/open` for tarfa-open.sh, a workspace's BROWSER; and
+  // `/stage` for `tarfa stage`, served with a stage config.
   private handleHttp(req: IncomingMessage, res: ServerResponse): void {
     const routes = this.deps.messaging ? ['/hooks', '/unpark', '/close', '/message', '/open'] : ['/hooks', '/unpark', '/close'];
     if (this.deps.messaging && this.deps.stageConfig) routes.push('/stage');
@@ -596,6 +597,7 @@ export class WsServer {
           stageConfig: this.deps.stageConfig!,
           status: this.deps.status,
           onWaitingStaged: (id) => markStaged({ stagedDuringTool: this.stagedDuringTool, stagedLast: this.stagedLast }, id),
+          onNonWaitingStaged: (id) => clearStaged({ stagedDuringTool: this.stagedDuringTool, stagedLast: this.stagedLast }, id),
           onStaged: (id) => void this.broadcastWorkspace(id).catch(() => undefined),
         },
         { pane, pid: pid as number, stage, ...(codexThread !== undefined ? { codexThread } : {}) },

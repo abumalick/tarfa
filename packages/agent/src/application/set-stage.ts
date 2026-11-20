@@ -6,8 +6,9 @@ import { resolveCaller, type SendMessageDeps } from './send-message.js';
 export interface SetStageDeps extends Pick<SendMessageDeps, 'tmux' | 'ancestry' | 'sessionPrefix'> {
   stageConfig: StageConfigPort;
   status: Pick<StatusStorePort, 'setStage'>;
-  // Called for a waiting stage only: the turn that ends on it waits instead of asking.
+  // The turn that ends on a waiting stage waits instead of asking; any other stage set after it undoes that.
   onWaitingStaged: (workspaceId: string) => void;
+  onNonWaitingStaged: (workspaceId: string) => void;
   onStaged: (workspaceId: string) => void;
 }
 
@@ -25,7 +26,7 @@ export async function setStageFromCli(
     return { result: 'refused', reason: `unknown stage "${req.stage.trim()}"; valid stages: ${stages.map((s) => s.name).join(', ')}` };
   }
   deps.status.setStage(caller.name, { name: stage.name, kind: stage.kind });
-  if (stage.kind === 'waiting') deps.onWaitingStaged(caller.name);
+  (stage.kind === 'waiting' ? deps.onWaitingStaged : deps.onNonWaitingStaged)(caller.name);
   deps.onStaged(caller.name);
   return { result: 'set', stage };
 }

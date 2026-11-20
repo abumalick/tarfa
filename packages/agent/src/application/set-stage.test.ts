@@ -19,6 +19,7 @@ function setup(opts: { ancestor?: boolean } = {}) {
   const setStage = vi.fn();
   const stagesFor = vi.fn(async () => stages);
   const onWaitingStaged = vi.fn();
+  const onNonWaitingStaged = vi.fn();
   const onStaged = vi.fn();
   const deps: SetStageDeps = {
     tmux,
@@ -27,10 +28,11 @@ function setup(opts: { ancestor?: boolean } = {}) {
     stageConfig: { stagesFor },
     status: { setStage },
     onWaitingStaged,
+    onNonWaitingStaged,
     onStaged,
   };
   const run = (stage: string, pane = '%1') => setStageFromCli(deps, { pane, pid: 200, stage });
-  return { run, setStage, stagesFor, onWaitingStaged, onStaged };
+  return { run, setStage, stagesFor, onWaitingStaged, onNonWaitingStaged, onStaged };
 }
 
 describe('setStageFromCli', () => {
@@ -48,6 +50,7 @@ describe('setStageFromCli', () => {
     expect(t.stagesFor).toHaveBeenCalledWith('/w/proj');
     expect(t.setStage).toHaveBeenCalledWith('perch-a', { name: 'In review', kind: 'waiting' });
     expect(t.onWaitingStaged).toHaveBeenCalledWith('perch-a');
+    expect(t.onNonWaitingStaged).not.toHaveBeenCalled();
     expect(t.onStaged).toHaveBeenCalledWith('perch-a');
   });
 
@@ -57,6 +60,7 @@ describe('setStageFromCli', () => {
     await t.run('shipped');
     expect(t.setStage).toHaveBeenCalledTimes(2);
     expect(t.onWaitingStaged).not.toHaveBeenCalled();
+    expect(t.onNonWaitingStaged).toHaveBeenCalledTimes(2);
     expect(t.onStaged).toHaveBeenCalledTimes(2);
   });
 
