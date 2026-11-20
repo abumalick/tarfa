@@ -27,6 +27,7 @@ function props(overrides: Record<string, unknown> = {}) {
     onOpenBrowser: vi.fn(),
     onStartBrowser: vi.fn(),
     onSetStatus: vi.fn(),
+    onSetStage: vi.fn(),
     onSetUrgent: vi.fn(),
     onNext: vi.fn(),
     onClose: vi.fn(),
@@ -153,6 +154,14 @@ describe('WorkspaceMenu', () => {
     await fireEvent.click(screen.getByRole('button', { name: /status: idle/i }));
     await fireEvent.click(screen.getByRole('option', { name: /blocked/i }));
     expect(p.onSetStatus).toHaveBeenCalledWith('blocked');
+  });
+
+  it('sets a stage through the picker when the agent offers stages', async () => {
+    const p = props({ stages: [{ name: 'In review', kind: 'waiting' }], stage: undefined });
+    render(WorkspaceMenu, { props: p as never });
+    await fireEvent.click(screen.getByRole('button', { name: /status: idle/i }));
+    await fireEvent.click(screen.getByRole('option', { name: /in review/i }));
+    expect(p.onSetStage).toHaveBeenCalledWith('In review');
   });
 
   it('opens the next workspace from the drawer and closes it', async () => {

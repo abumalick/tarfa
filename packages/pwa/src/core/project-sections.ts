@@ -1,26 +1,6 @@
 import type { Workspace } from '@tarfa/contracts';
-import { nestWorkspaces, nestedOrder, type WorkspaceGroup } from './nest-workspaces';
-import { splitGroups, type FoldedBucket } from './stage-groups';
-
-export type ProjectSection = { label: string; groups: WorkspaceGroup[] };
-
-// Buckets the active (unparked) groups by project. `sorted` is already in urgency order, so a
-// section takes the place of its first group, and a group is filed under its orchestrator's
-// project: a child working in another folder stays beside the parent it reports to.
-export function projectSections(
-  sorted: readonly Workspace[],
-  labelOf: (ws: Workspace) => string,
-): ProjectSection[] {
-  const sections = new Map<string, ProjectSection>();
-  for (const group of nestWorkspaces(sorted)) {
-    if (group.workspace.status === 'parked') continue;
-    const label = labelOf(group.workspace);
-    let section = sections.get(label);
-    if (!section) sections.set(label, (section = { label, groups: [] }));
-    section.groups.push(group);
-  }
-  return [...sections.values()];
-}
+import { nestWorkspaces, type WorkspaceGroup } from './nest-workspaces';
+import { homeGroups, splitGroups, type FoldedBucket } from './stage-groups';
 
 export type StageSection = { label: string; active: WorkspaceGroup[]; folded: FoldedBucket[] };
 
@@ -46,14 +26,22 @@ export function homeSections(
   return { needsYou, sections };
 }
 
-// The order the home list reads in: grouped by project when `labelOf` is given, parked last.
+// The order the home list reads in, folded stages included: needs-you, then the active rows
+// and the folded stages (project by project when `labelOf` is given), then parked.
 export function listOrder(
   sorted: readonly Workspace[],
   labelOf: ((ws: Workspace) => string) | null,
 ): Workspace[] {
-  if (!labelOf) return nestedOrder(sorted);
-  return [
-    ...projectSections(sorted, labelOf).flatMap((s) => s.groups.flatMap((g) => [g.workspace, ...g.children])),
-    ...sorted.filter((ws) => ws.status === 'parked'),
+  const rows = (groups: readonly WorkspaceGroup[]) => groups.flatMap((g) => [g.workspace, ...g.children]);
+  const rest = (s: { active: WorkspaceGroup[]; folded: FoldedBucket[] }) => [
+    ...rows(s.active),
+    ...s.folded.flatMap((b) => rows(b.groups)),
   ];
+  const parked = sorted.filter((ws) => ws.status === 'parked');
+  if (!labelOf) {
+    const home = homeGroups(sorted);
+    return [...rows(home.needsYou), ...rest(home), ...parked];
+  }
+  const home = homeSections(sorted, labelOf);
+  return [...rows(home.needsYou), ...home.sections.flatMap(rest), ...parked];
 }

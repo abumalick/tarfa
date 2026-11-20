@@ -403,7 +403,7 @@ describe('TarfaStore', () => {
       ({ machineId: 'mac', id, name: id, projectPath, command: 'claude', createdAt: 0, lastActivityAt: 0, status });
     sockets['wss://mac']!.deliver({
       type: 'workspaces',
-      workspaces: [w('a1', '/a', 'needs-feedback'), w('b1', '/b', 'needs-feedback'), w('a2', '/a', 'review')],
+      workspaces: [w('a1', '/a', 'idle'), w('b1', '/b', 'idle'), w('a2', '/a', 'idle')],
     });
     store.open(store.workspaces.find((ws) => ws.id === 'a1')!);
     expect(store.nextWorkspace?.id).toBe('b1');
@@ -1996,6 +1996,20 @@ describe('TarfaStore update prompt', () => {
     expect(store.active?.urgent).toBe(true);
   });
 
+  it('setWorkspaceStage sends setStage for the active workspace, offered only to an agent with stages', () => {
+    const { store, sockets } = build([mac]);
+    store.start();
+    sockets['wss://mac']!.open();
+    sockets['wss://mac']!.deliver({ type: 'authResult', ok: true });
+    expect(store.supportsStages('mac')).toBe(false);
+    store.setAgent('mac', { features: ['stages'] });
+    expect(store.supportsStages('mac')).toBe(true);
+    store.open({ machineId: 'mac', id: 'perch-a', name: 'a', projectPath: '/a', command: 'claude', createdAt: 0, lastActivityAt: 0, status: 'idle' });
+    store.setWorkspaceStage('In review');
+    const sent = sockets['wss://mac']!.sent.map((s) => JSON.parse(s));
+    expect(sent).toContainEqual({ type: 'setStage', workspaceId: 'perch-a', stage: 'In review' });
+  });
+
   const openWs = { machineId: 'mac', id: 'perch-a', name: 'a', projectPath: '/a', command: 'claude', createdAt: 0, lastActivityAt: 0, status: 'idle' as const };
 
   it('re-attaches the active terminal after its machine drops and reconnects', () => {
@@ -3208,6 +3222,16 @@ describe('TarfaStore orchestrator folds', () => {
     const write = vi.spyOn(storage, 'write');
     store.toggleChildren('mac:perch-o');
     expect(write).not.toHaveBeenCalled();
+  });
+});
+
+describe('TarfaStore folded stages', () => {
+  it('toggles each folded stage on its own, by name', () => {
+    const { store } = build();
+    store.toggleStage('In review');
+    expect([...store.expandedStages]).toEqual(['In review']);
+    store.toggleStage('In review');
+    expect(store.expandedStages.size).toBe(0);
   });
 });
 

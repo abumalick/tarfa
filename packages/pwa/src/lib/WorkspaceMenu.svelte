@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { WorkspaceStatus } from '@tarfa/contracts';
+  import type { ProjectStage, WorkspaceStatus } from '@tarfa/contracts';
   import StatusPicker from './StatusPicker.svelte';
   import BrowserPicker from './BrowserPicker.svelte';
   import { githubLinks } from '../core/github-links';
@@ -16,6 +16,8 @@
     canZoomOut,
     status,
     statusLabel,
+    stages,
+    stage,
     urgent,
     github,
     browserSessions,
@@ -29,6 +31,7 @@
     onOpenBrowser,
     onStartBrowser,
     onSetStatus,
+    onSetStage,
     onSetUrgent,
     onNext,
     onClose,
@@ -43,6 +46,8 @@
     canZoomOut: boolean;
     status: WorkspaceStatus;
     statusLabel?: string;
+    stages?: readonly ProjectStage[];
+    stage?: string;
     urgent: boolean;
     github?: { owner: string; repo: string; ownerType?: 'user' | 'org' };
     browserSessions: string[];
@@ -56,6 +61,7 @@
     onOpenBrowser: (name: string) => void;
     onStartBrowser: () => void;
     onSetStatus: (s: WorkspaceStatus) => void;
+    onSetStage: (name: string) => void;
     onSetUrgent: (urgent: boolean) => void;
     onNext: () => void;
     onClose: () => void;
@@ -144,7 +150,7 @@
 
       {#if showStatus}
         <div class="picker-wrap">
-          <StatusPicker {status} label={statusLabel} onSelect={onSetStatus} />
+          <StatusPicker {status} label={statusLabel} onSelect={onSetStatus} {stages} {stage} onStage={onSetStage} />
         </div>
       {/if}
 

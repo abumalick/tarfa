@@ -44,6 +44,48 @@ describe('StatusPicker', () => {
   });
 });
 
+describe('StatusPicker against an agent with stages', () => {
+  const stages = [
+    { name: 'In progress', kind: 'active' as const },
+    { name: 'In review', kind: 'waiting' as const },
+    { name: 'Done', kind: 'done' as const },
+  ];
+  const open = async (props: Record<string, unknown> = {}) => {
+    const onSelect = vi.fn();
+    const onStage = vi.fn();
+    render(StatusPicker, { props: { status: 'needs-feedback', stages, stage: 'In review', onSelect, onStage, ...props } });
+    await fireEvent.click(screen.getByRole('button', { name: /status: needs you/i }));
+    return { onSelect, onStage };
+  };
+
+  it('offers the project stages, the current one checked, then the activity actions', async () => {
+    await open();
+    const stageGroup = screen.getByRole('group', { name: 'Stage' });
+    const activityGroup = screen.getByRole('group', { name: 'Activity' });
+    const names = (group: HTMLElement) => [...group.querySelectorAll('[role=option]')].map((o) => o.textContent?.trim());
+    expect(names(stageGroup)).toEqual(['● In progress', '● In review', '● Done']);
+    expect(names(activityGroup)).toEqual(['● Seen', '● Needs hands', '● Park']);
+    expect(screen.getByRole('option', { name: /in review/i })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('sends a stage pick through onStage and closes', async () => {
+    const { onStage, onSelect } = await open();
+    await fireEvent.click(screen.getByRole('option', { name: /done/i }));
+    expect(onStage).toHaveBeenCalledWith('Done');
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('sends Seen as idle and Park as parked', async () => {
+    const { onSelect } = await open();
+    await fireEvent.click(screen.getByRole('option', { name: /seen/i }));
+    expect(onSelect).toHaveBeenCalledWith('idle');
+    await fireEvent.click(screen.getByRole('button', { name: /status: needs you/i }));
+    await fireEvent.click(screen.getByRole('option', { name: /park/i }));
+    expect(onSelect).toHaveBeenLastCalledWith('parked');
+  });
+});
+
 describe('StatusPicker in French', () => {
   it('renders its text in French', () => {
     setLanguage('fr');

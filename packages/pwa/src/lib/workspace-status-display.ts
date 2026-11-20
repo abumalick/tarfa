@@ -14,11 +14,12 @@ export const STATUS_LABELS: Record<WorkspaceStatus, string> = {
 };
 
 // A child waiting on its orchestrator stays `working` (it never alarms the user), but
-// "Working" would hide that its orchestrator is the one who must act.
-export function statusLabel(ws: Pick<Workspace, 'status' | 'waitingOn'>): string {
-  return ws.status === 'working' && ws.waitingOn === 'parent'
-    ? msg().status.needsOrchestrator
-    : STATUS_LABELS[ws.status];
+// "Working" would hide that its orchestrator is the one who must act. A turn that ended on a
+// waiting stage is held `working` the same way, and waits on someone outside.
+export function statusLabel(ws: Pick<Workspace, 'status' | 'waitingOn' | 'waiting'>): string {
+  if (ws.status === 'working' && ws.waitingOn === 'parent') return msg().status.needsOrchestrator;
+  if (ws.status === 'working' && ws.waiting) return msg().status.waiting;
+  return STATUS_LABELS[ws.status];
 }
 
 // The picker lists statuses in the same canonical order that drives the list sort.

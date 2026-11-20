@@ -15,9 +15,10 @@
   import { isConnectable } from '../core/settings-store';
   import { deriveProjectFolders, filterWorkspaces, projectFolderLabel, pruneStaleFilter } from '../core/project-folders';
   import { motionDuration, prefersReducedMotion, reorderDuration, REORDER_MS, ENTER_LEAVE_MS } from './motion';
-  import { statusLabel } from './workspace-status-display';
-  import { nestWorkspaces } from '../core/nest-workspaces';
-  import { projectSections } from '../core/project-sections';
+  import { STATUS_LABELS, statusLabel } from './workspace-status-display';
+  import type { WorkspaceGroup } from '../core/nest-workspaces';
+  import { homeSections } from '../core/project-sections';
+  import { effectiveStage, homeGroups, type FoldedBucket } from '../core/stage-groups';
   import { risers, urgency, type Ranked } from '../core/risers';
   import { statusAge } from '../core/status-age';
   import { msg } from '../i18n.svelte';
@@ -92,13 +93,21 @@
   const visibleWorkspaces = $derived(
     filterWorkspaces(store.workspaces, store.machines, selected, store.folderFilterMode),
   );
-  const activeGroups = $derived(
-    nestWorkspaces(visibleWorkspaces).filter((g) => g.workspace.status !== 'parked'),
-  );
   const labelOf = (ws: Workspace) => projectFolderLabel(store.machines, ws);
-  const sections = $derived(store.groupByProject ? projectSections(visibleWorkspaces, labelOf) : []);
+  // Needs-you on top across everything, then the active rows and the folded stages, per project
+  // when grouped.
+  const flat = $derived(store.groupByProject ? null : homeGroups(visibleWorkspaces));
+  const grouped = $derived(store.groupByProject ? homeSections(visibleWorkspaces, labelOf) : null);
+  const needsYou = $derived(flat?.needsYou ?? grouped?.needsYou ?? []);
+  const sections = $derived(grouped?.sections ?? []);
+  const size = (groups: readonly WorkspaceGroup[]) => groups.reduce((n, g) => n + 1 + g.children.length, 0);
   const sectionSize = (section: (typeof sections)[number]) =>
-    section.groups.reduce((n, g) => n + 1 + g.children.length, 0);
+    size(section.active) + section.folded.reduce((n, b) => n + size(b.groups), 0);
+  // A folded old manual status (review, blocked, finished) is named by its label.
+  const bucketLabel = (bucket: FoldedBucket) => {
+    const legacy = effectiveStage(bucket.groups[0]!.workspace)?.legacy;
+    return legacy ? STATUS_LABELS[legacy] : bucket.name;
+  };
   const parkedWorkspaces = $derived(visibleWorkspaces.filter((ws) => ws.status === 'parked'));
   // Agent-browser sessions attached to no workspace (e.g. a home-level per-site login
   // like `github`), listed per machine at the bottom of the home list.
@@ -122,7 +131,7 @@
   const rising = new SvelteSet<string>();
   const riseTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let lastOrder = new Map<string, Ranked[]>();
-  const rankedGroup = (g: (typeof activeGroups)[number]): Ranked => ({
+  const rankedGroup = (g: WorkspaceGroup): Ranked => ({
     key: rowKey(g.workspace),
     score: urgency([g.workspace, ...g.children]),
   });
@@ -134,23 +143,27 @@
     if (rising.delete(key)) requestAnimationFrame(() => riseTimers.has(key) && rising.add(key));
     else rising.add(key);
   };
+  // The expanded rows read as one sequence, needs-you first, so a row lifted into needs-you
+  // counts as climbing past the rows it left behind.
   $effect(() => {
-    const order: Map<string, Ranked[]> = store.groupByProject
-      ? new Map([
-          [
-            '§',
-            sections.map((s) => ({
-              key: sectionKey(s.label),
-              score: urgency(s.groups.flatMap((g) => [g.workspace, ...g.children])),
-            })),
-          ],
-          ...sections.map((s): [string, Ranked[]] => [s.label, s.groups.map(rankedGroup)]),
-        ])
-      : new Map([['rows', activeGroups.map(rankedGroup)]]);
+    const rows = [...needsYou, ...(flat?.active ?? sections.flatMap((s) => s.active))];
+    const order = new Map<string, Ranked[]>([['rows', rows.map(rankedGroup)]]);
+    if (store.groupByProject) {
+      order.set(
+        '§',
+        sections.map((s) => ({
+          key: sectionKey(s.label),
+          score: urgency([...s.active, ...s.folded.flatMap((b) => b.groups)].flatMap((g) => [g.workspace, ...g.children])),
+        })),
+      );
+    }
     const rose = risers(lastOrder, order);
     lastOrder = order;
     // A project sits where its top workspace sits, so that workspace is what lifted it.
-    for (const s of sections) if (rose.has(sectionKey(s.label))) rose.add(rowKey(s.groups[0]!.workspace));
+    for (const s of sections) {
+      const top = s.active[0]?.workspace;
+      if (top && rose.has(sectionKey(s.label))) rose.add(rowKey(top));
+    }
     untrack(() => rose.forEach(glow));
   });
   $effect(() => () => riseTimers.forEach(clearTimeout));
@@ -227,6 +240,9 @@
         {#if ws.agentAddress}
           <span class="agent-address" data-testid="agent-address" title={msg().home.agentAddress}>{ws.agentAddress}</span>
         {/if}
+        {#if ws.stage}
+          <span class="stage">{ws.stage.name}</span>
+        {/if}
         <span class="badge" data-status={ws.status}>{statusLabel(ws)}</span>
         <span class="chev" aria-hidden="true">›</span>
       </span>
@@ -270,6 +286,41 @@
   {:else}
     {@render workspaceRow(ws, section)}
   {/if}
+{/snippet}
+
+{#snippet groupList(groups: WorkspaceGroup[], section: string | null = null)}
+  <ul>
+    {#each groups as { workspace: ws, children } (rowKey(ws))}
+      <li
+        class:rose={rising.has(rowKey(ws))}
+        animate:flip={{ duration: reorderDuration }}
+        in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
+        out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
+      >
+        {@render groupItem(ws, children, section)}
+      </li>
+    {/each}
+  </ul>
+{/snippet}
+
+<!-- A waiting or done stage, folded behind one line like the parked group. -->
+{#snippet foldedStages(buckets: FoldedBucket[], section: string | null = null)}
+  {#each buckets as bucket (bucket.kind + ':' + bucket.name)}
+    <button
+      type="button"
+      class="parked-toggle stage-toggle"
+      aria-expanded={store.expandedStages.has(bucket.name)}
+      onclick={() => store.toggleStage(bucket.name)}
+    >
+      <span>{msg().home.foldedStage(bucketLabel(bucket), size(bucket.groups))}</span>
+      <span class="chev" aria-hidden="true">›</span>
+    </button>
+    {#if store.expandedStages.has(bucket.name)}
+      <div class="stage-fold" transition:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}>
+        {@render groupList(bucket.groups, section)}
+      </div>
+    {/if}
+  {/each}
 {/snippet}
 
 {#if store.updateReady}
@@ -370,6 +421,21 @@
       <button type="button" class="cta" onclick={() => setSelected([])}>{msg().home.showAll}</button>
     </div>
   {/if}
+  {#if needsYou.length > 0}
+    <section
+      class="needs-you"
+      role="group"
+      aria-label={msg().home.needsYouSection(size(needsYou))}
+      in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
+      out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
+    >
+      <h2>
+        <span class="project-name">{msg().home.needsYou}</span>
+        <span class="project-count">{size(needsYou)}</span>
+      </h2>
+      {@render groupList(needsYou)}
+    </section>
+  {/if}
   {#if store.groupByProject}
     {#each sections as section (section.label)}
       <section
@@ -385,33 +451,13 @@
           <span class="project-name">{section.label}</span>
           <span class="project-count">{sectionSize(section)}</span>
         </h2>
-        <ul>
-          {#each section.groups as { workspace: ws, children } (rowKey(ws))}
-            <li
-              class:rose={rising.has(rowKey(ws))}
-              animate:flip={{ duration: reorderDuration }}
-              in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
-              out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
-            >
-              {@render groupItem(ws, children, section.label)}
-            </li>
-          {/each}
-        </ul>
+        {@render groupList(section.active, section.label)}
+        {@render foldedStages(section.folded, section.label)}
       </section>
     {/each}
-  {:else}
-    <ul>
-      {#each activeGroups as { workspace: ws, children } (rowKey(ws))}
-        <li
-          class:rose={rising.has(rowKey(ws))}
-          animate:flip={{ duration: reorderDuration }}
-          in:slide={{ duration: ready ? motionDuration(ENTER_LEAVE_MS) : 0 }}
-          out:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}
-        >
-          {@render groupItem(ws, children)}
-        </li>
-      {/each}
-    </ul>
+  {:else if flat}
+    {@render groupList(flat.active)}
+    {@render foldedStages(flat.folded)}
   {/if}
   {#if parkedWorkspaces.length > 0}
     <!-- Parked sessions rarely need reading, so they sit folded behind one row at the end. -->
@@ -661,6 +707,22 @@
   /* margin-left: auto right-aligns the badge + chevron at the end of the first line,
      while the folder and machine pill stay packed at the start. */
   .badge { flex: 0 0 auto; margin-left: auto; font-size: 0.78rem; font-weight: 600; color: var(--text-dim); }
+  /* The stage, beside the activity badge; free text, so it gives way before the badge does. */
+  .stage {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .stage + .badge { margin-left: 0; }
   .badge[data-status='finished'] { color: var(--ok); }
   .badge[data-status='working'] { color: var(--accent); }
   .badge[data-status='review'] { color: var(--warn); }
@@ -733,8 +795,10 @@
 
   /* A project header: the folder in the list's quiet heading style, its workspace count beside it.
      The first one sits where the list's top margin was. */
-  .project { margin-top: 1rem; }
-  .project h2 {
+  .project,
+  .needs-you { margin-top: 1rem; }
+  .project h2,
+  .needs-you h2 {
     display: flex;
     align-items: baseline;
     gap: 0.4rem;
@@ -745,7 +809,9 @@
   }
   .project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .project-count { flex: 0 0 auto; font-weight: 400; }
-  .project > ul { margin-top: 0; }
+  .project > ul,
+  .needs-you > ul { margin-top: 0; }
+  .stage-fold > ul { margin-top: 0.5rem; }
   /* A glow that fades out on whatever just climbed. Color only, so it stays under reduced
      motion: it says what moved without moving anything. */
   li.rose > .row,

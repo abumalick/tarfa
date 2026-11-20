@@ -225,6 +225,10 @@
   // The BrowserPicker routes on the count: none → start, one → open, several → a dropdown.
   const browserSessions = $derived(store.active ? store.browserSessionsFor(store.active) : []);
   const canStartBrowser = $derived(!!store.active && store.supportsBrowser(store.active.machineId));
+  // The project's stages, offered by the picker only when this machine's agent takes `setStage`.
+  const stages = $derived(
+    store.active && store.supportsStages(store.active.machineId) ? (store.active.stages ?? []) : undefined,
+  );
   const openBrowserSession = (name: string) => {
     const ws = store.active;
     if (ws) store.openBrowserView(ws.machineId, name);
@@ -476,7 +480,14 @@
       {/if}
     {/if}
     {#if statusInline && store.active}
-      <StatusPicker status={store.active.status} label={statusLabel(store.active)} onSelect={(s) => store.setWorkspaceStatus(s)} />
+      <StatusPicker
+        status={store.active.status}
+        label={statusLabel(store.active)}
+        onSelect={(s) => store.setWorkspaceStatus(s)}
+        {stages}
+        stage={store.active.stage?.name}
+        onStage={(name) => store.setWorkspaceStage(name)}
+      />
       <button type="button" class="icon" aria-label={msg().terminal.nextWorkspace} title={store.nextWorkspace ? msg().terminal.nextTitle(store.nextWorkspace.name) : msg().terminal.nothingNeedsYou} disabled={!store.nextWorkspace} onclick={() => store.openNext()}>⏭</button>
     {/if}
     {#if wide}
@@ -558,6 +569,8 @@
     canZoomOut={store.terminalFontSize > TERMINAL_FONT_MIN}
     status={store.active?.status ?? 'idle'}
     statusLabel={store.active ? statusLabel(store.active) : undefined}
+    {stages}
+    stage={store.active?.stage?.name}
     urgent={store.active?.urgent ?? false}
     github={store.active?.github}
     browserSessions={browserSessions}
@@ -571,6 +584,7 @@
     onOpenBrowser={openBrowserSession}
     onStartBrowser={startBrowser}
     onSetStatus={(s) => store.setWorkspaceStatus(s)}
+    onSetStage={(name) => store.setWorkspaceStage(name)}
     onSetUrgent={(u) => store.setWorkspaceUrgent(u)}
     onClose={() => store.closeActive()}
   />

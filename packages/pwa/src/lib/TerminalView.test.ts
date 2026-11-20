@@ -120,6 +120,8 @@ function fakeStore(
     setWorkspaceStatus: vi.fn(),
     browserSessionsFor: vi.fn(() => [] as string[]),
     supportsBrowser: vi.fn(() => false),
+    supportsStages: vi.fn(() => false),
+    setWorkspaceStage: vi.fn(),
     openBrowserView: vi.fn(),
     startBrowser: vi.fn(),
   };

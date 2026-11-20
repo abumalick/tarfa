@@ -69,9 +69,9 @@ describe('nextWorkspace', () => {
 describe('nextWorkspace, grouped by project', () => {
   it('finishes a project before moving to the next one', () => {
     const list = [
-      { ...ws('a1', 'needs-feedback'), projectPath: 'a' },
-      { ...ws('b1', 'needs-feedback'), projectPath: 'b' },
-      { ...ws('a2', 'review'), projectPath: 'a' },
+      { ...ws('a1', 'idle'), projectPath: 'a' },
+      { ...ws('b1', 'idle'), projectPath: 'b' },
+      { ...ws('a2', 'idle'), projectPath: 'a' },
     ];
     expect(nextWorkspace(list, list[0]!, (w) => w.projectPath)?.id).toBe('a2');
     expect(nextWorkspace(list, list[0]!)?.id).toBe('b1');

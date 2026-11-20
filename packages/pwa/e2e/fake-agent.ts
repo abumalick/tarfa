@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
-import { audioMediaType, imageMediaType, pdfMediaType } from '@tarfa/contracts';
+import { AGENT_FEATURES, audioMediaType, imageMediaType, pdfMediaType, type ProjectStage } from '@tarfa/contracts';
 import { REFUSAL, generateAgentKeys, generatePairingSecret } from '@tarfa/secure-channel';
-import { NoiseClientConnection, type NoiseClientConnectionOptions } from '@tarfa/cli/src/server/noise-client-connection.ts';
+import { FEATURES, NoiseClientConnection, type NoiseClientConnectionOptions } from '@tarfa/cli/src/server/noise-client-connection.ts';
 import { startDeviceGate } from '@tarfa/cli/src/server/device-gate-wiring.ts';
 import { startPhoneListener } from '@tarfa/cli/src/infrastructure/phone-listener.ts';
 import { PhoneAdmission } from '@tarfa/cli/src/application/phone-admission.ts';
@@ -124,6 +124,10 @@ export interface FakeAgent {
   // Whether its authResult names setDictationKey (mutable, for sessions opened after; true).
   // False plays an agent from before phones could store a key.
   takesKeys: boolean;
+  // The project's stage list (mutable, for sessions opened after; none until a spec sets it). Set,
+  // the authResult names `stages`, every listed workspace carries the list, and `setStage` is
+  // honoured; unset plays an agent from before stages.
+  stages: ProjectStage[] | undefined;
   close: () => Promise<void>;
 }
 
@@ -141,6 +145,7 @@ type FakeWorkspace = {
   github?: { owner: string; repo: string; ownerType?: 'user' | 'org' };
   parentId?: string;
   waitingOn?: 'parent';
+  stage?: { name: string; kind: ProjectStage['kind']; since: number };
 };
 
 // The default two-workspace set most specs rely on. Pass `workspacesOverride` to exercise a
@@ -182,6 +187,7 @@ export async function startFakeAgent(
   const lastReplies: Record<string, string> = {};
   const dictationKeys: { elevenlabs?: string; openrouter?: string } = {};
   let takesKeys = true;
+  let stages: ProjectStage[] | undefined;
   const sessions = new Set<NoiseClientConnection>();
   {
     const browserReceived: Array<{ session: string; message: Record<string, unknown> }> = [];
@@ -211,6 +217,10 @@ export async function startFakeAgent(
     const browserSessions: Array<{ name: string }> =
       browserSessionsOverride ??
       (workspaces.some((w) => w.id === 'perch-demo') ? [{ name: 'perch-demo' }] : []);
+    const wire = (ws: FakeWorkspace) => (stages ? { ...ws, stages } : ws);
+    const broadcast = (ws: FakeWorkspace) => {
+      for (const client of conns) client.send({ type: 'workspaceUpdated', workspace: wire(ws) });
+    };
     const serve = (conn: Conn) => {
       conns.add(conn);
       let attached = '';
@@ -311,8 +321,8 @@ export async function startFakeAgent(
             // machineId here is the AGENT's TARFA_MACHINE_ID, deliberately DIFFERENT from the
             // PWA's machine config id (seeded as 'test' in the E2E). The client must route
             // attach/input by the connection id, not this value — so the E2E covers that.
-            if (heldLists) heldLists.push(() => send({ type: 'workspaces', workspaces, claudeVoice }));
-            else send({ type: 'workspaces', workspaces, claudeVoice });
+            if (heldLists) heldLists.push(() => send({ type: 'workspaces', workspaces: workspaces.map(wire), claudeVoice }));
+            else send({ type: 'workspaces', workspaces: workspaces.map(wire), claudeVoice });
             // Faithful to the real agent: browserSessions follows every workspaces reply;
             // sending the (possibly empty) list also marks the agent as browser-capable.
             send({ type: 'browserSessions', sessions: browserSessions });
@@ -339,9 +349,19 @@ export async function startFakeAgent(
             const ws = workspaces.find((w) => w.id === String(msg.workspaceId));
             if (ws) {
               ws.status = String(msg.status);
-              for (const client of conns) {
-                client.send({ type: 'workspaceUpdated', workspace: ws });
-              }
+              broadcast(ws);
+            }
+            break;
+          }
+          case 'setStage': {
+            // Faithful to the real agent: a name from the list (case-insensitive, stored with the
+            // list's spelling); a waiting or done pick on a row that needs feedback also marks it seen.
+            const ws = workspaces.find((w) => w.id === String(msg.workspaceId));
+            const stage = stages?.find((s) => s.name.toLowerCase() === String(msg.stage).toLowerCase());
+            if (ws && stage) {
+              ws.stage = { name: stage.name, kind: stage.kind, since: Date.now() };
+              if (stage.kind !== 'active' && ws.status === 'needs-feedback') ws.status = 'idle';
+              broadcast(ws);
             }
             break;
           }
@@ -351,9 +371,7 @@ export async function startFakeAgent(
             const ws = workspaces.find((w) => w.id === String(msg.workspaceId));
             if (ws) {
               ws.urgent = Boolean(msg.urgent);
-              for (const client of conns) {
-                client.send({ type: 'workspaceUpdated', workspace: ws });
-              }
+              broadcast(ws);
             }
             break;
           }
@@ -407,9 +425,7 @@ export async function startFakeAgent(
               status: 'idle',
             };
             workspaces.push(ws);
-            for (const client of conns) {
-              client.send({ type: 'workspaceUpdated', workspace: ws });
-            }
+            broadcast(ws);
             break;
           }
           case 'close':
@@ -499,7 +515,11 @@ export async function startFakeAgent(
     const server = {
       acceptPhoneSocket(socket: FrameSocket, staticPrivate: Uint8Array, options: NoiseClientConnectionOptions) {
         upgrades += 1;
-        const conn = new NoiseClientConnection(socket, staticPrivate, takesKeys ? options : { ...options, features: ['lastReply', 'dictationKeys'] });
+        const features = takesKeys ? (options.features ?? FEATURES) : ['lastReply', 'dictationKeys'];
+        const conn = new NoiseClientConnection(socket, staticPrivate, {
+          ...options,
+          features: stages ? [...features, AGENT_FEATURES.stages] : features,
+        });
         sessions.add(conn);
         conn.onClose(() => sessions.delete(conn));
         serve(noiseConn(conn));
@@ -560,6 +580,12 @@ export async function startFakeAgent(
       },
       set takesKeys(on: boolean) {
         takesKeys = on;
+      },
+      get stages() {
+        return stages;
+      },
+      set stages(list: ProjectStage[] | undefined) {
+        stages = list;
       },
       created,
       received,

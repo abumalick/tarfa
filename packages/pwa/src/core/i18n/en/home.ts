@@ -30,6 +30,9 @@ export const home = {
   toggleChildren: (expanded: boolean, n: number) =>
     `${expanded ? 'Hide' : 'Show'} ${n} child workspace${n === 1 ? '' : 's'}`,
   parked: (n: number) => `Parked · ${n}`,
+  needsYou: 'Needs you',
+  needsYouSection: (n: number) => `Needs you, ${n} workspace${n === 1 ? '' : 's'}`,
+  foldedStage: (name: string, n: number) => `${n} · ${name}`,
   browserSessions: 'Browser sessions',
   projectSection: (project: string, n: number) => `${project}, ${n} workspace${n === 1 ? '' : 's'}`,
   filter: {

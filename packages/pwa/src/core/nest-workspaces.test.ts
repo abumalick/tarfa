@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { sortByStatus, type Workspace, type WorkspaceStatus } from '@tarfa/contracts';
-import { nestWorkspaces, nestedOrder } from './nest-workspaces';
+import { nestWorkspaces } from './nest-workspaces';
 
 const ws = (
   id: string,
@@ -87,16 +87,5 @@ describe('nestWorkspaces', () => {
 
   it('does not nest a workspace under itself', () => {
     expect(shape(nestWorkspaces([ws('a', 'idle', { parentId: 'a' })]))).toEqual([['a', []]]);
-  });
-});
-
-describe('nestedOrder', () => {
-  it('walks each parent then its children', () => {
-    const list = sortByStatus([
-      ws('p', 'working'),
-      ws('c', 'needs-feedback', { parentId: 'p' }),
-      ws('i', 'idle'),
-    ]);
-    expect(nestedOrder(list).map((w) => w.id)).toEqual(['p', 'c', 'i']);
   });
 });

@@ -269,6 +269,8 @@ export class TarfaStore {
   // The orchestrators whose children the home list shows (`machineId:id`), kept like
   // `parkedExpanded`: across opening a workspace, not across a reload.
   readonly expandedParents = new SvelteSet<string>();
+  // The folded stages the home list shows open, by stage name, kept like `parkedExpanded`.
+  readonly expandedStages = new SvelteSet<string>();
   // Live agent-browser sessions per connection, from the agent's `browserSessions`
   // message. Keyed by the CONNECTION id (this PWA's machine config id), never the
   // agent's self-reported machine id — same routing rule as workspaces.
@@ -1042,6 +1044,14 @@ export class TarfaStore {
     }
   }
 
+  setWorkspaceStage(name: string): void {
+    if (this.active) this.send(this.active.machineId, { type: 'setStage', workspaceId: this.active.id, stage: name });
+  }
+
+  supportsStages(machineId: string): boolean {
+    return (this.agentFeatures[machineId] ?? []).includes(AGENT_FEATURES.stages);
+  }
+
   setWorkspaceUrgent(urgent: boolean): void {
     if (this.active) {
       this.send(this.active.machineId, {
@@ -1624,6 +1634,10 @@ export class TarfaStore {
 
   toggleChildren(key: string): void {
     if (!this.expandedParents.delete(key)) this.expandedParents.add(key);
+  }
+
+  toggleStage(name: string): void {
+    if (!this.expandedStages.delete(name)) this.expandedStages.add(name);
   }
 
   setKeyboardAnchor(focus: (() => void) | null): void {

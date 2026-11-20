@@ -36,6 +36,9 @@ export const home: Messages['home'] = {
   toggleChildren: (expanded, n) =>
     `${expanded ? 'Masquer' : 'Afficher'} ${n} ${plural(n, 'espace de travail enfant', 'espaces de travail enfants')}`,
   parked: (n) => `En veille · ${n}`,
+  needsYou: 'Vous attend',
+  needsYouSection: (n) => `Vous attend, ${n} ${plural(n, 'espace de travail', 'espaces de travail')}`,
+  foldedStage: (name, n) => `${n} · ${name}`,
   browserSessions: 'Sessions de navigateur',
   projectSection: (project, n) => `${project}, ${n} ${plural(n, 'espace de travail', 'espaces de travail')}`,
   filter: {
