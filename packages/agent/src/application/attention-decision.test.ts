@@ -170,7 +170,7 @@ describe('attentionDecision', () => {
       expect(attentionDecision({ event: 'UserPromptSubmit', claude: undefined, wasDeferred: true })).toEqual({
         status: 'working',
         deferral: 'clear',
-        messagedLast: 'clear',
+        messagedLast: 'clear', stagedLast: 'clear',
       });
     });
 
@@ -180,7 +180,7 @@ describe('attentionDecision', () => {
       expect(attentionDecision({ event: 'PreToolUse', claude: undefined, wasDeferred: true })).toEqual({
         status: 'working',
         deferral: 'keep',
-        messagedLast: 'clear',
+        messagedLast: 'clear', stagedLast: 'clear',
       });
     });
 
@@ -188,7 +188,7 @@ describe('attentionDecision', () => {
       expect(attentionDecision({ event: 'PostToolUse', claude: undefined, wasDeferred: true })).toEqual({
         status: 'working',
         deferral: 'keep',
-        messagedLast: 'clear',
+        messagedLast: 'clear', stagedLast: 'clear',
       });
     });
 
@@ -210,7 +210,7 @@ describe('attentionDecision', () => {
       expect(attentionDecision({ event: 'PreToolUse', claude: ownToolCall, wasDeferred: false })).toEqual({
         status: 'working',
         deferral: 'keep',
-        messagedLast: 'clear',
+        messagedLast: 'clear', stagedLast: 'clear',
       });
     });
 
@@ -219,7 +219,7 @@ describe('attentionDecision', () => {
       expect(attentionDecision({ event: 'PostToolUse', claude: ownToolCall, wasDeferred: false })).toEqual({
         status: 'working',
         deferral: 'keep',
-        messagedLast: 'clear',
+        messagedLast: 'clear', stagedLast: 'clear',
       });
     });
   });
@@ -241,7 +241,7 @@ describe('attentionDecision', () => {
           claude: { tool_name: 'AskUserQuestion' },
           wasDeferred: false,
         }),
-      ).toEqual({ status: 'working', deferral: 'keep', messagedLast: 'clear' });
+      ).toEqual({ status: 'working', deferral: 'keep', messagedLast: 'clear', stagedLast: 'clear' });
     });
 
     // A subagent asking its own question must not speak for the parent session.
@@ -270,7 +270,7 @@ describe('attentionDecision', () => {
       expect(attentionDecision({ event: 'PostToolUse', claude: ownMessage, wasDeferred: false })).toEqual({
         status: 'working',
         deferral: 'keep',
-        messagedLast: 'set',
+        messagedLast: 'set', stagedLast: 'clear',
       });
     });
 
@@ -340,7 +340,7 @@ describe('attentionDecision', () => {
     it('the reply resets the mark', () => {
       expect(
         attentionDecision({ event: 'UserPromptSubmit', claude: undefined, wasDeferred: true, messagedLast: true }),
-      ).toEqual({ status: 'working', deferral: 'clear', messagedLast: 'clear' });
+      ).toEqual({ status: 'working', deferral: 'clear', messagedLast: 'clear', stagedLast: 'clear' });
     });
   });
 
@@ -411,7 +411,7 @@ describe('attentionDecision', () => {
     it('the answer clears the question and resumes work', () => {
       expect(
         attentionDecision({ event: 'UserPromptSubmit', claude: undefined, wasDeferred: false, questionPending: true }),
-      ).toEqual({ status: 'working', deferral: 'clear', messagedLast: 'clear', question: 'clear' });
+      ).toEqual({ status: 'working', deferral: 'clear', messagedLast: 'clear', stagedLast: 'clear', question: 'clear' });
     });
 
     it('a turn end clears the question', () => {
@@ -435,7 +435,7 @@ describe('attentionDecision', () => {
           messagedLast: true,
           questionPending: true,
         }),
-      ).toEqual({ status: 'needs-feedback', deferral: 'clear', messagedLast: 'clear', question: 'clear' });
+      ).toEqual({ status: 'needs-feedback', deferral: 'clear', messagedLast: 'clear', stagedLast: 'clear', question: 'clear' });
     });
   });
 
@@ -452,7 +452,7 @@ describe('attentionDecision', () => {
           questionPending: true,
           currentStatus: 'working',
         }),
-      ).toEqual({ status: 'needs-feedback', deferral: 'clear', messagedLast: 'clear', question: 'clear' });
+      ).toEqual({ status: 'needs-feedback', deferral: 'clear', messagedLast: 'clear', stagedLast: 'clear', question: 'clear' });
     });
 
     // An unpark sets `idle` and its resume fires SessionStart; a status the user or a hook set
@@ -460,7 +460,7 @@ describe('attentionDecision', () => {
     it.each(['idle', 'needs-feedback', 'finished', undefined] as const)('leaves a %s status alone', (currentStatus) => {
       expect(
         attentionDecision({ event: 'SessionStart', claude: { source: 'resume' }, wasDeferred: false, currentStatus }),
-      ).toEqual({ status: null, deferral: 'clear', messagedLast: 'clear', question: 'clear' });
+      ).toEqual({ status: null, deferral: 'clear', messagedLast: 'clear', stagedLast: 'clear', question: 'clear' });
     });
 
     // Auto-compaction fires SessionStart in the middle of a turn.
@@ -468,6 +468,63 @@ describe('attentionDecision', () => {
       expect(
         attentionDecision({ event: 'SessionStart', claude, wasDeferred: true, messagedLast: true, currentStatus: 'working' }),
       ).toEqual({ status: null, deferral: 'keep' });
+    });
+  });
+
+  // A turn whose last act was `tarfa stage <waiting stage>` waits like one that ended on `tarfa send`.
+  describe('after tarfa stage', () => {
+    it('a Stop right after it defers, like stop-messaged', () => {
+      expect(decide({ event: 'Stop', claude: {}, wasDeferred: false, stagedLast: true })).toEqual({
+        reason: 'stop-staged',
+        status: null,
+        deferral: 'set',
+      });
+      expect(decide({ event: 'Stop', claude: {}, wasDeferred: false, stagedLast: true, endedByOsc: true })).toEqual({
+        reason: 'stop-staged',
+        status: 'working',
+        deferral: 'set',
+      });
+    });
+
+    it("the PostToolUse of the call that ran it keeps the mark", () => {
+      expect(
+        decide({ event: 'PostToolUse', claude: { tool_name: 'Bash' }, wasDeferred: false, stagedDuringTool: true }),
+      ).toEqual({ reason: 'tarfa-stage', status: 'working', deferral: 'keep', messagedLast: 'clear' });
+    });
+
+    it('any other main-loop tool call clears it', () => {
+      for (const event of ['PreToolUse', 'PostToolUse']) {
+        expect(decide({ event, claude: { tool_name: 'Bash' }, wasDeferred: false, stagedLast: true }).stagedLast).toBe(
+          'clear',
+        );
+      }
+    });
+
+    it("Claude's PreToolUse leaves it while the stage is pending", () => {
+      expect(
+        decide({ event: 'PreToolUse', claude: { tool_name: 'Bash' }, wasDeferred: false, stagedDuringTool: true })
+          .stagedLast,
+      ).toBeUndefined();
+    });
+
+    it('a send and a stage in one call keep both marks', () => {
+      expect(
+        decide({
+          event: 'PostToolUse',
+          claude: { tool_name: 'Bash' },
+          wasDeferred: false,
+          sentDuringTool: true,
+          stagedDuringTool: true,
+        }),
+      ).toEqual({ reason: 'tarfa-send', status: 'working', deferral: 'keep' });
+    });
+
+    it('a prompt, a StopFailure and a new session clear it', () => {
+      expect(decide({ event: 'UserPromptSubmit', wasDeferred: false, stagedLast: true }).stagedLast).toBe('clear');
+      expect(decide({ event: 'StopFailure', claude: {}, wasDeferred: false, stagedLast: true }).stagedLast).toBe('clear');
+      expect(
+        decide({ event: 'SessionStart', claude: { source: 'startup' }, wasDeferred: false, stagedLast: true }).stagedLast,
+      ).toBe('clear');
     });
   });
 

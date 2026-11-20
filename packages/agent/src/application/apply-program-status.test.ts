@@ -19,6 +19,8 @@ function setup(initial: Record<string, WorkspaceStatus> = {}) {
     deferred: new Set<string>(),
     messagedLast: new Set<string>(),
     sentDuringTool: new Set<string>(),
+    stagedLast: new Set<string>(),
+    stagedDuringTool: new Set<string>(),
     questionPending: new Set<string>(),
     seen: new Map<string, string>(),
     oscTurnEnded: new Set<string>(),
@@ -106,10 +108,20 @@ describe('applyProgramStatus', () => {
         event: 'OSC7501',
         programState: 'done',
         reason: 'osc-messaged',
-        before: { status: 'working', deferred: false, messagedLast: true, questionPending: false },
-        after: { status: 'working', deferred: false, messagedLast: true, questionPending: false },
+        before: { status: 'working', deferred: false, messagedLast: true, stagedLast: false, questionPending: false },
+        after: { status: 'working', deferred: false, messagedLast: true, stagedLast: false, questionPending: false },
       },
     ]);
+  });
+
+  it('a done after tarfa stage leaves the session working', () => {
+    const { deps, sets, entries } = setup({ 'perch-aa': 'working' });
+    deps.stagedLast.add('perch-aa');
+    applyProgramStatus(deps, [pane('perch-aa', 'working', 1)]);
+    applyProgramStatus(deps, [pane('perch-aa', 'done', 2)]);
+    expect(sets).toEqual([]);
+    expect(entries[0]?.reason).toBe('osc-staged');
+    expect(entries[0]?.after.stagedLast).toBe(true);
   });
 
   it('returns the workspaces whose status it changed', () => {
@@ -170,6 +182,17 @@ describe('OSC 7501 and the Stop hook together', () => {
     osc('blocked', 2);
     hook('Stop', runningSubagent);
     expect(status()).toBe('needs-feedback');
+  });
+
+  it('keeps a turn that ended on tarfa stage working when OSC says done before the Stop lands', () => {
+    const { deps, hook, osc, status } = both('working');
+    osc('working', 1);
+    deps.stagedLast.add('perch-aa');
+    osc('done', 2);
+    expect(status()).toBe('working');
+    hook('Stop', {});
+    expect(status()).toBe('working');
+    expect(deps.deferred.has('perch-aa')).toBe(true);
   });
 
   it('forgets an OSC turn end once a hook sets the status itself', () => {

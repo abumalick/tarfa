@@ -3,11 +3,13 @@ import type { WorkspaceStatus } from '@tarfa/contracts';
 // What to do with the session's deferral mark: `set` it, `clear` it, or leave it alone.
 type Deferral = 'set' | 'clear' | 'keep';
 
-// Which rule decided, for the hook-event log; only applyHookEvent's `sentDuringTool` bookkeeping acts on it.
+// Which rule decided, for the hook-event log; only applyHookEvent's `sentDuringTool`/`stagedDuringTool`
+// bookkeeping acts on it.
 export type AttentionReason =
   | 'stop'
   | 'stop-background'
   | 'stop-messaged'
+  | 'stop-staged'
   | 'stop-failure'
   | 'notification'
   | 'idle-suppressed'
@@ -19,6 +21,7 @@ export type AttentionReason =
   | 'blocking-tool'
   | 'tool'
   | 'tarfa-send'
+  | 'tarfa-stage'
   | 'session-start'
   | 'compact'
   | 'unknown-event';
@@ -30,6 +33,9 @@ export interface AttentionDecision {
   deferral: Deferral;
   // Whether the turn's last main-loop tool call was SendMessage; omitted = leave it alone.
   messagedLast?: 'set' | 'clear';
+  // Whether the turn's last main-loop tool call ran `tarfa stage` (`markStaged` sets it);
+  // omitted = leave it alone.
+  stagedLast?: 'clear';
   // Whether a Codex question is waiting on the user; omitted = leave it alone.
   question?: 'set' | 'clear';
 }
@@ -107,7 +113,7 @@ function startsNewSession(claude: unknown): boolean {
   return typeof source === 'string' && NEW_SESSION_SOURCES.has(source);
 }
 
-const DROP_MARKS = { deferral: 'clear', messagedLast: 'clear', question: 'clear' } as const;
+const DROP_MARKS = { deferral: 'clear', messagedLast: 'clear', stagedLast: 'clear', question: 'clear' } as const;
 
 export function attentionDecision(input: {
   event: string;
@@ -116,6 +122,10 @@ export function attentionDecision(input: {
   messagedLast?: boolean;
   // Whether a `tarfa send` marked this session with no later tool call since (`markSent`).
   sentDuringTool?: boolean;
+  // Whether the last main-loop tool call ran `tarfa stage` (to a waiting stage), and whether that
+  // call is still running (`markStaged`): the same pair as `messagedLast`/`sentDuringTool`.
+  stagedLast?: boolean;
+  stagedDuringTool?: boolean;
   questionPending?: boolean;
   currentStatus?: WorkspaceStatus;
   // Whether the current needs-feedback was set by an OSC 7501 turn end (applyProgramStatus).
@@ -131,9 +141,10 @@ export function attentionDecision(input: {
       if (hasRunningBackgroundTask(input.claude)) {
         return { reason: 'stop-background', status: holdWorking, deferral: 'set', ...endsQuestion };
       }
-      return input.messagedLast
-        ? { reason: 'stop-messaged', status: holdWorking, deferral: 'set', ...endsQuestion }
-        : { reason: 'stop', status: 'needs-feedback', deferral: 'clear', ...endsQuestion };
+      if (input.messagedLast) return { reason: 'stop-messaged', status: holdWorking, deferral: 'set', ...endsQuestion };
+      // A turn that ends on a waiting stage is waiting on a person or a process outside it.
+      if (input.stagedLast) return { reason: 'stop-staged', status: holdWorking, deferral: 'set', ...endsQuestion };
+      return { reason: 'stop', status: 'needs-feedback', deferral: 'clear', ...endsQuestion };
     // Fired instead of Stop when an API error ends the turn.
     case 'StopFailure':
       return { reason: 'stop-failure', status: 'needs-feedback', ...DROP_MARKS };
@@ -154,7 +165,14 @@ export function attentionDecision(input: {
         ? { reason: 'idle-suppressed', status: null, deferral: 'keep' }
         : { reason: 'notification', status: 'needs-feedback', deferral: 'clear' };
     case 'UserPromptSubmit':
-      return { reason: 'prompt', status: 'working', deferral: 'clear', messagedLast: 'clear', ...endsQuestion };
+      return {
+        reason: 'prompt',
+        status: 'working',
+        deferral: 'clear',
+        messagedLast: 'clear',
+        stagedLast: 'clear',
+        ...endsQuestion,
+      };
     // Codex asks before showing an approval prompt. A subagent's request still asks the user.
     // With an automatic reviewer it fires too, and PostToolUse puts the status back a moment later.
     case 'PermissionRequest':
@@ -172,21 +190,31 @@ export function attentionDecision(input: {
         return { reason: 'blocking-tool', status: 'needs-feedback', deferral: 'clear' };
       }
       if (input.event === 'PostToolUse') {
-        // The send ran inside this tool call (or, under Codex, this is a poll: `markSent`), so
-        // this PostToolUse is not a later tool call.
+        // The send or stage ran inside this tool call (or, under Codex, this is a poll:
+        // `markSent`), so this PostToolUse is not a later tool call. Each mark is spared only by
+        // its own pending flag: one call may run both.
+        const stageMark = input.stagedDuringTool ? {} : ({ stagedLast: 'clear' } as const);
         if (input.sentDuringTool && !isPeerMessage(input.claude)) {
-          return { reason: 'tarfa-send', status: 'working', deferral: 'keep' };
+          return { reason: 'tarfa-send', status: 'working', deferral: 'keep', ...stageMark };
         }
         return {
-          reason: 'tool',
+          reason: input.stagedDuringTool ? 'tarfa-stage' : 'tool',
           status: 'working',
           deferral: 'keep',
           messagedLast: isPeerMessage(input.claude) ? 'set' : 'clear',
+          ...stageMark,
         };
       }
-      // Another tool starting means the turn went on past any message it sent. Not while a send
-      // is pending: Pi posts its hooks from a queue, so this may be the send's own PreToolUse, late.
-      return { reason: 'tool', status: 'working', deferral: 'keep', ...(input.sentDuringTool ? {} : { messagedLast: 'clear' as const }) };
+      // Another tool starting means the turn went on past any message it sent or stage it set.
+      // Not while one is pending: Pi posts its hooks from a queue, so this may be its own
+      // PreToolUse, late.
+      return {
+        reason: 'tool',
+        status: 'working',
+        deferral: 'keep',
+        ...(input.sentDuringTool ? {} : { messagedLast: 'clear' as const }),
+        ...(input.stagedDuringTool ? {} : { stagedLast: 'clear' as const }),
+      };
     default:
       return { reason: 'unknown-event', status: null, deferral: 'keep' };
   }

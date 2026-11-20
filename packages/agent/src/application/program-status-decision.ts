@@ -7,6 +7,7 @@ export type ProgramStatusReason =
   | 'osc-done'
   | 'osc-deferred'
   | 'osc-messaged'
+  | 'osc-staged'
   | 'osc-idle'
   | 'osc-manual'
   | 'osc-unknown';
@@ -22,12 +23,13 @@ export interface ProgramStatusDecision {
 // Protocol), read from a patched tmux. Called only when that state changes. It is authoritative
 // for `blocked` and for the Esc interrupt (`working` → `idle`, which fires no hook). A turn end
 // (`done`/`error`) yields to the hook marks: OSC says `done` while a background shell still runs
-// and while a child waits on its orchestrator. `finished` and `parked` are the user's, never OSC's.
+// while a child waits on its orchestrator, and after a turn ended on a waiting stage. `finished` and `parked` are the user's, never OSC's.
 export function programStatusDecision(input: {
   state: string;
   currentStatus?: WorkspaceStatus;
   deferred: boolean;
   messagedLast: boolean;
+  stagedLast: boolean;
 }): ProgramStatusDecision {
   if (input.currentStatus === 'finished' || input.currentStatus === 'parked') {
     return { reason: 'osc-manual', status: null };
@@ -41,6 +43,7 @@ export function programStatusDecision(input: {
     case 'error':
       if (input.deferred) return { reason: 'osc-deferred', status: null };
       if (input.messagedLast) return { reason: 'osc-messaged', status: null };
+      if (input.stagedLast) return { reason: 'osc-staged', status: null };
       return { reason: 'osc-done', status: 'needs-feedback' };
     // An Esc interrupt, or Codex's turn end (it says `idle`, not `done`): either way the session
     // waits on the user. Only a session still marked working is moved, so a hook's own

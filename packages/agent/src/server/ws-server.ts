@@ -154,6 +154,14 @@ export class WsServer {
   };
   // Sessions that ran tarfa send inside their current tool call — see markSent.
   private readonly sentDuringTool = new Set<string>();
+  // Sessions whose last main-loop tool call ran `tarfa stage`, in the status store like
+  // messagedLast, and those whose current tool call ran it — see markStaged.
+  private readonly stagedLast = {
+    has: (id: string) => this.deps.status.getStagedLast(id),
+    add: (id: string) => this.deps.status.setStagedLast(id, true),
+    delete: (id: string) => this.deps.status.setStagedLast(id, false),
+  };
+  private readonly stagedDuringTool = new Set<string>();
   // Codex sessions with a question waiting on the user — see applyHookEvent.
   private readonly questionPending = new Set<string>();
   // Sessions whose needs-feedback an OSC 7501 turn end set — see applyProgramStatus. In-memory:
@@ -198,6 +206,7 @@ export class WsServer {
     this.deferred.delete(id);
     this.questionPending.delete(id);
     this.sentDuringTool.delete(id);
+    this.stagedDuringTool.delete(id);
     this.oscTurnEnded.delete(id);
     this.programSeen.delete(id);
     this.lastReplies.forget(id);
@@ -432,6 +441,8 @@ export class WsServer {
         deferred: this.deferred,
         messagedLast: this.messagedLast,
         sentDuringTool: this.sentDuringTool,
+        stagedLast: this.stagedLast,
+        stagedDuringTool: this.stagedDuringTool,
         questionPending: this.questionPending,
         oscTurnEnded: this.oscTurnEnded,
         log: this.deps.hookEventLog,
@@ -640,6 +651,7 @@ export class WsServer {
         store: this.deps.status,
         deferred: this.deferred,
         messagedLast: this.messagedLast,
+        stagedLast: this.stagedLast,
         questionPending: this.questionPending,
         seen: this.programSeen,
         oscTurnEnded: this.oscTurnEnded,

@@ -3,6 +3,7 @@ import type { WorkspaceStatus } from '@tarfa/contracts';
 export interface HookMarks {
   deferred: boolean;
   messagedLast: boolean;
+  stagedLast: boolean;
   questionPending: boolean;
 }
 

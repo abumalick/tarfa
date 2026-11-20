@@ -14,6 +14,7 @@ export interface ApplyProgramStatusDeps {
   store: Pick<StatusStorePort, 'get' | 'set'>;
   deferred: Set<string>;
   messagedLast: MarkSet;
+  stagedLast: MarkSet;
   questionPending: Set<string>;
   // The last record seen per workspace (state and change time), so only a change is applied.
   seen: Map<string, string>;
@@ -28,6 +29,7 @@ function marks(deps: ApplyProgramStatusDeps, status: WorkspaceStatus | undefined
     ...(status ? { status } : {}),
     deferred: deps.deferred.has(id),
     messagedLast: deps.messagedLast.has(id),
+    stagedLast: deps.stagedLast.has(id),
     questionPending: deps.questionPending.has(id),
   } satisfies { status?: WorkspaceStatus } & HookMarks;
 }
@@ -53,6 +55,7 @@ export function applyProgramStatus(deps: ApplyProgramStatusDeps, panes: ProgramS
       currentStatus,
       deferred: before.deferred,
       messagedLast: before.messagedLast,
+      stagedLast: before.stagedLast,
     });
     if (decision.deferral === 'clear') deps.deferred.delete(name);
     const turnEnd = decision.reason === 'osc-done' || decision.reason === 'osc-idle';

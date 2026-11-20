@@ -83,6 +83,8 @@ interface Marks {
   deferred: Set<string>;
   messagedLast: MarkSet;
   sentDuringTool: MarkSet;
+  stagedLast: MarkSet;
+  stagedDuringTool: MarkSet;
   questionPending: Set<string>;
 }
 
@@ -97,6 +99,12 @@ export function markSent(marks: Pick<Marks, 'sentDuringTool' | 'messagedLast'>, 
   marks.messagedLast.add(id);
 }
 
+// `tarfa stage` to a waiting stage, the same way: the turn that ends on it waits instead of asking.
+export function markStaged(marks: Pick<Marks, 'stagedDuringTool' | 'stagedLast'>, id: string): void {
+  marks.stagedDuringTool.add(id);
+  marks.stagedLast.add(id);
+}
+
 // The sessions whose needs-feedback an OSC 7501 turn end set (applyProgramStatus); optional, as
 // only WsServer reads OSC.
 
@@ -105,6 +113,7 @@ function state(marks: Marks, status: WorkspaceStatus | undefined, id: string): H
     ...(status ? { status } : {}),
     deferred: marks.deferred.has(id),
     messagedLast: marks.messagedLast.has(id),
+    stagedLast: marks.stagedLast.has(id),
     questionPending: marks.questionPending.has(id),
   };
 }
@@ -114,7 +123,9 @@ function state(marks: Marks, status: WorkspaceStatus | undefined, id: string): H
 // `deferred` is deliberately in-memory: losing it on restart costs at most one extra "Needs
 // you", never a missed one. `messagedLast` holds the sessions whose last main-loop tool call was
 // SendMessage; WsServer backs it with the status store, since it also drives a child's
-// `waitingOn` that `tarfa ls` reads. `questionPending` holds the Codex sessions with a question waiting on the user.
+// `waitingOn` that `tarfa ls` reads. `stagedLast` holds those whose last one ran `tarfa stage`;
+// durable like `messagedLast`, but it drives nothing else.
+// `questionPending` holds the Codex sessions with a question waiting on the user.
 // `log` records every event and its decision; a failed write never affects the decision.
 // `oscTurnEnded` holds the sessions whose needs-feedback an OSC 7501 turn end set (applyProgramStatus).
 export function applyHookEvent(
@@ -141,6 +152,8 @@ export function applyHookEvent(
     wasDeferred: before.deferred,
     messagedLast: before.messagedLast,
     sentDuringTool: deps.sentDuringTool.has(input.sessionName),
+    stagedLast: before.stagedLast,
+    stagedDuringTool: deps.stagedDuringTool.has(input.sessionName),
     questionPending: before.questionPending,
     currentStatus,
     endedByOsc: deps.oscTurnEnded?.has(input.sessionName),
@@ -152,16 +165,25 @@ export function applyHookEvent(
     deps.deferred.delete(input.sessionName);
   }
   const startsCodexCall = input.agent === 'codex' && input.event === 'PreToolUse' && decision.reason === 'tool';
-  if (startsCodexCall || (decision.reason === 'tarfa-send' && input.agent !== 'codex')) {
+  const endsMarkedCall = decision.reason === 'tarfa-send' || decision.reason === 'tarfa-stage';
+  if (startsCodexCall || (endsMarkedCall && input.agent !== 'codex')) {
     deps.sentDuringTool.delete(input.sessionName);
+    deps.stagedDuringTool.delete(input.sessionName);
   }
-  if (startsCodexCall) deps.messagedLast.delete(input.sessionName);
+  if (startsCodexCall) {
+    deps.messagedLast.delete(input.sessionName);
+    deps.stagedLast.delete(input.sessionName);
+  }
   if (decision.messagedLast === 'set') {
     deps.messagedLast.add(input.sessionName);
     deps.sentDuringTool.delete(input.sessionName);
   } else if (decision.messagedLast === 'clear') {
     deps.messagedLast.delete(input.sessionName);
     deps.sentDuringTool.delete(input.sessionName);
+  }
+  if (decision.stagedLast === 'clear') {
+    deps.stagedLast.delete(input.sessionName);
+    deps.stagedDuringTool.delete(input.sessionName);
   }
 
   if (decision.question === 'set') {

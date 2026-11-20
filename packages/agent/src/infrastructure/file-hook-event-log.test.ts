@@ -17,7 +17,7 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const marks = { deferred: false, messagedLast: false, questionPending: false };
+const marks = { deferred: false, messagedLast: false, stagedLast: false, questionPending: false };
 const entry: HookEventEntry = {
   workspace: 'perch-aa',
   event: 'Stop',

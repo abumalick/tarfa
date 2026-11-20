@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { programStatusDecision as decide } from './program-status-decision';
 
-const marks = { deferred: false, messagedLast: false };
+const marks = { deferred: false, messagedLast: false, stagedLast: false };
 
 describe('programStatusDecision', () => {
   it('maps working to working', () => {
@@ -12,7 +12,7 @@ describe('programStatusDecision', () => {
   });
 
   it('maps blocked to needs-feedback, whatever the marks say', () => {
-    expect(decide({ state: 'blocked', currentStatus: 'working', deferred: true, messagedLast: true })).toEqual({
+    expect(decide({ state: 'blocked', currentStatus: 'working', deferred: true, messagedLast: true, stagedLast: false })).toEqual({
       reason: 'osc-blocked',
       status: 'needs-feedback',
     });
@@ -28,11 +28,11 @@ describe('programStatusDecision', () => {
   // OSC says `done` while a background shell still runs, and while a child waits on its
   // orchestrator: the hook marks know better.
   it('leaves a turn end alone while a hook mark holds the session working', () => {
-    expect(decide({ state: 'done', currentStatus: 'working', deferred: true, messagedLast: false })).toEqual({
+    expect(decide({ state: 'done', currentStatus: 'working', deferred: true, messagedLast: false, stagedLast: false })).toEqual({
       reason: 'osc-deferred',
       status: null,
     });
-    expect(decide({ state: 'error', currentStatus: 'working', deferred: false, messagedLast: true })).toEqual({
+    expect(decide({ state: 'error', currentStatus: 'working', deferred: false, messagedLast: true, stagedLast: false })).toEqual({
       reason: 'osc-messaged',
       status: null,
     });
@@ -40,7 +40,7 @@ describe('programStatusDecision', () => {
 
   // The Esc interrupt fires no hook at all; OSC is the only source that sees it.
   it('turns an interrupted working turn into needs-feedback and ends its deferral', () => {
-    expect(decide({ state: 'idle', currentStatus: 'working', deferred: true, messagedLast: false })).toEqual({
+    expect(decide({ state: 'idle', currentStatus: 'working', deferred: true, messagedLast: false, stagedLast: false })).toEqual({
       reason: 'osc-idle',
       status: 'needs-feedback',
       deferral: 'clear',
@@ -66,5 +66,14 @@ describe('programStatusDecision', () => {
       reason: 'osc-unknown',
       status: null,
     });
+  });
+
+  it('a turn end after tarfa stage yields to the Stop hook, like one after a send', () => {
+    for (const state of ['done', 'error']) {
+      expect(decide({ state, currentStatus: 'working', ...marks, stagedLast: true })).toEqual({
+        reason: 'osc-staged',
+        status: null,
+      });
+    }
   });
 });

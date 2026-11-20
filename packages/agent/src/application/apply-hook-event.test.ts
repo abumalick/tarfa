@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyHookEvent, markSent } from './apply-hook-event';
+import { applyHookEvent, markSent, markStaged } from './apply-hook-event';
 import type { WorkspaceStatus } from '@tarfa/contracts';
 import type { StatusStorePort } from '../ports/status-store-port';
 import type { HookEventEntry } from '../ports/hook-event-log-port';
@@ -26,7 +26,7 @@ describe('applyHookEvent', () => {
   it('sets status for a known event and returns the change', () => {
     const f = fakeStore();
     const result = applyHookEvent(
-      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'Notification' },
     );
     expect(result).toEqual({ workspaceId: 'perch-aa', status: 'needs-feedback' });
@@ -36,7 +36,7 @@ describe('applyHookEvent', () => {
   it('ignores an unknown event and writes nothing', () => {
     const f = fakeStore();
     const result = applyHookEvent(
-      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'Whatever' },
     );
     expect(result).toBeNull();
@@ -47,7 +47,7 @@ describe('applyHookEvent', () => {
     const f = fakeStore();
     const deferred = new Set<string>();
     const result = applyHookEvent(
-      { store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'Stop', claude: runningTask },
     );
     expect(result).toBeNull();
@@ -59,7 +59,7 @@ describe('applyHookEvent', () => {
     const f = fakeStore();
     const deferred = new Set(['perch-aa']);
     const result = applyHookEvent(
-      { store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'Notification', claude: idlePrompt },
     );
     expect(result).toBeNull();
@@ -71,7 +71,7 @@ describe('applyHookEvent', () => {
     const f = fakeStore();
     const deferred = new Set(['perch-aa']);
     const result = applyHookEvent(
-      { store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-bb', event: 'Notification', claude: idlePrompt },
     );
     expect(result).toEqual({ workspaceId: 'perch-bb', status: 'needs-feedback' });
@@ -82,7 +82,7 @@ describe('applyHookEvent', () => {
     const f = fakeStore();
     const deferred = new Set(['perch-aa']);
     const result = applyHookEvent(
-      { store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'Stop', claude: { background_tasks: [] } },
     );
     expect(result).toEqual({ workspaceId: 'perch-aa', status: 'needs-feedback' });
@@ -92,7 +92,7 @@ describe('applyHookEvent', () => {
   it("keeps the deferral through a background subagent's own tool calls", () => {
     const f = fakeStore();
     const deferred = new Set(['perch-aa']);
-    applyHookEvent({ store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() }, { sessionName: 'perch-aa', event: 'PreToolUse' });
+    applyHookEvent({ store: f.store, deferred, messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() }, { sessionName: 'perch-aa', event: 'PreToolUse' });
     expect(deferred.has('perch-aa')).toBe(true);
     expect(f.sets).toEqual([['perch-aa', 'working']]);
   });
@@ -100,7 +100,7 @@ describe('applyHookEvent', () => {
   it('captures a valid session_id from the hook payload', () => {
     const f = fakeStore();
     applyHookEvent(
-      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'UserPromptSubmit', claude: { session_id: 'abc-123' } },
     );
     expect(f.sessionIds).toEqual([['perch-aa', 'abc-123']]);
@@ -109,7 +109,7 @@ describe('applyHookEvent', () => {
   it('does not capture a session id from a payload missing it', () => {
     const f = fakeStore();
     applyHookEvent(
-      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'UserPromptSubmit', claude: { cwd: '/x' } },
     );
     expect(f.sessionIds).toEqual([]);
@@ -118,11 +118,11 @@ describe('applyHookEvent', () => {
   it('does not capture a session id from a malformed payload (wrong type, or no claude object)', () => {
     const f = fakeStore();
     applyHookEvent(
-      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'UserPromptSubmit', claude: { session_id: 42 } },
     );
     applyHookEvent(
-      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'UserPromptSubmit' },
     );
     expect(f.sessionIds).toEqual([]);
@@ -130,7 +130,7 @@ describe('applyHookEvent', () => {
 
   it('keeps a session that ended its turn after SendMessage at working, through the idle prompt', () => {
     const f = fakeStore();
-    const deps = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    const deps = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() };
     applyHookEvent(deps, { sessionName: 'perch-aa', event: 'PostToolUse', claude: { tool_name: 'SendMessage' } });
     expect(applyHookEvent(deps, { sessionName: 'perch-aa', event: 'Stop', claude: {} })).toBeNull();
     expect(applyHookEvent(deps, { sessionName: 'perch-aa', event: 'Notification', claude: idlePrompt })).toBeNull();
@@ -139,7 +139,7 @@ describe('applyHookEvent', () => {
 
   it('a reply then a normal turn end needs feedback again', () => {
     const f = fakeStore();
-    const deps = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    const deps = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() };
     applyHookEvent(deps, { sessionName: 'perch-aa', event: 'PostToolUse', claude: { tool_name: 'SendMessage' } });
     applyHookEvent(deps, { sessionName: 'perch-aa', event: 'Stop', claude: {} });
     applyHookEvent(deps, { sessionName: 'perch-aa', event: 'UserPromptSubmit' });
@@ -156,7 +156,7 @@ describe('applyHookEvent', () => {
   it('does not capture a session id from a Codex hook', () => {
     const f = fakeStore();
     applyHookEvent(
-      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'UserPromptSubmit', agent: 'codex', claude: { session_id: 'codex-1' } },
     );
     expect(f.sessionIds).toEqual([]);
@@ -165,7 +165,7 @@ describe('applyHookEvent', () => {
 
   it('a resumed session ends a working the previous process left behind', () => {
     const f = fakeStore({ 'perch-aa': 'working' });
-    const deps = { store: f.store, deferred: new Set(['perch-aa']), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    const deps = { store: f.store, deferred: new Set(['perch-aa']), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() };
     applyHookEvent(deps, { sessionName: 'perch-aa', event: 'SessionStart', claude: { source: 'resume' } });
     expect(f.sets).toEqual([['perch-aa', 'needs-feedback']]);
     expect(deps.deferred.has('perch-aa')).toBe(false);
@@ -174,7 +174,7 @@ describe('applyHookEvent', () => {
   it('an unparked session keeps the idle its unpark set', () => {
     const f = fakeStore({ 'perch-aa': 'idle' });
     applyHookEvent(
-      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() },
+      { store: f.store, deferred: new Set(), messagedLast: new Set(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() },
       { sessionName: 'perch-aa', event: 'SessionStart', claude: { source: 'resume' } },
     );
     expect(f.sets).toEqual([]);
@@ -189,6 +189,8 @@ describe('applyHookEvent', () => {
         deferred: new Set<string>(),
         messagedLast: new Set<string>(),
         sentDuringTool: new Set<string>(),
+        stagedLast: new Set<string>(),
+        stagedDuringTool: new Set<string>(),
         questionPending: new Set<string>(),
         log: { append: async (e: HookEventEntry) => void entries.push(e) },
       };
@@ -209,8 +211,8 @@ describe('applyHookEvent', () => {
           sessionId: 'sid-1',
           backgroundTasks: runningTask.background_tasks,
           reason: 'stop-background',
-          before: { status: 'working', deferred: false, messagedLast: false, questionPending: false },
-          after: { status: 'working', deferred: true, messagedLast: false, questionPending: false },
+          before: { status: 'working', deferred: false, messagedLast: false, stagedLast: false, questionPending: false },
+          after: { status: 'working', deferred: true, messagedLast: false, stagedLast: false, questionPending: false },
         },
       ]);
     });
@@ -261,6 +263,8 @@ describe('applyHookEvent', () => {
           deferred: new Set(),
           messagedLast: new Set(),
           sentDuringTool: new Set<string>(),
+          stagedLast: new Set<string>(),
+          stagedDuringTool: new Set<string>(),
           questionPending: new Set<string>(),
           log: { append: () => Promise.reject(new Error('disk full')) },
         },
@@ -272,7 +276,7 @@ describe('applyHookEvent', () => {
 
   it('holds a Codex question at needs-feedback until it is answered', () => {
     const f = fakeStore();
-    const deps = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    const deps = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() };
     const ask = { tool_name: 'request_user_input_async' };
     const sleep = { tool_name: 'clocksleep' };
     const hook = (event: string, claude?: unknown) =>
@@ -299,6 +303,8 @@ describe('applyHookEvent', () => {
         deferred: new Set<string>(),
         messagedLast: new Set<string>(),
         sentDuringTool: new Set<string>(),
+        stagedLast: new Set<string>(),
+        stagedDuringTool: new Set<string>(),
         questionPending: new Set<string>(),
       };
       markSent(deps, 'perch-aa');
@@ -386,10 +392,108 @@ describe('applyHookEvent', () => {
     });
   });
 
+  describe('a tarfa stage made inside a tool call', () => {
+    function setup() {
+      const f = fakeStore({ 'perch-aa': 'working' });
+      const deps = {
+        store: f.store,
+        deferred: new Set<string>(),
+        messagedLast: new Set<string>(),
+        sentDuringTool: new Set<string>(),
+        stagedLast: new Set<string>(),
+        stagedDuringTool: new Set<string>(),
+        questionPending: new Set<string>(),
+      };
+      markStaged(deps, 'perch-aa');
+      const hook = (event: string, claude?: unknown, agent?: string) =>
+        applyHookEvent(deps, { sessionName: 'perch-aa', event, claude, agent });
+      return { deps, hook, status: () => f.store.get('perch-aa') };
+    }
+    const bash = { tool_name: 'Bash' };
+
+    it('marks both the turn and the running call', () => {
+      const { deps } = setup();
+      expect(deps.stagedLast.has('perch-aa')).toBe(true);
+      expect(deps.stagedDuringTool.has('perch-aa')).toBe(true);
+    });
+
+    it('ends the turn working and deferred, and swallows the idle prompt', () => {
+      const { deps, hook, status } = setup();
+      hook('PostToolUse', bash);
+      expect(deps.stagedLast.has('perch-aa')).toBe(true);
+      expect(deps.stagedDuringTool.has('perch-aa')).toBe(false);
+      expect(hook('Stop', {})).toBeNull();
+      expect(status()).toBe('working');
+      expect(deps.deferred.has('perch-aa')).toBe(true);
+      expect(hook('Notification', idlePrompt)).toBeNull();
+      expect(status()).toBe('working');
+    });
+
+    it('a later tool call ends the wait', () => {
+      const { deps, hook, status } = setup();
+      hook('PostToolUse', bash);
+      hook('PreToolUse', bash);
+      expect(deps.stagedLast.has('perch-aa')).toBe(false);
+      hook('Stop', {});
+      expect(status()).toBe('needs-feedback');
+    });
+
+    it('a send and a stage in one call are both consumed by its PostToolUse', () => {
+      const { deps, hook, status } = setup();
+      markSent(deps, 'perch-aa');
+      hook('PostToolUse', bash);
+      hook('PreToolUse', { tool_name: 'Write' });
+      hook('PostToolUse', { tool_name: 'Write' });
+      hook('Stop', {});
+      expect(status()).toBe('needs-feedback');
+      expect(deps.messagedLast.has('perch-aa')).toBe(false);
+      expect(deps.sentDuringTool.has('perch-aa')).toBe(false);
+      expect(deps.stagedLast.has('perch-aa')).toBe(false);
+      expect(deps.stagedDuringTool.has('perch-aa')).toBe(false);
+    });
+
+    it('a prompt clears both', () => {
+      const { deps, hook } = setup();
+      hook('UserPromptSubmit');
+      expect(deps.stagedLast.has('perch-aa')).toBe(false);
+      expect(deps.stagedDuringTool.has('perch-aa')).toBe(false);
+    });
+
+    it('logs the keep as tarfa-stage and the mark in the entry', async () => {
+      const { deps } = setup();
+      const entries: HookEventEntry[] = [];
+      applyHookEvent(
+        { ...deps, log: { append: async (e: HookEventEntry) => void entries.push(e) } },
+        { sessionName: 'perch-aa', event: 'PostToolUse', claude: bash },
+      );
+      await Promise.resolve();
+      expect(entries[0]?.reason).toBe('tarfa-stage');
+      expect(entries[0]?.after.stagedLast).toBe(true);
+    });
+
+    describe('from Codex', () => {
+      it("a poll's PostToolUse keeps the mark through Stop", () => {
+        const { deps, hook } = setup();
+        hook('PostToolUse', bash, 'codex');
+        hook('PostToolUse', bash, 'codex');
+        expect(hook('Stop', {}, 'codex')).toBeNull();
+        expect(deps.deferred.has('perch-aa')).toBe(true);
+      });
+
+      it('a later tool call clears the mark as soon as it starts', () => {
+        const { deps, hook } = setup();
+        hook('PostToolUse', bash, 'codex');
+        hook('PreToolUse', bash, 'codex');
+        expect(deps.stagedLast.has('perch-aa')).toBe(false);
+        expect(deps.stagedDuringTool.has('perch-aa')).toBe(false);
+      });
+    });
+  });
+
   // Pi posts its hooks from a queue, so the send's own PreToolUse may land after the send.
   it('keeps the send mark against a PreToolUse landing while the send is pending', () => {
     const f = fakeStore();
-    const marks = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    const marks = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() };
     markSent(marks, 'perch-aa');
     applyHookEvent(marks, { sessionName: 'perch-aa', event: 'PreToolUse', claude: { tool_name: 'bash' } });
     expect(marks.messagedLast.has('perch-aa')).toBe(true);
@@ -398,7 +502,7 @@ describe('applyHookEvent', () => {
   // A child that sends a progress note and starts a long test is not waiting on its orchestrator.
   it('keeps the send mark through the send\'s own PostToolUse, and drops it when the next tool starts', () => {
     const f = fakeStore();
-    const marks = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), questionPending: new Set<string>() };
+    const marks = { store: f.store, deferred: new Set<string>(), messagedLast: new Set<string>(), sentDuringTool: new Set<string>(), stagedLast: new Set<string>(), stagedDuringTool: new Set<string>(), questionPending: new Set<string>() };
     const hook = (event: string) => applyHookEvent(marks, { sessionName: 'perch-aa', event, claude: { tool_name: 'Bash' } });
     hook('PreToolUse');
     markSent(marks, 'perch-aa');
