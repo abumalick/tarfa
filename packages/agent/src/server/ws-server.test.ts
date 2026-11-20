@@ -2768,8 +2768,10 @@ describe('WsServer POST /stage', () => {
     expect(status.getStagedLast('perch-child-1')).toBe(true);
     const client = await phone();
     client.send({ type: 'setStage', workspaceId: 'perch-child-1', stage: 'In progress' });
-    await until(async () => status.getStage('perch-child-1')?.name === 'In progress');
+    await until(async () => client.received.some((m) => m.type === 'workspaceUpdated' && m.workspace.stage?.name === 'In progress'));
     expect(status.getStagedLast('perch-child-1')).toBe(false);
+    const updated = client.received.filter((m) => m.type === 'workspaceUpdated').at(-1);
+    expect(updated?.type === 'workspaceUpdated' && updated.workspace).not.toHaveProperty('waiting');
     await endTurn(post);
     expect(status.get('perch-child-1')).toBe('needs-feedback');
     client.close();

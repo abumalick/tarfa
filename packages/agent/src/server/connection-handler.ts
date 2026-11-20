@@ -618,8 +618,9 @@ export class ConnectionHandler {
     if (projectPath === undefined) return;
     const stage = findStage(await stageConfig.stagesFor(projectPath), name);
     if (!stage) return;
-    status.setStage(workspaceId, { name: stage.name, kind: stage.kind });
+    // Before setStage, whose change listener pushes the row.
     if (stage.kind !== 'waiting') this.deps.clearStaged?.(workspaceId);
+    status.setStage(workspaceId, { name: stage.name, kind: stage.kind });
     if (stage.kind !== 'active' && status.get(workspaceId) === 'needs-feedback') {
       this.deps.dismiss?.(workspaceId);
       status.set(workspaceId, 'idle');
