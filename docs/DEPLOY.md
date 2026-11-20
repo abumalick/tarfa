@@ -337,13 +337,14 @@ Codex statuses only work for a Codex started with `--no-daemon`, which the creat
 default Codex runs its hooks in a shared background daemon, outside the workspace's pane, and
 the hook cannot tell which workspace they belong to, so it reports nothing for them.
 
-Same idea, same per-machine cadence: link the `tarfa-spawn` and `tarfa-orchestrate` skills
+Same idea, same per-machine cadence: link the `tarfa-spawn`, `tarfa-orchestrate` and `tarfa-stages` skills
 into the global skills directory so a workspace on any project can launch and follow further
-workspaces. They live in the repo, not in the package: link them from a clone, so `git pull`
-updates them. Both use the `tarfa` CLI (next section).
+workspaces and record their task's stage. They live in the repo, not in the package: link them from a clone, so `git pull`
+updates them. They use the `tarfa` CLI (next section).
 ```sh
 ln -sfn "$(pwd)/.claude/skills/tarfa-spawn" ~/.claude/skills/tarfa-spawn
 ln -sfn "$(pwd)/.claude/skills/tarfa-orchestrate" ~/.claude/skills/tarfa-orchestrate
+ln -sfn "$(pwd)/.claude/skills/tarfa-stages" ~/.claude/skills/tarfa-stages
 ```
 
 ### Tarfa CLI (each machine)

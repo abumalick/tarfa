@@ -174,9 +174,9 @@ systemctl --user daemon-reload
 It also writes `~/.tarfa/devices.json`, the roster of phones; only a `tarfa pair` code adds one.
 `--tailscale none` publishes nothing yet: step 8 asks how phones reach the machine and publishes the
 phone port (setup refuses to guess without one of `--tailscale funnel|serve|none` or an address). `tarfa setup --help` explains the flags and the Tailscale admin settings.
-The `tarfa-spawn` and `tarfa-orchestrate` skills live in the repository, not the package: link them
+The `tarfa-spawn`, `tarfa-orchestrate` and `tarfa-stages` skills live in the repository, not the package: link them
 from a clone (`ln -sfn <clone>/.claude/skills/tarfa-spawn ~/.claude/skills/tarfa-spawn`, same for
-`tarfa-orchestrate`) if you want sessions to launch further workspaces.
+`tarfa-orchestrate` and `tarfa-stages`) if you want sessions to launch further workspaces and record their task's stage.
 
 Check: `curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8787/hooks` prints
 `401` (running, and refusing an unauthenticated hook).

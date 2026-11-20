@@ -86,6 +86,35 @@ How a workspace's status (working, Needs you, Needs orchestrator) is decided fro
   `status.json` (pruned with its entry), because it is what derives a child's
   `waitingOn: 'parent'` ("Needs orchestrator"), which the PWA and `tarfa ls` both show. Accepted
   cost: a child whose last act was its final report stays `working` until it is closed.
+- **Activity and stage are separate; hooks never write the stage.** `status` is the activity
+  (hook-driven); the stage (`name`, `kind` active/waiting/done, `since`) is its own field in the
+  workspace's `status.json` entry, set only by `tarfa stage` (`set-stage.ts`) or the phone's
+  `setStage`. Before this split every hook overwrote a manual review/blocked/finished, usually at
+  the next prompt. A stored `review`/`blocked`/`finished` status is left alone by the agent and
+  mapped to a stage kind for display by the phone.
+- **A turn that ends on a waiting stage is "waiting", not "Needs you" (`stagedLast`).** A
+  `tarfa stage` to a `waiting` stage sets a durable mark (`stagedLast`, in the status store like
+  `messagedLast`, but separate from it: that one derives `waitingOn: 'parent'`). A `Stop` with the
+  mark set and no later tool call holds `working` and sets the deferral (reason `stop-staged`), so
+  the 60 s `idle_prompt` is suppressed; the OSC `done` yields to it (`osc-staged`). The phone
+  shows it as `waiting: true`. Like `sentDuringTool`, `stagedDuringTool` makes the PostToolUse of
+  the Bash call that ran the command leave the mark alone; any later tool call, a prompt, a
+  permission prompt or a question clears it (it rides `DROP_MARKS`). **Only the last stage set
+  decides:** a non-waiting `tarfa stage` (active or done) in the same turn clears an earlier
+  waiting mark (`clearStaged`), so a turn that ends on "In progress" asks as usual. Accepted
+  hole: a waiting stage set last, then a question in the closing text, stays folded; the
+  `tarfa-stages` skill tells the agent to use the question tool, which always raises "Needs you".
+- **"Seen" and a waiting/done stage pick must outlast the turn's `idle_prompt`, through their own
+  mark.** Claude Code sends an `idle_prompt` about 60 s after a turn ends; the Notification branch
+  only suppressed it for a deferred session, so a phone "Seen" (manual `idle`) flipped back to
+  needs-feedback. The phone's Seen, and a waiting/done stage pick on a row that is in
+  needs-feedback (never on `working` or `needs-hands`), set an in-memory `dismissed` mark
+  instead of the deferral. It suppresses only the next `idle_prompt` and is cleared by
+  `UserPromptSubmit`, `PreToolUse`, `Stop`/`StopFailure`, `SessionStart`, OSC `working` and on
+  close. **It is deliberately not the deferral**: the deferral also holds the OSC `done` and the
+  `Stop` decision, so reusing it would keep a dismissed row `working`; the OSC decision never
+  reads `dismissed`. In-memory like the deferral: losing it on restart costs one extra "Needs
+  you", never a hidden prompt.
 - **`install-hooks` also installs a kill guard (`tarfa-guard.sh`, a `PreToolUse` hook on `Bash`
   for Claude Code and Codex).** A workspace session once ran `pkill -f "x"`, which matches
   nearly every command line: it took down the tmux server, the agent and every other session in

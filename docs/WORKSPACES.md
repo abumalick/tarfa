@@ -163,6 +163,20 @@ How workspaces are created, closed, parked, recovered, named and linked, and the
   would take the command with it). **It is deliberately not limited to the
   caller's children:** one Linux user can `tmux kill-session` anything anyway, the phone and
   `unpark` take any id, and a limit would stop the owner closing from a plain shell.
+  **`tarfa stage "<name>"` sets the caller's stage** (`POST /stage`, the hooks secret;
+  `application/set-stage.ts`), resolving the workspace like `tarfa send`. The name must be in the
+  project's list (case-insensitive, stored with the list's spelling); an unknown one is refused
+  with the valid names. The list is `.tarfa.json` (`infrastructure/file-stage-config.ts`),
+  looked up from the workspace's fixed `projectPath`, not the pane's live cwd, then from the main
+  checkout of its git repo, because a git-ignored file is absent from a new worktree and one file
+  should cover all of them. **The first file that exists wins, and a malformed one gives the
+  default stages instead of falling through to the next**: a broken project file must not silently
+  hand the project another file's list. Parsed results are cached per file and re-read when its
+  mtime changes. No file: In progress, Waiting, Blocked, Done. The stage lives in the workspace's
+  `status.json` entry (gone with it on close; a parked row reads it from the status store).
+  The waiting/needs-you rules are in `docs/ATTENTION-STATUS.md`. The phone's home list folds
+  waiting and done stages, and Next skips the rows folded under them; the `tarfa-stages` skill
+  sets a project up.
   **`tarfa wait <id>... [--timeout <s, at least 10>]` blocks until one stops working** and prints `<id> <state>`
   per stopped workspace, polling the same read-only stores as `ls` every 2 s, hidden folders
   included (a hidden child is not gone). Exit 0 a stop, 124 the timeout, 2 usage, 1 otherwise.
