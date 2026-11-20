@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { WORKSPACE_STATUSES, type WorkspaceStatus } from '../domain/workspace-status';
 import type { Workspace } from '../domain/workspace';
 import { sessionAgentMessageSchemas, sessionClientMessageSchemas } from './session-channels';
+import { stageKindSchema } from '../domain/stage';
 import { isOpenableUrl } from '../domain/openable-url';
 
 const workspaceStatusSchema = z.enum(
@@ -32,6 +33,13 @@ export const workspaceSchema = z.object({
   parentId: z.string().optional(),
   waitingOn: z.literal('parent').optional(),
   asking: z.boolean().optional(),
+  // Lenient: a malformed value is dropped, never failing the whole workspace list.
+  stage: z
+    .object({ name: z.string(), kind: stageKindSchema, since: z.number() })
+    .optional()
+    .catch(undefined),
+  stages: z.array(z.object({ name: z.string(), kind: stageKindSchema })).optional().catch(undefined),
+  waiting: z.literal(true).optional().catch(undefined),
 });
 
 // Compile-time guarantee that the schema and the domain type stay in sync.
@@ -126,6 +134,9 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('create'), projectPath: z.string(), command: z.string(), remember: z.boolean().optional() }),
   z.object({ type: z.literal('close'), workspaceId: z.string() }),
   z.object({ type: z.literal('setStatus'), workspaceId: z.string(), status: workspaceStatusSchema }),
+  // Move a workspace to the named stage of its project's list. Sent only to an agent whose
+  // authResult lists AGENT_FEATURES.stages.
+  z.object({ type: z.literal('setStage'), workspaceId: z.string(), stage: z.string() }),
   // Manually pin/unpin a workspace to the top of its status group. Orthogonal to setStatus;
   // the agent's onChange broadcasts the refreshed workspace to every device.
   z.object({ type: z.literal('setUrgent'), workspaceId: z.string(), urgent: z.boolean() }),
@@ -157,6 +168,7 @@ export const AGENT_FEATURES = {
   addresses: 'addresses',
   voiceCancel: 'voiceCancel',
   openUrl: 'openUrl',
+  stages: 'stages',
 } as const;
 
 export const agentMessageSchema = z.discriminatedUnion('type', [

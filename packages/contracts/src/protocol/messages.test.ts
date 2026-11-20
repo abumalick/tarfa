@@ -380,7 +380,29 @@ describe('agentMessageSchema', () => {
   });
 });
 
+describe('setStage', () => {
+  it('round-trips', () => {
+    const msg = { type: 'setStage', workspaceId: 'w', stage: 'Done' };
+    expect(parseClientMessage(msg)).toEqual(msg);
+  });
+});
+
 describe('workspaceSchema', () => {
+  it('keeps stage, stages and waiting on the wire', () => {
+    const staged = {
+      ...sampleWorkspace,
+      stage: { name: 'Waiting', kind: 'waiting' as const, since: 5 },
+      stages: [{ name: 'Waiting', kind: 'waiting' as const }],
+      waiting: true as const,
+    };
+    expect(workspaceSchema.parse(staged)).toEqual(staged);
+  });
+
+  it('drops a malformed stage or stages without failing the workspace', () => {
+    const parsed = workspaceSchema.parse({ ...sampleWorkspace, stage: { name: 3 }, stages: 'x', waiting: false });
+    expect(parsed).toEqual(sampleWorkspace);
+  });
+
   it('rejects an invalid status', () => {
     expect(() => workspaceSchema.parse({ ...sampleWorkspace, status: 'busy' })).toThrow();
   });

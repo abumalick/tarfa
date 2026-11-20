@@ -1,3 +1,4 @@
+import type { ProjectStage, WorkspaceStage } from './stage';
 import type { WorkspaceStatus } from './workspace-status';
 
 export interface Workspace {
@@ -40,6 +41,15 @@ export interface Workspace {
   // is a menu key: the PWA then keeps Claude voice off and uses another preset. Only a tmux
   // patched for OSC 7501 reports it; absent otherwise and on an older agent.
   asking?: boolean;
+  // The stage the user or Claude put this workspace in; absent until one is set. Orthogonal to
+  // `status`, which stays the hooks' activity.
+  stage?: WorkspaceStage;
+  // The project's stage list, so the phone can offer it. Absent from an agent without the
+  // `stages` feature.
+  stages?: ProjectStage[];
+  // Set when the stage is waiting/done and the activity does not need the user: the PWA folds
+  // the row away from Needs you.
+  waiting?: true;
 }
 
 export interface Machine {

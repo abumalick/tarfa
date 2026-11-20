@@ -1,6 +1,6 @@
 // One flat status per workspace. The array order is the canonical priority used for both
 // list sorting and the picker (top = needs you most; `working` last — an actively-running
-// session needs no attention). Hooks set `working`/`needs-feedback`/`finished`/`idle`; the
+// session needs no attention). Hooks set `working`/`needs-feedback`/`idle` (never `finished`); the
 // user can manually set any value, and the next hook event overrides it.
 // `needs-hands` sits right below `needs-feedback`: it is the same "you are the blocker",
 // but it cannot be cleared from the phone — the work has to happen at the machine — so it

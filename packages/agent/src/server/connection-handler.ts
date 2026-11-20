@@ -547,6 +547,8 @@ export class ConnectionHandler {
       case 'browserClose':
         this.browsers.close(message.stream);
         return;
+      case 'setStage':
+        return;
       case 'clientLog': {
         // Answered either way: the PWA keeps its events buffered until it sees `ok`.
         let ok = JSON.stringify(message.batch).length <= CLIENT_LOG_MAX_BYTES;
