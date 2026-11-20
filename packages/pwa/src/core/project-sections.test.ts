@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Workspace, WorkspaceStatus } from '@tarfa/contracts';
-import { listOrder, projectSections } from './project-sections';
+import { homeSections, listOrder, projectSections } from './project-sections';
 
 const ws = (id: string, status: WorkspaceStatus, projectPath: string, extra: Partial<Workspace> = {}): Workspace => ({
   id,
@@ -57,5 +57,31 @@ describe('listOrder', () => {
 
   it('walks project by project when grouped', () => {
     expect(listOrder(list, labelOf).map((w) => w.id)).toEqual(['a1', 'a2', 'b1']);
+  });
+});
+
+describe('homeSections', () => {
+  const stages = [
+    { name: 'In review', kind: 'waiting' as const },
+    { name: 'Done', kind: 'done' as const },
+  ];
+  const staged = (name: string, kind: 'waiting' | 'done') => ({ stage: { name, kind, since: 1 }, stages });
+
+  it('returns needs-you as one cross-project list and splits each project', () => {
+    const list = [
+      ws('a1', 'needs-feedback', 'a'),
+      ws('b1', 'needs-hands', 'b'),
+      ws('a2', 'working', 'a'),
+      ws('a3', 'idle', 'a', staged('Done', 'done')),
+      ws('b2', 'working', 'b', staged('In review', 'waiting')),
+    ];
+    const { needsYou, sections } = homeSections(list, labelOf);
+    expect(needsYou.map((g) => g.workspace.id)).toEqual(['a1', 'b1']);
+    expect(
+      sections.map((s) => [s.label, s.active.map((g) => g.workspace.id), s.folded.map((b) => [b.name, b.groups.length])]),
+    ).toEqual([
+      ['a', ['a2'], [['Done', 1]]],
+      ['b', [], [['In review', 1]]],
+    ]);
   });
 });
