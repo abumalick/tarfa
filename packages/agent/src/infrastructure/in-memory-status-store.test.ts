@@ -104,4 +104,35 @@ describe('InMemoryStatusStore', () => {
     expect(store.getMessagedLast('perch-a')).toBe(false);
     expect(events).toEqual([]);
   });
+
+  it('stores a stage, moving since only on a new name, and notifies; forget clears it', () => {
+    let t = 100;
+    const store = new InMemoryStatusStore(() => t);
+    const events: string[] = [];
+    store.onChange((id) => events.push(id));
+    store.setStage('w1', { name: 'Waiting', kind: 'waiting' });
+    t = 200;
+    store.setStage('w1', { name: 'Waiting', kind: 'waiting' });
+    expect(store.getStage('w1')).toEqual({ name: 'Waiting', kind: 'waiting', since: 100 });
+    store.set('w1', 'working');
+    expect(store.getStage('w1')?.name).toBe('Waiting');
+    t = 300;
+    store.setStage('w1', { name: 'Done', kind: 'done' });
+    expect(store.getStage('w1')?.since).toBe(300);
+    expect(events).toEqual(['w1', 'w1', 'w1', 'w1']);
+    store.forget('w1');
+    expect(store.getStage('w1')).toBeUndefined();
+  });
+
+  it('stores the staged-last mark, false by default, without notifying', () => {
+    const store = new InMemoryStatusStore();
+    const events: string[] = [];
+    store.onChange((id) => events.push(id));
+    expect(store.getStagedLast('w1')).toBe(false);
+    store.setStagedLast('w1', true);
+    expect(store.getStagedLast('w1')).toBe(true);
+    store.setStagedLast('w1', false);
+    expect(store.getStagedLast('w1')).toBe(false);
+    expect(events).toEqual([]);
+  });
 });

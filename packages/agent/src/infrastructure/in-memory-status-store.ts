@@ -1,4 +1,4 @@
-import type { WorkspaceStatus } from '@tarfa/contracts';
+import type { StageKind, WorkspaceStage, WorkspaceStatus } from '@tarfa/contracts';
 import type { StatusStorePort } from '../ports/status-store-port';
 
 interface Entry {
@@ -8,6 +8,8 @@ interface Entry {
   urgent?: boolean;
   claudeSessionId?: string;
   messagedLast?: boolean;
+  stage?: WorkspaceStage;
+  stagedLast?: boolean;
 }
 
 // Last-write-wins, in-memory. Both hook events and the PWA's setStatus message write here;
@@ -80,6 +82,33 @@ export class InMemoryStatusStore implements StatusStorePort {
     const current = this.statuses.get(workspaceId);
     const status = current?.status ?? 'idle';
     this.statuses.set(workspaceId, { changedAt: this.now(), ...current, status, messagedLast: value });
+  }
+
+  getStage(workspaceId: string): WorkspaceStage | undefined {
+    return this.statuses.get(workspaceId)?.stage;
+  }
+
+  setStage(workspaceId: string, stage: { name: string; kind: StageKind }): void {
+    const current = this.statuses.get(workspaceId);
+    const status = current?.status ?? 'idle';
+    const since = current?.stage?.name === stage.name ? current.stage.since : this.now();
+    this.statuses.set(workspaceId, { changedAt: this.now(), ...current, status, stage: { ...stage, since } });
+    for (const listener of this.listeners) {
+      listener(workspaceId, status);
+    }
+  }
+
+  getStagedLast(workspaceId: string): boolean {
+    return this.statuses.get(workspaceId)?.stagedLast ?? false;
+  }
+
+  setStagedLast(workspaceId: string, value: boolean): void {
+    if (this.getStagedLast(workspaceId) === value) {
+      return;
+    }
+    const current = this.statuses.get(workspaceId);
+    const status = current?.status ?? 'idle';
+    this.statuses.set(workspaceId, { changedAt: this.now(), ...current, status, stagedLast: value });
   }
 
   ids(): string[] {

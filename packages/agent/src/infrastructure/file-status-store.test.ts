@@ -256,4 +256,61 @@ describe('FileStatusStore', () => {
     await writeFile(file, JSON.stringify({ 'perch-a': { status: 'working', messagedLast: 'yes' } }));
     expect(new FileStatusStore(file).getMessagedLast('perch-a')).toBe(false);
   });
+
+  it('keeps a stage across instances and a status change; same name keeps since, a new name moves it', () => {
+    let t = 100;
+    const store = new FileStatusStore(file, () => t);
+    const events: string[] = [];
+    store.onChange((id) => events.push(id));
+    store.setStage('perch-a', { name: 'Waiting', kind: 'waiting' });
+    expect(events).toEqual(['perch-a']);
+    expect(new FileStatusStore(file).getStage('perch-a')).toEqual({ name: 'Waiting', kind: 'waiting', since: 100 });
+    t = 200;
+    store.setStage('perch-a', { name: 'Waiting', kind: 'waiting' });
+    expect(store.getStage('perch-a')?.since).toBe(100);
+    store.set('perch-a', 'working');
+    expect(new FileStatusStore(file).getStage('perch-a')?.since).toBe(100);
+    t = 300;
+    store.setStage('perch-a', { name: 'Done', kind: 'done' });
+    expect(new FileStatusStore(file).getStage('perch-a')).toEqual({ name: 'Done', kind: 'done', since: 300 });
+    expect(store.get('perch-a')).toBe('working');
+  });
+
+  it('forget and prune drop the stage and the staged-last mark, so a reused id inherits nothing', () => {
+    const store = new FileStatusStore(file);
+    store.setStage('perch-a', { name: 'Done', kind: 'done' });
+    store.setStagedLast('perch-a', true);
+    store.forget('perch-a');
+    expect(new FileStatusStore(file).getStage('perch-a')).toBeUndefined();
+    expect(new FileStatusStore(file).getStagedLast('perch-a')).toBe(false);
+    store.setStage('perch-b', { name: 'Done', kind: 'done' });
+    store.setStagedLast('perch-b', true);
+    store.prune([]);
+    expect(new FileStatusStore(file).getStage('perch-b')).toBeUndefined();
+    expect(new FileStatusStore(file).getStagedLast('perch-b')).toBe(false);
+  });
+
+  it('keeps the staged-last mark across instances without onChange', () => {
+    const store = new FileStatusStore(file);
+    const events: string[] = [];
+    store.set('perch-a', 'working');
+    store.onChange((id) => events.push(id));
+    store.setStagedLast('perch-a', true);
+    expect(new FileStatusStore(file).getStagedLast('perch-a')).toBe(true);
+    expect(events).toEqual([]);
+    store.setStagedLast('perch-a', false);
+    expect(new FileStatusStore(file).getStagedLast('perch-a')).toBe(false);
+  });
+
+  it('loads a legacy entry without a stage and ignores a malformed one', async () => {
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(
+      file,
+      JSON.stringify({ 'perch-a': { status: 'working' }, 'perch-b': { status: 'idle', stage: { name: 'X', kind: 'nope', since: 1 } } }),
+    );
+    const store = new FileStatusStore(file);
+    expect(store.getStage('perch-a')).toBeUndefined();
+    expect(store.getStage('perch-b')).toBeUndefined();
+    expect(store.getStagedLast('perch-a')).toBe(false);
+  });
 });

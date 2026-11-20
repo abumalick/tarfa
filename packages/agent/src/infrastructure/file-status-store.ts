@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { isWorkspaceStatus, type WorkspaceStatus } from '@tarfa/contracts';
+import { isWorkspaceStatus, stageKindSchema, type StageKind, type WorkspaceStage, type WorkspaceStatus } from '@tarfa/contracts';
 import type { StatusStorePort } from '../ports/status-store-port';
 
 interface Entry {
@@ -13,6 +13,9 @@ interface Entry {
   claudeSessionId?: string;
   // Last main-loop tool call was SendMessage. Absent means false.
   messagedLast?: true;
+  stage?: WorkspaceStage;
+  // Last main-loop tool call was `tarfa stage`. Absent means false.
+  stagedLast?: true;
 }
 
 // Durable last-write-wins status store. Mirrors InMemoryStatusStore's semantics
@@ -97,6 +100,34 @@ export class FileStatusStore implements StatusStorePort {
     this.persist();
   }
 
+  getStage(workspaceId: string): WorkspaceStage | undefined {
+    return this.statuses.get(workspaceId)?.stage;
+  }
+
+  setStage(workspaceId: string, stage: { name: string; kind: StageKind }): void {
+    const current = this.statuses.get(workspaceId);
+    const status = current?.status ?? 'idle';
+    const since = current?.stage?.name === stage.name ? current.stage.since : this.now();
+    this.statuses.set(workspaceId, { ...current, status, stage: { ...stage, since } });
+    for (const listener of this.listeners) {
+      listener(workspaceId, status);
+    }
+    this.persist();
+  }
+
+  getStagedLast(workspaceId: string): boolean {
+    return this.statuses.get(workspaceId)?.stagedLast === true;
+  }
+
+  setStagedLast(workspaceId: string, value: boolean): void {
+    if (this.getStagedLast(workspaceId) === value) {
+      return;
+    }
+    const { stagedLast: _drop, ...current } = this.statuses.get(workspaceId) ?? { status: 'idle' as const };
+    this.statuses.set(workspaceId, value ? { ...current, stagedLast: true } : current);
+    this.persist();
+  }
+
   onChange(listener: (workspaceId: string, status: WorkspaceStatus) => void): void {
     this.listeners.push(listener);
   }
@@ -169,12 +200,14 @@ function parseEntry(value: unknown): Entry | undefined {
     return { status: bare };
   }
   if (typeof value === 'object' && value !== null) {
-    const { status, changedAt, urgent, claudeSessionId, messagedLast } = value as {
+    const { status, changedAt, urgent, claudeSessionId, messagedLast, stage, stagedLast } = value as {
       status?: unknown;
       changedAt?: unknown;
       urgent?: unknown;
       claudeSessionId?: unknown;
       messagedLast?: unknown;
+      stage?: unknown;
+      stagedLast?: unknown;
     };
     const migrated = migrateStatus(status);
     if (isWorkspaceStatus(migrated)) {
@@ -184,8 +217,18 @@ function parseEntry(value: unknown): Entry | undefined {
         urgent: typeof urgent === 'boolean' ? urgent : undefined,
         claudeSessionId: typeof claudeSessionId === 'string' ? claudeSessionId : undefined,
         ...(messagedLast === true ? { messagedLast: true as const } : {}),
+        ...(parseStage(stage) ? { stage: parseStage(stage) } : {}),
+        ...(stagedLast === true ? { stagedLast: true as const } : {}),
       };
     }
   }
   return undefined;
+}
+
+function parseStage(value: unknown): WorkspaceStage | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { name, kind, since } = value as { name?: unknown; kind?: unknown; since?: unknown };
+  const parsedKind = stageKindSchema.safeParse(kind);
+  if (typeof name !== 'string' || !name || !parsedKind.success || typeof since !== 'number') return undefined;
+  return { name, kind: parsedKind.data, since };
 }

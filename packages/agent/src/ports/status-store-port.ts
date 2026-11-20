@@ -1,4 +1,4 @@
-import type { WorkspaceStatus } from '@tarfa/contracts';
+import type { StageKind, WorkspaceStage, WorkspaceStatus } from '@tarfa/contracts';
 
 export interface StatusStorePort {
   get(workspaceId: string): WorkspaceStatus | undefined;
@@ -18,6 +18,15 @@ export interface StatusStorePort {
   // False for an unknown id; setting it never fires onChange.
   getMessagedLast(workspaceId: string): boolean;
   setMessagedLast(workspaceId: string, value: boolean): void;
+  // The workspace's stage (see docs/WORKSPACES.md), orthogonal to status. `since` moves only when
+  // the name changes. Setting it fires onChange so the row is re-broadcast; an unknown id
+  // resolves to the default `idle` status.
+  getStage(workspaceId: string): WorkspaceStage | undefined;
+  setStage(workspaceId: string, stage: { name: string; kind: StageKind }): void;
+  // Whether the session's last main-loop tool call was `tarfa stage` (see applyHookEvent).
+  // False for an unknown id; setting it never fires onChange.
+  getStagedLast(workspaceId: string): boolean;
+  setStagedLast(workspaceId: string, value: boolean): void;
   // Every id with an entry. Ids are reused once a workspace is gone, so a new one must not
   // take an id still listed here, and the entry of a workspace that stopped is forgotten.
   ids(): string[];
