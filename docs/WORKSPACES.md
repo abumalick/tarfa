@@ -155,7 +155,7 @@ How workspaces are created, closed, parked, recovered, named and linked, and the
   status stays `working`, the PWA labels it "Needs orchestrator" and `tarfa ls` shows
   `needs-orchestrator`. The PWA nests one level of children under a listed, unparked parent on
   the same machine (`core/nest-workspaces.ts`), folded by default; a group ranks by its most
-  urgent member, and Next walks children of folded parents too.
+  urgent member, and Next walks children of parents folded by nesting too (a parent's own fold, not a stage fold).
   **`tarfa close <id>...` is the phone's close** (`POST /close`, the hooks secret;
   `application/retire-workspace.ts` is shared with the phone's path, so the two cannot drift): the
   snapshot, the kill, the `closed-by-user` log line, the state drop, the reply, then the scope reap.
@@ -172,7 +172,7 @@ How workspaces are created, closed, parked, recovered, named and linked, and the
   should cover all of them. **The first file that exists wins, and a malformed one gives the
   default stages instead of falling through to the next**: a broken project file must not silently
   hand the project another file's list. Parsed results are cached per file and re-read when its
-  mtime changes. No file: In progress, Waiting, Blocked, Done. The stage lives in the workspace's
+  mtime changes. A list that is empty or repeats a name (case-insensitive) is invalid too and gives the defaults. No file: In progress, Waiting, Blocked, Done. The stage lives in the workspace's
   `status.json` entry (gone with it on close; a parked row reads it from the status store).
   The waiting/needs-you rules are in `docs/ATTENTION-STATUS.md`. The phone's home list folds
   waiting and done stages, and Next skips the rows folded under them; the `tarfa-stages` skill

@@ -98,8 +98,9 @@ How a workspace's status (working, Needs you, Needs orchestrator) is decided fro
   mark set and no later tool call holds `working` and sets the deferral (reason `stop-staged`), so
   the 60 s `idle_prompt` is suppressed; the OSC `done` yields to it (`osc-staged`). The phone
   shows it as `waiting: true`. Like `sentDuringTool`, `stagedDuringTool` makes the PostToolUse of
-  the Bash call that ran the command leave the mark alone; any later tool call, a prompt, a
-  permission prompt or a question clears it (it rides `DROP_MARKS`). **Only the last stage set
+  the Bash call that ran the command leave the mark alone; any later tool call and a prompt clear it, as do `StopFailure` and `SessionStart` (`DROP_MARKS`). A
+  permission prompt or a question does not clear it: it sets needs-feedback, which un-folds the row
+  (the phone shows waiting only over `working`), and the mark drops at the next tool call. **Only the last stage set
   decides:** a non-waiting `tarfa stage` (active or done) in the same turn clears an earlier
   waiting mark (`clearStaged`), so a turn that ends on "In progress" asks as usual. Accepted
   hole: a waiting stage set last, then a question in the closing text, stays folded; the

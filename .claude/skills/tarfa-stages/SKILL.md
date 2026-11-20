@@ -55,8 +55,11 @@ At the project root:
 `kind` is `active` (the default), `waiting` or `done`. It drives the folding and the waiting
 mark. The agent reads the file from the workspace's project folder first, then from the main
 checkout of its git repo (a git-ignored file is absent from a new worktree). **The first file
-that exists wins**, and a malformed one gives the defaults rather than falling through to the
-next. Without any file the defaults are In progress (active), Waiting, Blocked (waiting) and
+that exists wins**, and an invalid one (malformed, an empty list, or two stages with the same
+name, case-insensitive) gives the defaults rather than falling through to the next. The
+main-checkout fallback looks only at the repo root: for a project in a subfolder of a repo, a
+git-ignored `.tarfa.json` in the subfolder does not reach its worktrees, so put it at the repo
+root (it then covers every project of the repo) or commit it. Without any file the defaults are In progress (active), Waiting, Blocked (waiting) and
 Done (done).
 
 ## Setting a project up
@@ -66,11 +69,13 @@ Done (done).
    the stages and which are `waiting` (ball in someone else's court: review, QA, a supplier, an
    admin office) and which `done`. Keep it short: three to six stages.
 2. **Write `.tarfa.json`** at the project root.
-3. **Keep it out of git** unless the maintainer wants it shared: add `.tarfa.json` to
-   `.gitignore`. A repo the team shares may commit it instead; ask.
+3. **Keep it out of git** unless the maintainer wants it shared. In your own repo add
+   `.tarfa.json` to `.gitignore`; in a repo shared with others prefer `.git/info/exclude`
+   (not versioned) over editing the shared `.gitignore`. A team repo may commit it instead; ask.
 4. **Write the rules below** into the project's `CLAUDE.md`, or `CLAUDE.local.md` when the
-   repo is shared with others and the rules are the maintainer's alone. A workspace running
-   Codex reads `AGENTS.md` instead: write them there too if the project uses Codex.
+   repo is shared with others and the rules are the maintainer's alone; make sure
+   `CLAUDE.local.md` is git-ignored (same exclusion as above). Codex has no local rules file: a
+   workspace running Codex reads `AGENTS.md`, so in a shared repo ask before writing there.
 5. **Show the maintainer** the file and the rules, and set the first stage of the current
    workspace (`tarfa stage "In progress"`) to check it works.
 
