@@ -149,6 +149,10 @@ export class WsServer {
   // that follows their Stop can be told apart from a genuine one. In-memory on purpose — see
   // applyHookEvent.
   private readonly deferred = new Set<string>();
+  // Sessions whose needs-feedback the phone dismissed, so the idle prompt of that same turn does
+  // not bring it back. Kept apart from `deferred`, which also holds back an OSC turn end: a
+  // dismissal must never hide the next turn's. In-memory, like `deferred`.
+  private readonly dismissed = new Set<string>();
   // Sessions whose last main-loop tool call was SendMessage — see applyHookEvent. Kept in the
   // status store rather than here, so it survives a restart and `tarfa ls` can read it.
   private readonly messagedLast = {
@@ -208,6 +212,7 @@ export class WsServer {
     this.closing.delete(id);
     this.deps.status.forget(id);
     this.deferred.delete(id);
+    this.dismissed.delete(id);
     this.questionPending.delete(id);
     this.sentDuringTool.delete(id);
     this.stagedDuringTool.delete(id);
@@ -222,7 +227,7 @@ export class WsServer {
   // free again without an agent restart. The ids are read before tmux is listed: an entry a hook
   // writes in between belongs to a session that already exists.
   private async dropGoneWorkspaces(): Promise<void> {
-    const known = new Set([...this.deps.status.ids(), ...this.deferred, ...this.questionPending, ...this.oscTurnEnded]);
+    const known = new Set([...this.deps.status.ids(), ...this.deferred, ...this.dismissed, ...this.questionPending, ...this.oscTurnEnded]);
     if (known.size === 0) return;
     let present: Set<string>;
     try {
@@ -330,7 +335,7 @@ export class WsServer {
       dropWorkspaceState: (id: string) => this.dropWorkspaceState(id),
       broadcastClosed: (id: string) => this.broadcastClosed(id),
       messagedLast: this.messagedLast,
-      deferIdlePrompt: (id: string) => this.deferred.add(id),
+      dismiss: (id: string) => this.dismissed.add(id),
       lastReplies: this.lastReplies,
       openRequests: this.openRequests,
     });
@@ -452,6 +457,7 @@ export class WsServer {
       {
         store: this.deps.status,
         deferred: this.deferred,
+        dismissed: this.dismissed,
         messagedLast: this.messagedLast,
         sentDuringTool: this.sentDuringTool,
         stagedLast: this.stagedLast,
@@ -698,6 +704,7 @@ export class WsServer {
       {
         store: this.deps.status,
         deferred: this.deferred,
+        dismissed: this.dismissed,
         messagedLast: this.messagedLast,
         stagedLast: this.stagedLast,
         questionPending: this.questionPending,

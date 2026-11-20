@@ -1744,8 +1744,8 @@ describe('ConnectionHandler stages', () => {
         },
       };
     }
-    const deferred: string[] = [];
-    deps.deferIdlePrompt = (id) => deferred.push(id);
+    const dismissed: string[] = [];
+    deps.dismiss = (id) => dismissed.push(id);
     const parked = fakeParkedStore();
     await parked.add({ id: 'perch-pk', name: 'pk', projectPath: '/w/parked', command: 'claude', machineId: 'mini', createdAt: 1, parkedAt: 2 });
     deps.parked = parked;
@@ -1756,7 +1756,7 @@ describe('ConnectionHandler stages', () => {
       await new Promise((r) => setTimeout(r, 0));
     };
     await send({ type: 'auth', token: '' });
-    return { status, asked, deferred, send, sent: conn.sent };
+    return { status, asked, dismissed, send, sent: conn.sent };
   }
 
   it("stores a picked stage with the list's spelling, from the workspace's project", async () => {
@@ -1766,22 +1766,22 @@ describe('ConnectionHandler stages', () => {
     expect(asked).toEqual(['/home/u/workspace/api']);
   });
 
-  it('a waiting or done pick on a needs-feedback row marks it seen: idle, and its idle prompt deferred', async () => {
+  it('a waiting or done pick on a needs-feedback row marks it seen: idle, and dismissed', async () => {
     for (const stage of ['Review', 'Shipped']) {
-      const { status, deferred, send } = await stageHandler('needs-feedback');
+      const { status, dismissed, send } = await stageHandler('needs-feedback');
       await send({ type: 'setStage', workspaceId: 'perch-aa', stage });
       expect(status.get('perch-aa')).toBe('idle');
-      expect(deferred).toEqual(['perch-aa']);
+      expect(dismissed).toEqual(['perch-aa']);
     }
   });
 
   it('never touches the status of a working or needs-hands row, nor for an active pick', async () => {
     for (const [initial, stage] of [['working', 'Review'], ['needs-hands', 'Shipped'], ['needs-feedback', 'Doing']] as const) {
-      const { status, deferred, send } = await stageHandler(initial);
+      const { status, dismissed, send } = await stageHandler(initial);
       await send({ type: 'setStage', workspaceId: 'perch-aa', stage });
       expect(status.getStage('perch-aa')?.name).toBe(stage);
       expect(status.get('perch-aa')).toBe(initial);
-      expect(deferred).toEqual([]);
+      expect(dismissed).toEqual([]);
     }
   });
 
@@ -1799,21 +1799,23 @@ describe('ConnectionHandler stages', () => {
     expect(bare.status.get('perch-aa')).toBe('needs-feedback');
   });
 
-  it("stages a parked workspace from its record's project", async () => {
+  it("stages a parked workspace from its record's project, leaving it parked", async () => {
     const { status, asked, send } = await stageHandler('working');
+    status.set('perch-pk', 'parked');
     await send({ type: 'setStage', workspaceId: 'perch-pk', stage: 'review' });
     expect(status.getStage('perch-pk')).toMatchObject({ name: 'Review', kind: 'waiting' });
+    expect(status.get('perch-pk')).toBe('parked');
     expect(asked).toEqual(['/w/parked']);
   });
 
-  it('setStatus idle on a needs-feedback row defers its idle prompt, and on any other row does not', async () => {
+  it('setStatus idle on a needs-feedback row marks it dismissed, and on any other row does not', async () => {
     const seen = await stageHandler('needs-feedback');
     await seen.send({ type: 'setStatus', workspaceId: 'perch-aa', status: 'idle' });
     expect(seen.status.get('perch-aa')).toBe('idle');
-    expect(seen.deferred).toEqual(['perch-aa']);
+    expect(seen.dismissed).toEqual(['perch-aa']);
     const busy = await stageHandler('working');
     await busy.send({ type: 'setStatus', workspaceId: 'perch-aa', status: 'idle' });
-    expect(busy.deferred).toEqual([]);
+    expect(busy.dismissed).toEqual([]);
   });
 
   it('lists the project stages of each workspace', async () => {

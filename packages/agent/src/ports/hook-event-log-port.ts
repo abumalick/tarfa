@@ -5,6 +5,8 @@ export interface HookMarks {
   messagedLast: boolean;
   stagedLast: boolean;
   questionPending: boolean;
+  // Present where the phone's dismissal mark is kept (WsServer).
+  dismissed?: boolean;
 }
 
 // One hook event as the agent received and decided it: enough to tell, for any workspace, which

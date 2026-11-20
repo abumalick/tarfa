@@ -93,9 +93,9 @@ export interface ConnectionHandlerDeps {
   messagedLast?: Pick<ReadonlySet<string>, 'has'>;
   // Without it the phone is offered no stages and a `setStage` is ignored.
   stageConfig?: StageConfigPort;
-  // Adds the workspace to WsServer's deferral, so the idle prompt Claude Code sends 60s after a
+  // Marks the workspace dismissed in WsServer, so the idle prompt Claude Code sends 60s after a
   // turn ends does not put back the "Needs you" the phone just dismissed.
-  deferIdlePrompt?: (id: string) => void;
+  dismiss?: (id: string) => void;
   repoRemote?: RepoRemotePort;
   claudeSessions?: ClaudeSessionsPort;
   transcripts?: TranscriptsPort;
@@ -383,7 +383,7 @@ export class ConnectionHandler {
         }
         // "Seen": dismissing a needs-feedback row must outlast the turn's idle prompt.
         if (message.status === 'idle' && status.get(message.workspaceId) === 'needs-feedback') {
-          this.deps.deferIdlePrompt?.(message.workspaceId);
+          this.deps.dismiss?.(message.workspaceId);
         }
         // The store's onChange (wired in WsServer) broadcasts the refreshed workspace to
         // every connection, so the sender and other devices both observe the new status.
@@ -617,7 +617,7 @@ export class ConnectionHandler {
     if (!stage) return;
     status.setStage(workspaceId, { name: stage.name, kind: stage.kind });
     if (stage.kind !== 'active' && status.get(workspaceId) === 'needs-feedback') {
-      this.deps.deferIdlePrompt?.(workspaceId);
+      this.deps.dismiss?.(workspaceId);
       status.set(workspaceId, 'idle');
     }
   }

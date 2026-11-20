@@ -16,6 +16,8 @@ export interface ApplyProgramStatusDeps {
   messagedLast: MarkSet;
   stagedLast: MarkSet;
   questionPending: Set<string>;
+  // The phone's dismissals (attentionDecision): never read here, only ended by a new turn.
+  dismissed?: Set<string>;
   // The last record seen per workspace (state and change time), so only a change is applied.
   seen: Map<string, string>;
   // The sessions this rule moved to needs-feedback at a turn end, so the Stop hook landing just
@@ -31,6 +33,7 @@ function marks(deps: ApplyProgramStatusDeps, status: WorkspaceStatus | undefined
     messagedLast: deps.messagedLast.has(id),
     stagedLast: deps.stagedLast.has(id),
     questionPending: deps.questionPending.has(id),
+    ...(deps.dismissed ? { dismissed: deps.dismissed.has(id) } : {}),
   } satisfies { status?: WorkspaceStatus } & HookMarks;
 }
 
@@ -58,6 +61,7 @@ export function applyProgramStatus(deps: ApplyProgramStatusDeps, panes: ProgramS
       stagedLast: before.stagedLast,
     });
     if (decision.deferral === 'clear') deps.deferred.delete(name);
+    if (program.state === 'working') deps.dismissed?.delete(name);
     const turnEnd = decision.reason === 'osc-done' || decision.reason === 'osc-idle';
     if (decision.status && !turnEnd) deps.oscTurnEnded.delete(name);
     if (decision.status && decision.status !== currentStatus) {

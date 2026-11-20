@@ -130,6 +130,8 @@ export function attentionDecision(input: {
   currentStatus?: WorkspaceStatus;
   // Whether the current needs-feedback was set by an OSC 7501 turn end (applyProgramStatus).
   endedByOsc?: boolean;
+  // Whether the phone dismissed this turn's needs-feedback ("Seen", or a waiting/done stage).
+  dismissed?: boolean;
 }): AttentionDecision {
   const endsQuestion = input.questionPending ? ({ question: 'clear' } as const) : {};
   // OSC 7501 reports `done` the moment a turn ends, before this Stop's curl lands, so a poll in
@@ -161,7 +163,7 @@ export function attentionDecision(input: {
       // Claude Code emits an idle_prompt 60s after every Stop — even while a background task
       // is still running. Letting it through would undo the deferral a minute later and
       // defeat the feature. Every other notification (a permission prompt) still gets through.
-      return isIdlePrompt(input.claude) && input.wasDeferred
+      return isIdlePrompt(input.claude) && (input.wasDeferred || input.dismissed)
         ? { reason: 'idle-suppressed', status: null, deferral: 'keep' }
         : { reason: 'notification', status: 'needs-feedback', deferral: 'clear' };
     case 'UserPromptSubmit':

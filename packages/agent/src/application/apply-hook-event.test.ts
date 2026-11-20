@@ -512,3 +512,51 @@ describe('applyHookEvent', () => {
     expect(marks.messagedLast.has('perch-aa')).toBe(false);
   });
 });
+
+describe('applyHookEvent dismissal', () => {
+  const deps = (f: ReturnType<typeof fakeStore>, dismissed: Set<string>, deferred = new Set<string>(), log?: { append: (e: HookEventEntry) => Promise<void> }) => ({
+    store: f.store,
+    deferred,
+    dismissed,
+    messagedLast: new Set<string>(),
+    sentDuringTool: new Set<string>(),
+    stagedLast: new Set<string>(),
+    stagedDuringTool: new Set<string>(),
+    questionPending: new Set<string>(),
+    ...(log ? { log } : {}),
+  });
+
+  it('swallows the idle prompt of a dismissed session, keeps the mark, and never touches the deferral', () => {
+    const f = fakeStore({ 'perch-aa': 'idle' });
+    const dismissed = new Set(['perch-aa']);
+    const deferred = new Set<string>();
+    const entries: HookEventEntry[] = [];
+    const result = applyHookEvent(deps(f, dismissed, deferred, { append: async (e) => void entries.push(e) }), {
+      sessionName: 'perch-aa',
+      event: 'Notification',
+      claude: idlePrompt,
+    });
+    expect(result).toBeNull();
+    expect(dismissed.has('perch-aa')).toBe(true);
+    expect(deferred.size).toBe(0);
+    expect(entries[0]).toMatchObject({ reason: 'idle-suppressed', before: { dismissed: true }, after: { dismissed: true } });
+  });
+
+  it('ends the dismissal on the next prompt, tool call, turn end or session start', () => {
+    for (const event of ['UserPromptSubmit', 'PreToolUse', 'Stop', 'StopFailure', 'SessionStart']) {
+      const f = fakeStore({ 'perch-aa': 'idle' });
+      const dismissed = new Set(['perch-aa']);
+      applyHookEvent(deps(f, dismissed), { sessionName: 'perch-aa', event, claude: { tool_name: 'Bash', source: 'startup' } });
+      expect(dismissed.has('perch-aa'), event).toBe(false);
+    }
+  });
+
+  it('a prompt after a dismissal lets the next turn end ask again', () => {
+    const f = fakeStore({ 'perch-aa': 'idle' });
+    const dismissed = new Set(['perch-aa']);
+    applyHookEvent(deps(f, dismissed), { sessionName: 'perch-aa', event: 'UserPromptSubmit' });
+    applyHookEvent(deps(f, dismissed), { sessionName: 'perch-aa', event: 'Stop', claude: {} });
+    applyHookEvent(deps(f, dismissed), { sessionName: 'perch-aa', event: 'Notification', claude: idlePrompt });
+    expect(f.store.get('perch-aa')).toBe('needs-feedback');
+  });
+});

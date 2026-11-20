@@ -86,7 +86,12 @@ interface Marks {
   stagedLast: MarkSet;
   stagedDuringTool: MarkSet;
   questionPending: Set<string>;
+  // The sessions whose needs-feedback the phone dismissed; optional, as only WsServer has a phone.
+  dismissed?: Set<string>;
 }
+
+// The events after which a dismissal no longer speaks for the session: its idle prompt is a new one.
+const ENDS_DISMISSAL = new Set(['UserPromptSubmit', 'PreToolUse', 'Stop', 'StopFailure', 'SessionStart']);
 
 // A `tarfa send` runs inside a tool call, whose own PostToolUse arrives after the mark is set and
 // would clear it; `sentDuringTool` makes that one PostToolUse leave the mark alone. Under Codex it
@@ -121,6 +126,7 @@ function state(marks: Marks, status: WorkspaceStatus | undefined, id: string): H
     messagedLast: marks.messagedLast.has(id),
     stagedLast: marks.stagedLast.has(id),
     questionPending: marks.questionPending.has(id),
+    ...(marks.dismissed ? { dismissed: marks.dismissed.has(id) } : {}),
   };
 }
 
@@ -163,7 +169,9 @@ export function applyHookEvent(
     questionPending: before.questionPending,
     currentStatus,
     endedByOsc: deps.oscTurnEnded?.has(input.sessionName),
+    dismissed: before.dismissed,
   });
+  if (ENDS_DISMISSAL.has(input.event)) deps.dismissed?.delete(input.sessionName);
 
   if (decision.deferral === 'set') {
     deps.deferred.add(input.sessionName);

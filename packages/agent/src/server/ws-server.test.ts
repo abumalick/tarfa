@@ -2576,11 +2576,13 @@ describe('WsServer lost-workspace tracking', () => {
 });
 
 describe('WsServer POST /stage', () => {
-  async function stageServer(opts: { stageConfig?: boolean } = {}) {
+  async function stageServer(opts: { stageConfig?: boolean; program?: { current: { state: string; changedAt: number } } } = {}) {
     const home = await mkdtemp(join(tmpdir(), 'perch-stage-'));
     dirs.push(home);
     const tmux: TmuxPort = {
-      listSessions: async () => [{ name: 'perch-child-1', startPath: '/w/proj', command: 'claude', createdAt: 1000, title: '' }],
+      listSessions: async () => [
+        { name: 'perch-child-1', startPath: '/w/proj', command: 'claude', createdAt: 1000, title: '', ...(opts.program ? { program: opts.program.current } : {}) },
+      ],
       createSession: async () => undefined,
       killSession: async () => undefined,
       hasSession: async () => true,
@@ -2593,6 +2595,7 @@ describe('WsServer POST /stage', () => {
     const asked: string[] = [];
     server = new WsServer({
       ...makeServerDeps(testConfig(home), noClientLog),
+      ...(opts.program ? { titlePollMs: 30 } : {}),
       tmux,
       status,
       messaging: {
@@ -2714,6 +2717,37 @@ describe('WsServer POST /stage', () => {
     await until(async () => status.get('perch-child-1') === 'idle');
     await post('/hooks', idlePrompt);
     expect(status.get('perch-child-1')).toBe('idle');
+    client.close();
+  });
+
+  // Claude Code under the patched tmux with no hooks reports only by OSC 7501: a dismissal must
+  // not hold back its next turn end.
+  it('a phone "Seen" never holds back the next OSC turn end', async () => {
+    const program = { current: { state: 'done', changedAt: 1 } };
+    const { status } = await stageServer({ program });
+    status.set('perch-child-1', 'needs-feedback');
+    const client = await phone();
+    client.send({ type: 'setStatus', workspaceId: 'perch-child-1', status: 'idle' });
+    await until(async () => status.get('perch-child-1') === 'idle');
+    program.current = { state: 'working', changedAt: 2 };
+    await until(async () => status.get('perch-child-1') === 'working');
+    program.current = { state: 'done', changedAt: 3 };
+    await until(async () => status.get('perch-child-1') === 'needs-feedback');
+    client.close();
+  });
+
+  it('a phone "Seen" holds only for its own turn: the next turn end asks again', async () => {
+    const { status, post } = await stageServer();
+    status.set('perch-child-1', 'needs-feedback');
+    const client = await phone();
+    client.send({ type: 'setStatus', workspaceId: 'perch-child-1', status: 'idle' });
+    await until(async () => status.get('perch-child-1') === 'idle');
+    await post('/hooks', { sessionName: 'perch-child-1', event: 'UserPromptSubmit', claude: {} });
+    await post('/hooks', { sessionName: 'perch-child-1', event: 'Stop', claude: {} });
+    expect(status.get('perch-child-1')).toBe('needs-feedback');
+    // Nothing deferred the turn, so its own idle prompt changes nothing either way.
+    await post('/hooks', idlePrompt);
+    expect(status.get('perch-child-1')).toBe('needs-feedback');
     client.close();
   });
 

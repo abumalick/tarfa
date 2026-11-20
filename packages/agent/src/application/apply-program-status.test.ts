@@ -203,3 +203,20 @@ describe('OSC 7501 and the Stop hook together', () => {
     expect(deps.oscTurnEnded.has('perch-aa')).toBe(false);
   });
 });
+
+describe('applyProgramStatus and a phone dismissal', () => {
+  it('a dismissal never holds back an OSC turn end, and OSC working ends it', () => {
+    const { deps, sets } = setup({ 'perch-aa': 'idle' });
+    const dismissed = new Set(['perch-aa']);
+    const withDismissed = { ...deps, dismissed };
+    applyProgramStatus(withDismissed, [pane('perch-aa', 'done', 1)]);
+    applyProgramStatus(withDismissed, [pane('perch-aa', 'working', 2)]);
+    expect(dismissed.has('perch-aa')).toBe(false);
+    dismissed.add('perch-aa');
+    applyProgramStatus(withDismissed, [pane('perch-aa', 'done', 3)]);
+    expect(sets).toEqual([
+      ['perch-aa', 'working'],
+      ['perch-aa', 'needs-feedback'],
+    ]);
+  });
+});

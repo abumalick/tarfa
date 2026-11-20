@@ -562,3 +562,18 @@ describe('attentionDecision', () => {
     });
   });
 });
+
+describe('attentionDecision after the phone dismissed a row', () => {
+  it('swallows the idle prompt of a dismissed session that is not deferred', () => {
+    expect(attentionDecision({ event: 'Notification', claude: idlePrompt, wasDeferred: false, dismissed: true })).toEqual({
+      status: null,
+      deferral: 'keep',
+    });
+  });
+
+  it('lets a permission prompt through a dismissal', () => {
+    expect(attentionDecision({ event: 'Notification', claude: { notification_type: 'permission_prompt' }, wasDeferred: false, dismissed: true })).toMatchObject({
+      status: 'needs-feedback',
+    });
+  });
+});
