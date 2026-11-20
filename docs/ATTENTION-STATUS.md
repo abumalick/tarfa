@@ -102,7 +102,8 @@ How a workspace's status (working, Needs you, Needs orchestrator) is decided fro
   permission prompt or a question does not clear it: it sets needs-feedback, which un-folds the row
   (the phone shows waiting only over `working`), and the mark drops at the next tool call. **Only the last stage set
   decides:** a non-waiting `tarfa stage` (active or done) in the same turn clears an earlier
-  waiting mark (`clearStaged`), so a turn that ends on "In progress" asks as usual. Accepted
+  waiting mark (`clearStaged`), so a turn that ends on "In progress" asks as usual; a phone pick
+  of an active or done stage clears it too, so the row stops reading "Waiting". Accepted
   hole: a waiting stage set last, then a question in the closing text, stays folded; the
   `tarfa-stages` skill tells the agent to use the question tool, which always raises "Needs you".
 - **"Seen" and a waiting/done stage pick must outlast the turn's `idle_prompt`, through their own
@@ -110,8 +111,8 @@ How a workspace's status (working, Needs you, Needs orchestrator) is decided fro
   only suppressed it for a deferred session, so a phone "Seen" (manual `idle`) flipped back to
   needs-feedback. The phone's Seen, and a waiting/done stage pick on a row that is in
   needs-feedback (never on `working` or `needs-hands`), set an in-memory `dismissed` mark
-  instead of the deferral. It suppresses only the next `idle_prompt` and is cleared by
-  `UserPromptSubmit`, `PreToolUse`, `Stop`/`StopFailure`, `SessionStart`, OSC `working` and on
+  instead of the deferral. It suppresses every `idle_prompt` until it is cleared, by
+  `UserPromptSubmit`, `PreToolUse`, `Stop`/`StopFailure`, `SessionStart`, OSC `working` or the
   close. **It is deliberately not the deferral**: the deferral also holds the OSC `done` and the
   `Stop` decision, so reusing it would keep a dismissed row `working`; the OSC decision never
   reads `dismissed`. In-memory like the deferral: losing it on restart costs one extra "Needs

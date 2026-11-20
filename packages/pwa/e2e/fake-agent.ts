@@ -146,6 +146,7 @@ type FakeWorkspace = {
   parentId?: string;
   waitingOn?: 'parent';
   stage?: { name: string; kind: ProjectStage['kind']; since: number };
+  waiting?: true;
 };
 
 // The default two-workspace set most specs rely on. Pass `workspacesOverride` to exercise a

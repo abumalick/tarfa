@@ -9,7 +9,7 @@ const stages = [
   { name: 'Shipped', kind: 'done' as StageKind },
 ];
 
-function setup(opts: { ancestor?: boolean } = {}) {
+function setup(opts: { ancestor?: boolean; invalid?: string } = {}) {
   const sessions: TmuxSessionInfo[] = [{ name: 'perch-a', startPath: '/w/proj', command: 'claude', createdAt: 0, title: '' }];
   const tmux = {
     listSessions: async () => sessions,
@@ -25,7 +25,7 @@ function setup(opts: { ancestor?: boolean } = {}) {
     tmux,
     ancestry: { isAncestor: async () => opts.ancestor ?? true },
     sessionPrefix: 'perch-',
-    stageConfig: { stagesFor },
+    stageConfig: { stagesFor, invalidConfig: async () => opts.invalid ?? null },
     status: { setStage },
     onWaitingStaged,
     onNonWaitingStaged,
@@ -42,6 +42,14 @@ describe('setStageFromCli', () => {
     expect(res).toEqual({ result: 'refused', reason: 'unknown stage "Nope"; valid stages: In progress, In review, Shipped' });
     expect(t.setStage).not.toHaveBeenCalled();
     expect(t.onStaged).not.toHaveBeenCalled();
+  });
+
+  it("says when the project's stage file is invalid and the defaults stand in", async () => {
+    const res = await setup({ invalid: '/w/proj/.tarfa.json' }).run('Nope');
+    expect(res).toEqual({
+      result: 'refused',
+      reason: 'unknown stage "Nope"; valid stages: In progress, In review, Shipped (/w/proj/.tarfa.json is invalid; using the defaults)',
+    });
   });
 
   it("stores a waiting stage with the list's spelling and marks the turn", async () => {

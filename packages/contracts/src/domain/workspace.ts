@@ -47,8 +47,9 @@ export interface Workspace {
   // The project's stage list, so the phone can offer it. Absent from an agent without the
   // `stages` feature.
   stages?: ProjectStage[];
-  // Set when the stage is waiting/done and the activity does not need the user: the PWA folds
-  // the row away from Needs you.
+  // Set while the status is `working` because the turn's last tool call ran `tarfa stage` with a
+  // waiting stage (the agent's durable `stagedLast` mark): the turn ended waiting on someone
+  // outside, not on the user. The PWA reads "Waiting" and keeps the row out of Needs you.
   waiting?: true;
 }
 

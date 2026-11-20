@@ -96,6 +96,9 @@ export interface ConnectionHandlerDeps {
   // Marks the workspace dismissed in WsServer, so the idle prompt Claude Code sends 60s after a
   // turn ends does not put back the "Needs you" the phone just dismissed.
   dismiss?: (id: string) => void;
+  // Drops WsServer's staged mark (clearStaged), as a non-waiting `tarfa stage` does: the row
+  // must stop reading "Waiting" once the phone moves it out of a waiting stage.
+  clearStaged?: (id: string) => void;
   repoRemote?: RepoRemotePort;
   claudeSessions?: ClaudeSessionsPort;
   transcripts?: TranscriptsPort;
@@ -616,6 +619,7 @@ export class ConnectionHandler {
     const stage = findStage(await stageConfig.stagesFor(projectPath), name);
     if (!stage) return;
     status.setStage(workspaceId, { name: stage.name, kind: stage.kind });
+    if (stage.kind !== 'waiting') this.deps.clearStaged?.(workspaceId);
     if (stage.kind !== 'active' && status.get(workspaceId) === 'needs-feedback') {
       this.deps.dismiss?.(workspaceId);
       status.set(workspaceId, 'idle');

@@ -56,7 +56,8 @@ At the project root:
 mark. The agent reads the file from the workspace's project folder first, then from the main
 checkout of its git repo (a git-ignored file is absent from a new worktree). **The first file
 that exists wins**, and an invalid one (malformed, an empty list, or two stages with the same
-name, case-insensitive) gives the defaults rather than falling through to the next. The
+name, case-insensitive) gives the defaults rather than falling through to the next; `tarfa stage`
+refusing a name then says which file is invalid. The
 main-checkout fallback looks only at the repo root: for a project in a subfolder of a repo, a
 git-ignored `.tarfa.json` in the subfolder does not reach its worktrees, so put it at the repo
 root (it then covers every project of the repo) or commit it. Without any file the defaults are In progress (active), Waiting, Blocked (waiting) and
@@ -113,5 +114,5 @@ Adapt the stage names to the project's list:
 The status picker lists the project's stages for an agent that supports them. Picking a
 `waiting` or `done` stage on a row that needs you also marks it seen, so it leaves "Needs you"
 and folds in one tap. **Seen** and **Needs hands** stay as activity actions. A "Seen" or such a
-pick holds only until the agent's next turn: it suppresses the one idle reminder Claude Code
-sends about a minute after a turn ends, nothing more.
+pick holds only until the agent's next turn: until then it suppresses the idle reminders Claude
+Code sends after a turn ends, nothing more.

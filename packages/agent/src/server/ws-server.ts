@@ -336,6 +336,7 @@ export class WsServer {
       broadcastClosed: (id: string) => this.broadcastClosed(id),
       messagedLast: this.messagedLast,
       dismiss: (id: string) => this.dismissed.add(id),
+      clearStaged: (id: string) => clearStaged({ stagedDuringTool: this.stagedDuringTool, stagedLast: this.stagedLast }, id),
       lastReplies: this.lastReplies,
       openRequests: this.openRequests,
     });

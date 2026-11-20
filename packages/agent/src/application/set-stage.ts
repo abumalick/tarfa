@@ -23,7 +23,9 @@ export async function setStageFromCli(
   const stages = await deps.stageConfig.stagesFor(caller.startPath);
   const stage = findStage(stages, req.stage);
   if (!stage) {
-    return { result: 'refused', reason: `unknown stage "${req.stage.trim()}"; valid stages: ${stages.map((s) => s.name).join(', ')}` };
+    const invalid = await deps.stageConfig.invalidConfig?.(caller.startPath);
+    const note = invalid ? ` (${invalid} is invalid; using the defaults)` : '';
+    return { result: 'refused', reason: `unknown stage "${req.stage.trim()}"; valid stages: ${stages.map((s) => s.name).join(', ')}${note}` };
   }
   deps.status.setStage(caller.name, { name: stage.name, kind: stage.kind });
   (stage.kind === 'waiting' ? deps.onWaitingStaged : deps.onNonWaitingStaged)(caller.name);

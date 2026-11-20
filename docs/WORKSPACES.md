@@ -172,7 +172,7 @@ How workspaces are created, closed, parked, recovered, named and linked, and the
   should cover all of them. **The first file that exists wins, and a malformed one gives the
   default stages instead of falling through to the next**: a broken project file must not silently
   hand the project another file's list. Parsed results are cached per file and re-read when its
-  mtime changes. A list that is empty or repeats a name (case-insensitive) is invalid too and gives the defaults. No file: In progress, Waiting, Blocked, Done. The stage lives in the workspace's
+  mtime changes. A list that is empty or repeats a name (case-insensitive) is invalid too and gives the defaults. A refused name then names the invalid file (`StageConfigPort.invalidConfig`). No file: In progress, Waiting, Blocked, Done. The stage lives in the workspace's
   `status.json` entry (gone with it on close; a parked row reads it from the status store).
   The waiting/needs-you rules are in `docs/ATTENTION-STATUS.md`. The phone's home list folds
   waiting and done stages, and Next skips the rows folded under them; the `tarfa-stages` skill

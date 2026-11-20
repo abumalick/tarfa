@@ -46,11 +46,20 @@ export class FileStageConfig implements StageConfigPort {
   constructor(private readonly deps: FileStageConfigDeps = realDeps) {}
 
   async stagesFor(projectPath: string): Promise<ProjectStage[]> {
+    return (await this.resolve(projectPath)).stages;
+  }
+
+  async invalidConfig(projectPath: string): Promise<string | null> {
+    return (await this.resolve(projectPath)).invalid ?? null;
+  }
+
+  private async resolve(projectPath: string): Promise<{ stages: ProjectStage[]; invalid?: string }> {
     for (const file of await this.candidatesFor(projectPath)) {
       const entry = await this.load(file);
-      if (entry !== undefined) return entry ?? [...DEFAULT_STAGES];
+      if (entry === null) return { stages: [...DEFAULT_STAGES], invalid: file };
+      if (entry !== undefined) return { stages: entry };
     }
-    return [...DEFAULT_STAGES];
+    return { stages: [...DEFAULT_STAGES] };
   }
 
   private candidatesFor(projectPath: string): Promise<string[]> {

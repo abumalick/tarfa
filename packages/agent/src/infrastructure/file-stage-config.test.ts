@@ -52,6 +52,15 @@ describe('FileStageConfig', () => {
     expect(await make().sut.stagesFor(join(root, 'wt'))).toEqual(DEFAULT_STAGES);
   });
 
+  it('names the invalid file it fell back from, and nothing for a valid or missing one', async () => {
+    const { sut } = make();
+    expect(await sut.invalidConfig(join(root, 'wt'))).toBeNull();
+    writeFileSync(join(root, 'main', '.tarfa.json'), '{ nope');
+    expect(await sut.invalidConfig(join(root, 'wt'))).toBe(join(root, 'main', '.tarfa.json'));
+    writeFileSync(join(root, 'wt', '.tarfa.json'), config(own));
+    expect(await sut.invalidConfig(join(root, 'wt'))).toBeNull();
+  });
+
   it('works outside a git repository', async () => {
     writeFileSync(join(root, 'wt', '.tarfa.json'), config(own));
     expect(await make({ gitCommonDir: async () => null }).sut.stagesFor(join(root, 'wt'))).toEqual(own);

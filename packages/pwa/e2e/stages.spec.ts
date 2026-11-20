@@ -63,6 +63,36 @@ test.describe('against an agent with stages', () => {
   });
 });
 
+// A turn that ended on `tarfa stage <waiting stage>` stays `working` with `waiting`: it reads
+// "Waiting" and folds under its stage, never under Needs you.
+test.describe('a turn that ended on a waiting stage', () => {
+  let agent: FakeAgent;
+  test.beforeAll(async () => {
+    const [demo, other] = DEFAULT_WORKSPACES.map((w) => ({ ...w }));
+    agent = await startFakeAgent([
+      { ...demo!, status: 'working', waiting: true, stage: { name: 'In review', kind: 'waiting', since: 1 } },
+      other!,
+    ]);
+    agent.stages = STAGES;
+  });
+  test.afterAll(async () => {
+    await agent.close();
+  });
+
+  test('reads Waiting, folded under its stage', async ({ page }) => {
+    await seedMachine(page, agent);
+    await page.goto('/');
+
+    const folded = page.getByRole('button', { name: '1 · In review' });
+    await expect(folded).toBeVisible();
+    await expect(page.getByRole('group', { name: /^needs you/i })).toHaveCount(0);
+    await expect(page.locator('.row .name')).toHaveText(['other']);
+    await folded.click();
+    const demo = page.locator('.row').filter({ hasText: 'demo' });
+    await expect(demo.locator('.badge')).toHaveText('Waiting');
+  });
+});
+
 test.describe('against an agent without stages', () => {
   let agent: FakeAgent;
   test.beforeAll(async () => {

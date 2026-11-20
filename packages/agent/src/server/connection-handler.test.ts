@@ -1746,6 +1746,8 @@ describe('ConnectionHandler stages', () => {
     }
     const dismissed: string[] = [];
     deps.dismiss = (id) => dismissed.push(id);
+    const unstaged: string[] = [];
+    deps.clearStaged = (id) => unstaged.push(id);
     const parked = fakeParkedStore();
     await parked.add({ id: 'perch-pk', name: 'pk', projectPath: '/w/parked', command: 'claude', machineId: 'mini', createdAt: 1, parkedAt: 2 });
     deps.parked = parked;
@@ -1756,8 +1758,17 @@ describe('ConnectionHandler stages', () => {
       await new Promise((r) => setTimeout(r, 0));
     };
     await send({ type: 'auth', token: '' });
-    return { status, asked, dismissed, send, sent: conn.sent };
+    return { status, asked, dismissed, unstaged, send, sent: conn.sent };
   }
+
+  // The staged mark is what makes a working row read "Waiting": only a waiting pick may keep it.
+  it('an active or done pick clears the staged mark; a waiting pick keeps it', async () => {
+    for (const [stage, cleared] of [['Doing', ['perch-aa']], ['Shipped', ['perch-aa']], ['Review', []]] as const) {
+      const { unstaged, send } = await stageHandler('working');
+      await send({ type: 'setStage', workspaceId: 'perch-aa', stage });
+      expect(unstaged).toEqual(cleared);
+    }
+  });
 
   it("stores a picked stage with the list's spelling, from the workspace's project", async () => {
     const { status, asked, send } = await stageHandler('working');

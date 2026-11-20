@@ -2762,6 +2762,19 @@ describe('WsServer POST /stage', () => {
     client.close();
   });
 
+  it('a phone pick of an active stage after a waiting `tarfa stage` drops the waiting mark', async () => {
+    const { status, post } = await stageServer();
+    await post('/stage', stage);
+    expect(status.getStagedLast('perch-child-1')).toBe(true);
+    const client = await phone();
+    client.send({ type: 'setStage', workspaceId: 'perch-child-1', stage: 'In progress' });
+    await until(async () => status.getStage('perch-child-1')?.name === 'In progress');
+    expect(status.getStagedLast('perch-child-1')).toBe(false);
+    await endTurn(post);
+    expect(status.get('perch-child-1')).toBe('needs-feedback');
+    client.close();
+  });
+
   it('pushes the row again when a tool call clears the staged mark with the status unchanged', async () => {
     const { status, post } = await stageServer();
     await post('/stage', stage);
