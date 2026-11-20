@@ -62,6 +62,7 @@
     <button type="button" class="backdrop" aria-label={msg().status.closeMenu} onclick={() => (open = false)}></button>
     <ul class="menu" role="listbox" aria-label={msg().status.setStatus}>
       {#if stages}
+        {#if stages.length > 0}
         <li role="group" aria-label={msg().status.stageSection}>
           <span class="heading" aria-hidden="true">{msg().status.stageSection}</span>
           <ul>
@@ -82,6 +83,7 @@
             {/each}
           </ul>
         </li>
+        {/if}
         <li role="group" aria-label={msg().status.activitySection}>
           <span class="heading" aria-hidden="true">{msg().status.activitySection}</span>
           <ul>

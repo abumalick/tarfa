@@ -68,6 +68,12 @@ describe('StatusPicker against an agent with stages', () => {
     expect(screen.getByRole('option', { name: /in review/i })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('shows only the activity actions when the agent sent no stage list', async () => {
+    await open({ stages: [] });
+    expect(screen.queryByRole('group', { name: 'Stage' })).toBeNull();
+    expect(screen.getAllByRole('option').map((o) => o.textContent?.trim())).toEqual(['● Seen', '● Needs hands', '● Park']);
+  });
+
   it('sends a stage pick through onStage and closes', async () => {
     const { onStage, onSelect } = await open();
     await fireEvent.click(screen.getByRole('option', { name: /done/i }));

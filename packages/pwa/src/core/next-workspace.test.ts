@@ -60,6 +60,15 @@ describe('nextWorkspace', () => {
     expect(nextWorkspace(list, list[0]!)?.id).toBe('n');
   });
 
+  it('skips a row folded under a waiting or done stage', () => {
+    const review = { stage: { name: 'In review', kind: 'waiting' as const, since: 0 } };
+    const done = { stage: { name: 'Done', kind: 'done' as const, since: 0 } };
+    const list = [ws('a', 'needs-feedback'), { ...ws('r', 'idle'), ...review }, { ...ws('d', 'idle'), ...done }, ws('i', 'idle')];
+    expect(nextWorkspace(list, list[0]!)?.id).toBe('i');
+    expect(nextWorkspace(list, list[3]!)?.id).toBe('a');
+    expect(nextWorkspace(list, list[1]!)?.id).toBe('a');
+  });
+
   it('skips a child waiting on its orchestrator, which stays working', () => {
     const list = [ws('p', 'needs-feedback'), { ...ws('c', 'working'), parentId: 'p', waitingOn: 'parent' as const }];
     expect(nextWorkspace(list, list[0]!)).toBeNull();

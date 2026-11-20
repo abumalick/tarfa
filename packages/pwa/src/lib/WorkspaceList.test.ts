@@ -868,6 +868,24 @@ describe('WorkspaceList stages', () => {
     expect(rowOf('r2').querySelector('.stage')).toHaveTextContent('In review');
   });
 
+  it('marks a row that leaves a folded stage for needs-you', async () => {
+    const store = fakeStore(list);
+    const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
+    const asking = at('r1', 'needs-feedback', 'In review');
+    await rerender({ store: { ...store, workspaces: [list[0], asking, ...list.slice(1).filter((w) => w.id !== 'r1')] } as never });
+    expect([...container.querySelectorAll('.needs-you li.rose .name')].map((n) => n.textContent)).toEqual(['r1']);
+  });
+
+  it('lifts a waiting-stage orchestrator whose child needs you into needs-you, folding nothing of it', () => {
+    const parent = at('lead', 'working', 'In review');
+    const child = at('helper', 'needs-feedback', 'In progress', { parentId: 'lead' });
+    const { container } = render(WorkspaceList, { props: { store: fakeStore([child, parent]) as never } });
+    const needs = screen.getByRole('group', { name: /^Needs you/ });
+    expect(names(needs)).toEqual(['lead']);
+    expect(needs.querySelector('.fold-toggle')).not.toBeNull();
+    expect(container.querySelector('.stage-toggle')).toBeNull();
+  });
+
   it('names a folded legacy status by its label', () => {
     render(WorkspaceList, { props: { store: fakeStore([at('b', 'blocked'), at('f', 'finished')]) as never } });
     expect(screen.getByRole('button', { name: /1 · Blocked/ })).toBeInTheDocument();

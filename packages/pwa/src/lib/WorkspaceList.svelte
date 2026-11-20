@@ -143,10 +143,14 @@
     if (rising.delete(key)) requestAnimationFrame(() => riseTimers.has(key) && rising.add(key));
     else rising.add(key);
   };
-  // The expanded rows read as one sequence, needs-you first, so a row lifted into needs-you
-  // counts as climbing past the rows it left behind.
+  // Every row reads as one sequence in list order, folded ones included, so a row lifted into
+  // needs-you counts as climbing past the rows it left behind, folded or not.
   $effect(() => {
-    const rows = [...needsYou, ...(flat?.active ?? sections.flatMap((s) => s.active))];
+    const unfolded = (s: { active: WorkspaceGroup[]; folded: FoldedBucket[] }) => [
+      ...s.active,
+      ...s.folded.flatMap((b) => b.groups),
+    ];
+    const rows = [...needsYou, ...(flat ? unfolded(flat) : sections.flatMap(unfolded))];
     const order = new Map<string, Ranked[]>([['rows', rows.map(rankedGroup)]]);
     if (store.groupByProject) {
       order.set(
