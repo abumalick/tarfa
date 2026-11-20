@@ -25,6 +25,7 @@ import type { WorkspaceLogEntry, WorkspaceLogPort } from '../ports/workspace-log
 import type { DirectoryChecker } from '../ports/directory-checker';
 import type { ParkedStorePort, ParkedWorkspace } from '../ports/parked-store-port';
 import type { ProcessScopePort } from '../ports/process-scope-port';
+import { InMemoryStatusStore } from '../infrastructure/in-memory-status-store';
 
 function stubBrowserCommands(overrides: Partial<BrowserCommandPort> = {}): BrowserCommandPort {
   return {
@@ -1719,5 +1720,106 @@ describe('ConnectionHandler openUrl', () => {
     conn.emit({ type: 'openUrlDone', workspaceId: 'perch-aa', id: request.id });
     await new Promise((r) => setTimeout(r, 0));
     expect(requests.get('perch-aa')).toBeUndefined();
+  });
+});
+
+describe('ConnectionHandler stages', () => {
+  const stages = [
+    { name: 'Doing', kind: 'active' as const },
+    { name: 'Review', kind: 'waiting' as const },
+    { name: 'Shipped', kind: 'done' as const },
+  ];
+
+  async function stageHandler(initial: 'needs-feedback' | 'working' | 'needs-hands', opts: { stageConfig?: boolean } = {}) {
+    const deps: ConnectionHandlerDeps = baseDeps();
+    const status = new InMemoryStatusStore();
+    status.set('perch-aa', initial);
+    deps.status = status;
+    const asked: string[] = [];
+    if (opts.stageConfig !== false) {
+      deps.stageConfig = {
+        stagesFor: async (path) => {
+          asked.push(path);
+          return stages;
+        },
+      };
+    }
+    const deferred: string[] = [];
+    deps.deferIdlePrompt = (id) => deferred.push(id);
+    const parked = fakeParkedStore();
+    await parked.add({ id: 'perch-pk', name: 'pk', projectPath: '/w/parked', command: 'claude', machineId: 'mini', createdAt: 1, parkedAt: 2 });
+    deps.parked = parked;
+    const conn = fakeConn();
+    new ConnectionHandler(conn.conn, deps);
+    const send = async (message: unknown) => {
+      conn.emit(message);
+      await new Promise((r) => setTimeout(r, 0));
+    };
+    await send({ type: 'auth', token: '' });
+    return { status, asked, deferred, send, sent: conn.sent };
+  }
+
+  it("stores a picked stage with the list's spelling, from the workspace's project", async () => {
+    const { status, asked, send } = await stageHandler('working');
+    await send({ type: 'setStage', workspaceId: 'perch-aa', stage: ' doing ' });
+    expect(status.getStage('perch-aa')).toMatchObject({ name: 'Doing', kind: 'active' });
+    expect(asked).toEqual(['/home/u/workspace/api']);
+  });
+
+  it('a waiting or done pick on a needs-feedback row marks it seen: idle, and its idle prompt deferred', async () => {
+    for (const stage of ['Review', 'Shipped']) {
+      const { status, deferred, send } = await stageHandler('needs-feedback');
+      await send({ type: 'setStage', workspaceId: 'perch-aa', stage });
+      expect(status.get('perch-aa')).toBe('idle');
+      expect(deferred).toEqual(['perch-aa']);
+    }
+  });
+
+  it('never touches the status of a working or needs-hands row, nor for an active pick', async () => {
+    for (const [initial, stage] of [['working', 'Review'], ['needs-hands', 'Shipped'], ['needs-feedback', 'Doing']] as const) {
+      const { status, deferred, send } = await stageHandler(initial);
+      await send({ type: 'setStage', workspaceId: 'perch-aa', stage });
+      expect(status.getStage('perch-aa')?.name).toBe(stage);
+      expect(status.get('perch-aa')).toBe(initial);
+      expect(deferred).toEqual([]);
+    }
+  });
+
+  it('ignores an unknown stage, an unknown workspace, and any pick without a stage config', async () => {
+    const { status, send, sent } = await stageHandler('needs-feedback');
+    await send({ type: 'setStage', workspaceId: 'perch-aa', stage: 'Nope' });
+    await send({ type: 'setStage', workspaceId: 'perch-gone', stage: 'Review' });
+    expect(status.getStage('perch-aa')).toBeUndefined();
+    expect(status.ids()).toEqual(['perch-aa']);
+    expect(status.get('perch-aa')).toBe('needs-feedback');
+    expect(sent.filter((m) => m.type === 'error')).toEqual([]);
+    const bare = await stageHandler('needs-feedback', { stageConfig: false });
+    await bare.send({ type: 'setStage', workspaceId: 'perch-aa', stage: 'Review' });
+    expect(bare.status.getStage('perch-aa')).toBeUndefined();
+    expect(bare.status.get('perch-aa')).toBe('needs-feedback');
+  });
+
+  it("stages a parked workspace from its record's project", async () => {
+    const { status, asked, send } = await stageHandler('working');
+    await send({ type: 'setStage', workspaceId: 'perch-pk', stage: 'review' });
+    expect(status.getStage('perch-pk')).toMatchObject({ name: 'Review', kind: 'waiting' });
+    expect(asked).toEqual(['/w/parked']);
+  });
+
+  it('setStatus idle on a needs-feedback row defers its idle prompt, and on any other row does not', async () => {
+    const seen = await stageHandler('needs-feedback');
+    await seen.send({ type: 'setStatus', workspaceId: 'perch-aa', status: 'idle' });
+    expect(seen.status.get('perch-aa')).toBe('idle');
+    expect(seen.deferred).toEqual(['perch-aa']);
+    const busy = await stageHandler('working');
+    await busy.send({ type: 'setStatus', workspaceId: 'perch-aa', status: 'idle' });
+    expect(busy.deferred).toEqual([]);
+  });
+
+  it('lists the project stages of each workspace', async () => {
+    const { send, sent } = await stageHandler('working');
+    await send({ type: 'list' });
+    const list = sent.find((m) => m.type === 'workspaces');
+    expect(list?.type === 'workspaces' && list.workspaces.map((w) => w.stages)).toEqual([stages, stages]);
   });
 });

@@ -1,16 +1,18 @@
-import type { Workspace } from '@tarfa/contracts';
+import type { ProjectStage, Workspace } from '@tarfa/contracts';
 import type { TmuxPort } from '../ports/tmux-port';
 import type { StatusStorePort } from '../ports/status-store-port';
 import type { RepoRemotePort } from '../ports/repo-remote-port';
 import type { ParkedStorePort, ParkedWorkspace } from '../ports/parked-store-port';
 import type { ClaudeSessionsPort } from '../ports/claude-sessions-port';
+import type { StageConfigPort } from '../ports/stage-config-port';
 import { deriveWorkspaceName } from './derive-workspace-name';
 
 export interface ListWorkspacesDeps {
   tmux: TmuxPort;
   machineId: string;
   sessionPrefix: string;
-  status: Pick<StatusStorePort, 'get' | 'getChangedAt' | 'getUrgent'>;
+  // The stage reads are optional so non-display call sites can pass a bare fake.
+  status: Pick<StatusStorePort, 'get' | 'getChangedAt' | 'getUrgent'> & Partial<Pick<StatusStorePort, 'getStage' | 'getStagedLast'>>;
   // Optional so unit tests and non-display call sites can omit it; when present, each
   // workspace is stamped with its GitHub owner/repo (when the project has a GitHub remote).
   repoRemote?: RepoRemotePort;
@@ -24,6 +26,9 @@ export interface ListWorkspacesDeps {
   // Optional for the same reason. The sessions whose last main-loop tool call was SendMessage
   // (the status store's mark); a child among them is waiting on its orchestrator.
   messagedLast?: Pick<ReadonlySet<string>, 'has'>;
+  // Optional for the same reason. Each workspace carries its project's stage list, so the phone
+  // can offer the picker; without it no `stages` are listed.
+  stageConfig?: Pick<StageConfigPort, 'stagesFor'>;
 }
 
 export async function listWorkspaces(deps: ListWorkspacesDeps): Promise<Workspace[]> {
@@ -32,6 +37,7 @@ export async function listWorkspaces(deps: ListWorkspacesDeps): Promise<Workspac
   // Read once per listing rather than per workspace: one registry read covers them all.
   const addresses = (await deps.claudeSessions?.addressesByTmuxSession()) ?? {};
   const parkedIds = new Set(parked.map((p) => p.id));
+  const stagesByPath = await stagesOfProjects(deps.stageConfig, [...sessions.map((s) => s.startPath), ...parked.map((p) => p.projectPath)]);
   const live = await Promise.all(
     sessions
       // A parked record shadows a live session of the same id. The only way that collision
@@ -45,7 +51,11 @@ export async function listWorkspaces(deps: ListWorkspacesDeps): Promise<Workspac
         const status = deps.status.get(s.name) ?? 'idle';
         // The mark outlives the turn (a permission prompt after a progress message), so it
         // counts only while the child is otherwise just `working`.
-        const waiting = s.parent !== undefined && status === 'working' && (deps.messagedLast?.has(s.name) ?? false);
+        const waitingOnParent = s.parent !== undefined && status === 'working' && (deps.messagedLast?.has(s.name) ?? false);
+        // The same rule for a turn that ended on a waiting stage, with no parent required.
+        const waiting = status === 'working' && (deps.status.getStagedLast?.(s.name) ?? false);
+        const stage = deps.status.getStage?.(s.name);
+        const stages = stagesByPath.get(s.startPath);
         return {
           machineId: deps.machineId,
           id: s.name,
@@ -61,12 +71,30 @@ export async function listWorkspaces(deps: ListWorkspacesDeps): Promise<Workspac
           ...(github ? { github } : {}),
           ...(agentAddress ? { agentAddress } : {}),
           ...(s.parent ? { parentId: s.parent } : {}),
-          ...(waiting ? { waitingOn: 'parent' as const } : {}),
+          ...(waitingOnParent ? { waitingOn: 'parent' as const } : {}),
           ...(s.program?.state === 'blocked' ? { asking: true } : {}),
+          ...(stage ? { stage } : {}),
+          ...(stages ? { stages } : {}),
+          ...(waiting ? { waiting: true as const } : {}),
         };
       }),
   );
-  return [...live, ...parked.map((p) => toWorkspace(p, deps.machineId))];
+  return [
+    ...live,
+    ...parked.map((p) => {
+      const stage = deps.status.getStage?.(p.id);
+      const stages = stagesByPath.get(p.projectPath);
+      return { ...toWorkspace(p, deps.machineId), ...(stage ? { stage } : {}), ...(stages ? { stages } : {}) };
+    }),
+  ];
+}
+
+async function stagesOfProjects(
+  stageConfig: ListWorkspacesDeps['stageConfig'],
+  paths: string[],
+): Promise<Map<string, ProjectStage[]>> {
+  if (!stageConfig) return new Map();
+  return new Map(await Promise.all([...new Set(paths)].map(async (path) => [path, await stageConfig.stagesFor(path)] as const)));
 }
 
 function toWorkspace(parked: ParkedWorkspace, machineId: string): Workspace {

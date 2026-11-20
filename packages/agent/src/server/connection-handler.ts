@@ -1,6 +1,6 @@
 import { exactTarget } from '../infrastructure/tmux-adapter';
 import type { OpenRequest, OpenRequests } from '../application/open-requests';
-import { parseClientMessage, isWorkspaceStatus, type BrowserSession, type ClientMessage, type Workspace, type MachineStats } from '@tarfa/contracts';
+import { findStage, parseClientMessage, isWorkspaceStatus, type BrowserSession, type ClientMessage, type Workspace, type MachineStats } from '@tarfa/contracts';
 import type { ClientConnection } from '../ports/client-connection';
 import type { PtyPort, PtySession } from '../ports/pty-port';
 import type { ViewerRegistry, Viewer } from './viewer-registry';
@@ -29,6 +29,7 @@ import { changeDictationKey, type DictationProvider } from '../application/dicta
 import type { WorkspaceLogPort } from '../ports/workspace-log-port';
 import type { ParkedStorePort } from '../ports/parked-store-port';
 import type { ProcessScopePort } from '../ports/process-scope-port';
+import type { StageConfigPort } from '../ports/stage-config-port';
 import { isHiddenPath } from '../application/is-hidden-path';
 import { listWorkspaces } from '../application/list-workspaces';
 import { createWorkspace } from '../application/create-workspace';
@@ -90,6 +91,11 @@ export interface ConnectionHandlerDeps {
   broadcastClosed: (id: string) => void;
   // WsServer's SendMessage mark, which listWorkspaces turns into `waitingOn`.
   messagedLast?: Pick<ReadonlySet<string>, 'has'>;
+  // Without it the phone is offered no stages and a `setStage` is ignored.
+  stageConfig?: StageConfigPort;
+  // Adds the workspace to WsServer's deferral, so the idle prompt Claude Code sends 60s after a
+  // turn ends does not put back the "Needs you" the phone just dismissed.
+  deferIdlePrompt?: (id: string) => void;
   repoRemote?: RepoRemotePort;
   claudeSessions?: ClaudeSessionsPort;
   transcripts?: TranscriptsPort;
@@ -260,6 +266,7 @@ export class ConnectionHandler {
             claudeSessions,
             parked: this.deps.parked,
             messagedLast: this.deps.messagedLast,
+            stageConfig: this.deps.stageConfig,
           })
         ).filter((w) => !isHiddenPath(w.projectPath, hidden));
         const claudeVoice = (await this.deps.claudeVoice?.available()) ?? false;
@@ -373,6 +380,10 @@ export class ConnectionHandler {
             }
           }
           return;
+        }
+        // "Seen": dismissing a needs-feedback row must outlast the turn's idle prompt.
+        if (message.status === 'idle' && status.get(message.workspaceId) === 'needs-feedback') {
+          this.deps.deferIdlePrompt?.(message.workspaceId);
         }
         // The store's onChange (wired in WsServer) broadcasts the refreshed workspace to
         // every connection, so the sender and other devices both observe the new status.
@@ -548,6 +559,7 @@ export class ConnectionHandler {
         this.browsers.close(message.stream);
         return;
       case 'setStage':
+        await this.setStage(message.workspaceId, message.stage);
         return;
       case 'clientLog': {
         // Answered either way: the PWA keeps its events buffered until it sees `ok`.
@@ -591,6 +603,23 @@ export class ConnectionHandler {
   private async sendLaunchers(): Promise<void> {
     const [detected, custom] = await Promise.all([this.deps.detectInstalled(KNOWN_CLIS), this.deps.launchers.list()]);
     this.conn.send({ type: 'launchers', detected, custom });
+  }
+
+  // A waiting or done pick on a row that needs feedback also marks it seen, like setStatus idle.
+  // Nothing else here moves the status: the stage says where the task is, not what runs now.
+  private async setStage(workspaceId: string, name: string): Promise<void> {
+    const { stageConfig, status, parked } = this.deps;
+    if (!stageConfig) return;
+    // An id that is neither live nor parked would leave an entry a reused id inherits.
+    const projectPath = (await this.workspacePath(workspaceId)) ?? (await parked.get(workspaceId))?.projectPath;
+    if (projectPath === undefined) return;
+    const stage = findStage(await stageConfig.stagesFor(projectPath), name);
+    if (!stage) return;
+    status.setStage(workspaceId, { name: stage.name, kind: stage.kind });
+    if (stage.kind !== 'active' && status.get(workspaceId) === 'needs-feedback') {
+      this.deps.deferIdlePrompt?.(workspaceId);
+      status.set(workspaceId, 'idle');
+    }
   }
 
   private async allowedRoots(): Promise<string[]> {

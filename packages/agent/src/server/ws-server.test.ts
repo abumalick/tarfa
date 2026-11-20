@@ -2636,7 +2636,8 @@ describe('WsServer POST /stage', () => {
     const res = await post('/stage', stage);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ result: 'set', stage: { name: 'In review', kind: 'waiting' } });
-    expect(asked).toEqual(['/w/proj']);
+    // The broadcast that follows reads the same project's list again.
+    expect(new Set(asked)).toEqual(new Set(['/w/proj']));
     expect(status.getStage('perch-child-1')).toMatchObject({ name: 'In review', kind: 'waiting' });
     expect(status.getStagedLast('perch-child-1')).toBe(true);
     await endTurn(post);
@@ -2667,6 +2668,106 @@ describe('WsServer POST /stage', () => {
     expect(await (await post('/stage', { ...stage, pane: '%4' })).json()).toEqual({ result: 'refused', reason: 'not run from a Tarfa workspace' });
     expect(status.getStage('perch-child-1')).toBeUndefined();
     expect(status.get('perch-child-1')).toBe('working');
+  });
+
+  // Claude Code sends an idle prompt 60s after every turn end; a row the phone just dismissed
+  // must not come back into Needs you with it.
+  async function until(check: () => Promise<boolean>): Promise<void> {
+    const deadline = Date.now() + 3000;
+    while (!(await check())) {
+      if (Date.now() > deadline) throw new Error('condition not reached');
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+  const idlePrompt = { sessionName: 'perch-child-1', event: 'Notification', claude: { notification_type: 'idle_prompt' } };
+  async function phone() {
+    const socket = new WebSocket(await clientUrl());
+    await new Promise((r) => socket.once('open', r));
+    const received: AgentMessage[] = [];
+    socket.on('message', (raw) => received.push(JSON.parse(raw.toString()) as AgentMessage));
+    socket.send(JSON.stringify({ type: 'auth', token: '' }));
+    await until(async () => received.some((m) => m.type === 'authResult'));
+    return { send: (m: unknown) => socket.send(JSON.stringify(m)), received, close: () => socket.close() };
+  }
+
+  it('a phone pick of a waiting stage on a needs-feedback row outlasts the idle prompt', async () => {
+    const { status, post } = await stageServer();
+    status.set('perch-child-1', 'needs-feedback');
+    const client = await phone();
+    client.send({ type: 'setStage', workspaceId: 'perch-child-1', stage: 'in review' });
+    await until(async () => status.get('perch-child-1') === 'idle');
+    await post('/hooks', idlePrompt);
+    expect(status.get('perch-child-1')).toBe('idle');
+    const updated = client.received.filter((m) => m.type === 'workspaceUpdated').at(-1);
+    expect(updated?.type === 'workspaceUpdated' && updated.workspace).toMatchObject({
+      stage: { name: 'In review', kind: 'waiting' },
+      stages: [{ name: 'In progress' }, { name: 'In review' }],
+    });
+    client.close();
+  });
+
+  it('a phone "Seen" on a needs-feedback row outlasts the idle prompt', async () => {
+    const { status, post } = await stageServer();
+    status.set('perch-child-1', 'needs-feedback');
+    const client = await phone();
+    client.send({ type: 'setStatus', workspaceId: 'perch-child-1', status: 'idle' });
+    await until(async () => status.get('perch-child-1') === 'idle');
+    await post('/hooks', idlePrompt);
+    expect(status.get('perch-child-1')).toBe('idle');
+    client.close();
+  });
+
+  it('a phone pick on a working row leaves it working and its idle prompt undeferred', async () => {
+    const { status, post } = await stageServer();
+    const client = await phone();
+    client.send({ type: 'setStage', workspaceId: 'perch-child-1', stage: 'In review' });
+    await until(async () => status.getStage('perch-child-1') !== undefined);
+    expect(status.get('perch-child-1')).toBe('working');
+    await post('/hooks', idlePrompt);
+    expect(status.get('perch-child-1')).toBe('needs-feedback');
+    client.close();
+  });
+
+  it('pushes the row again when a tool call clears the staged mark with the status unchanged', async () => {
+    const { status, post } = await stageServer();
+    await post('/stage', stage);
+    await post('/hooks', { sessionName: 'perch-child-1', event: 'PostToolUse', claude: { tool_name: 'Bash' } });
+    const client = await phone();
+    const before = client.received.length;
+    await post('/hooks', { sessionName: 'perch-child-1', event: 'PreToolUse', claude: { tool_name: 'Bash' } });
+    expect(status.getStagedLast('perch-child-1')).toBe(false);
+    await until(async () => client.received.slice(before).some((m) => m.type === 'workspaceUpdated'));
+    const updated = client.received.filter((m) => m.type === 'workspaceUpdated').at(-1);
+    expect(updated?.type === 'workspaceUpdated' && updated.workspace).not.toHaveProperty('waiting');
+    client.close();
+  });
+
+  it('names stages among the features of a phone session only with a stage config', async () => {
+    const features = async (opts: { stageConfig?: boolean }) => {
+      await stageServer(opts);
+      const keys = generateAgentKeys();
+      const known = generateDeviceKeys();
+      const devices = {
+        check: async () => ({ standing: 'enrolled' as const, enrolment: 'open' as const }),
+        enrol: async () => true,
+        redeemPairing: async () => ({ redeemed: false as const }),
+        burnPairing: async () => false,
+      };
+      const outside = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+      harnesses.push(outside);
+      await new Promise((r) => outside.once('listening', r));
+      const live = server!;
+      outside.on('connection', (socket) => live.acceptPhoneSocket(wsFrameSocket(socket), b64url.decode(keys.x25519.privateKey), { devices }));
+      const client = await noiseClient(`ws://127.0.0.1:${(outside.address() as AddressInfo).port}`, keys.x25519.publicKey, known);
+      client.send({ type: 'auth', token: '' });
+      const reply = (await client.next()) as { agent: { features: string[] } };
+      client.socket.close();
+      await server?.stop();
+      server = null;
+      return reply.agent.features;
+    };
+    expect(await features({})).toContain('stages');
+    expect(await features({ stageConfig: false })).not.toContain('stages');
   });
 
   it('401 without the secret, 400 for a malformed body, 404 without a stage config', async () => {

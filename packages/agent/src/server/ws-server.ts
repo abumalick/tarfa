@@ -1,7 +1,7 @@
 import type { ClaudeVoice } from '../application/claude-voice';
 import { constantTimeEqual } from '@tarfa/secure-channel';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
-import { NoiseClientConnection, type NoiseClientConnectionOptions } from './noise-client-connection';
+import { FEATURES, NoiseClientConnection, type NoiseClientConnectionOptions } from './noise-client-connection';
 import type { FrameSocket } from '../ports/frame-socket';
 import type { ClientConnection } from '../ports/client-connection';
 import type { AddressInfo } from 'node:net';
@@ -37,7 +37,7 @@ import type { ProcessScopePort } from '../ports/process-scope-port';
 import type { SystemStatsPort } from '../ports/system-stats-port';
 import { recordWorkspaceClosed } from '../application/record-workspace-closed';
 import { trackLiveWorkspaces } from '../application/track-live-workspaces';
-import type { Workspace } from '@tarfa/contracts';
+import { AGENT_FEATURES, type Workspace } from '@tarfa/contracts';
 import { ConnectionHandler } from './connection-handler';
 import { ViewerRegistry } from './viewer-registry';
 import { applyHookEvent, markSent, markStaged, clearStaged } from '../application/apply-hook-event';
@@ -303,7 +303,8 @@ export class WsServer {
   // A socket a phone opened on the phone port, served only through the end-to-end Noise session
   // keyed by the agent's static X25519 key.
   acceptPhoneSocket(socket: FrameSocket, staticPrivate: Uint8Array, options: NoiseClientConnectionOptions): void {
-    const conn = new NoiseClientConnection(socket, staticPrivate, options);
+    const features = this.deps.stageConfig ? { features: [...(options.features ?? FEATURES), AGENT_FEATURES.stages] } : {};
+    const conn = new NoiseClientConnection(socket, staticPrivate, { ...options, ...features });
     this.phoneClients.add(conn);
     conn.onClose(() => this.phoneClients.delete(conn));
     this.accept(conn);
@@ -329,6 +330,7 @@ export class WsServer {
       dropWorkspaceState: (id: string) => this.dropWorkspaceState(id),
       broadcastClosed: (id: string) => this.broadcastClosed(id),
       messagedLast: this.messagedLast,
+      deferIdlePrompt: (id: string) => this.deferred.add(id),
       lastReplies: this.lastReplies,
       openRequests: this.openRequests,
     });
@@ -444,6 +446,7 @@ export class WsServer {
   private applyHook(sessionName: string, event: string, claude: unknown, agent: unknown): void {
     const statusBefore = this.deps.status.get(sessionName);
     const messagedBefore = this.messagedLast.has(sessionName);
+    const stagedBefore = this.stagedLast.has(sessionName);
     this.lastReplies.record(sessionName, event, claude);
     applyHookEvent(
       {
@@ -459,12 +462,10 @@ export class WsServer {
       },
       { sessionName, event, claude, agent: typeof agent === 'string' ? agent : undefined },
     );
-    // The mark drives `waitingOn`, and it flips with the status unchanged, so onChange
-    // (which already pushed any status change) said nothing.
-    if (
-      this.messagedLast.has(sessionName) !== messagedBefore &&
-      this.deps.status.get(sessionName) === statusBefore
-    ) {
+    // The marks drive `waitingOn` and `waiting`, and they flip with the status unchanged, so
+    // onChange (which already pushed any status change) said nothing.
+    const markFlipped = this.messagedLast.has(sessionName) !== messagedBefore || this.stagedLast.has(sessionName) !== stagedBefore;
+    if (markFlipped && this.deps.status.get(sessionName) === statusBefore) {
       void this.broadcastWorkspace(sessionName).catch(() => undefined);
     }
   }
@@ -756,6 +757,7 @@ export class WsServer {
         claudeSessions: this.deps.claudeSessions,
         parked: this.deps.parked,
         messagedLast: this.messagedLast,
+        stageConfig: this.deps.stageConfig,
       });
     } catch {
       return;
@@ -842,6 +844,7 @@ export class WsServer {
         claudeSessions: this.deps.claudeSessions,
         parked: this.deps.parked,
         messagedLast: this.messagedLast,
+        stageConfig: this.deps.stageConfig,
       });
     } catch {
       return;

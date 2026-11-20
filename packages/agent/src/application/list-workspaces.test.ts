@@ -421,3 +421,65 @@ describe('listWorkspaces asking', () => {
     expect(result.find((w) => w.id === 'perch-old')).not.toHaveProperty('asking');
   });
 });
+
+describe('listWorkspaces stages', () => {
+  const tmux: TmuxPort = {
+    ...baseTmux,
+    listSessions: async () => [
+      { name: 'perch-a', startPath: '/w/foo', command: 'claude', createdAt: 1, title: '' },
+      { name: 'perch-b', startPath: '/w/foo', command: 'claude', createdAt: 1, title: '' },
+      { name: 'perch-c', startPath: '/w/bar', command: 'claude', createdAt: 1, title: '' },
+    ],
+  };
+  const parked = {
+    list: async () => [
+      { id: 'perch-p', name: 'parked', projectPath: '/w/bar', command: 'claude', machineId: 'mini', createdAt: 1, parkedAt: 500 },
+    ],
+  };
+  const fooStages = [{ name: 'Doing', kind: 'active' as const }, { name: 'Review', kind: 'waiting' as const }];
+  const barStages = [{ name: 'Todo', kind: 'active' as const }];
+  const byId = (list: Awaited<ReturnType<typeof listWorkspaces>>, id: string) => list.find((w) => w.id === id);
+
+  it("stamps each live and parked workspace with its project's stages, asking once per project", async () => {
+    const asked: string[] = [];
+    const stageConfig = {
+      stagesFor: async (path: string) => {
+        asked.push(path);
+        return path === '/w/foo' ? fooStages : barStages;
+      },
+    };
+    const result = await listWorkspaces({ ...baseDeps, tmux, parked, stageConfig });
+    expect(byId(result, 'perch-a')?.stages).toEqual(fooStages);
+    expect(byId(result, 'perch-b')?.stages).toEqual(fooStages);
+    expect(byId(result, 'perch-c')?.stages).toEqual(barStages);
+    expect(byId(result, 'perch-p')?.stages).toEqual(barStages);
+    expect(asked.sort()).toEqual(['/w/bar', '/w/foo']);
+  });
+
+  it('lists no stages without a stage config', async () => {
+    const result = await listWorkspaces({ ...baseDeps, tmux, parked });
+    for (const w of result) expect(w).not.toHaveProperty('stages');
+  });
+
+  it('carries the stored stage on a live and a parked workspace, and nothing on the others', async () => {
+    const review = { name: 'Review', kind: 'waiting' as const, since: 7 };
+    const status = { ...noStatus, getStage: (id: string) => (id === 'perch-a' || id === 'perch-p' ? review : undefined) };
+    const result = await listWorkspaces({ ...baseDeps, tmux, parked, status });
+    expect(byId(result, 'perch-a')?.stage).toEqual(review);
+    expect(byId(result, 'perch-p')?.stage).toEqual(review);
+    expect(byId(result, 'perch-b')).not.toHaveProperty('stage');
+  });
+
+  it('marks waiting only a working workspace whose last tool call staged, parent or not', async () => {
+    const status = {
+      ...noStatus,
+      get: (id: string) => (id === 'perch-c' ? ('needs-feedback' as const) : ('working' as const)),
+      getStagedLast: (id: string) => id !== 'perch-b',
+    };
+    const result = await listWorkspaces({ ...baseDeps, tmux, parked, status });
+    expect(byId(result, 'perch-a')?.waiting).toBe(true);
+    expect(byId(result, 'perch-b')).not.toHaveProperty('waiting');
+    expect(byId(result, 'perch-c')).not.toHaveProperty('waiting');
+    expect(byId(result, 'perch-p')).not.toHaveProperty('waiting');
+  });
+});
