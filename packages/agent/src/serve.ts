@@ -55,6 +55,7 @@ import { ensureUtf8Locale } from './infrastructure/ensure-utf8-locale';
 import { locateAgentEnv } from './infrastructure/agent-env-file';
 import { resolveCodexHome } from './infrastructure/codex-home';
 import { isEntrypoint, packageVersion } from './infrastructure/package-root';
+import { FileStageConfig } from './infrastructure/file-stage-config';
 import { announcedAddresses } from './application/pairing-link';
 
 const ROSTER_POLL_MS = 3000;
@@ -139,6 +140,7 @@ export async function main(): Promise<void> {
       }),
       log: new FileMessageLog(config.messageLogPath),
     },
+    stageConfig: new FileStageConfig(),
     workspaceLog,
     parked,
     liveSnapshot,

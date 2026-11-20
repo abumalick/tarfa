@@ -1300,6 +1300,47 @@ describe('tarfa ls / spawn / peek (fake tmux)', () => {
     });
   });
 
+  describe('stage', () => {
+    async function agent(answer: (body: Record<string, unknown>) => Response) {
+      const { home } = await machine();
+      await writeFile(join(home, '.tarfa', 'token'), 'hook-secret');
+      const env = { TARFA_AGENT_ENV: join(home, 'agent.env'), TMUX_PANE: '%3' };
+      await writeFile(env.TARFA_AGENT_ENV, 'TARFA_PORT=9911\n');
+      const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+      const fetch = async (url: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        calls.push({ url: String(url), body });
+        return answer(body);
+      };
+      return { home, env, calls, fetch };
+    }
+
+    it('posts the pane, pid and name to /stage and prints the stage', async () => {
+      const { home, env, calls, fetch } = await agent(() => Response.json({ result: 'set', stage: { name: 'In review', kind: 'waiting' } }));
+      expect(await run(['stage', 'in', 'review'], env, home, io(fakeTmux().tmux, { fetch }))).toBe('stage: In review');
+      expect(calls).toEqual([{ url: 'http://127.0.0.1:9911/stage', body: { pane: '%3', pid: process.pid, stage: 'in review' } }]);
+    });
+
+    it('fails with the refusal reason', async () => {
+      const { home, env, fetch } = await agent(() => Response.json({ result: 'refused', reason: 'unknown stage "x"; valid stages: A, B' }));
+      await expect(run(['stage', 'x'], env, home, io(fakeTmux().tmux, { fetch }))).rejects.toThrow('unknown stage "x"; valid stages: A, B');
+    });
+
+    it('says an agent without the route predates tarfa stage', async () => {
+      const { home, env, fetch } = await agent(() => new Response(null, { status: 404 }));
+      await expect(run(['stage', 'Done'], env, home, io(fakeTmux().tmux, { fetch }))).rejects.toThrow(/predates tarfa stage/);
+    });
+
+    it('without a name fails with usage and calls nothing', async () => {
+      const { home, env, calls, fetch } = await agent(() => Response.json({}));
+      await expect(run(['stage'], env, home, io(fakeTmux().tmux, { fetch }))).rejects.toMatchObject({
+        exitCode: 2,
+        message: expect.stringContaining('usage: tarfa stage'),
+      });
+      expect(calls).toEqual([]);
+    });
+  });
+
   describe('send', () => {
     async function agent(answer: (body: Record<string, unknown>) => Response = () => Response.json({ result: 'delivered' })) {
       const { home } = await machine();

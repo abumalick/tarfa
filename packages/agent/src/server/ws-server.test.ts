@@ -2577,6 +2577,102 @@ describe('WsServer lost-workspace tracking', () => {
 
 // `tarfa send` asks the agent, which proves the caller runs inside the pane it names and holds
 // the marks the send sets.
+describe('WsServer POST /stage', () => {
+  async function stageServer(opts: { stageConfig?: boolean } = {}) {
+    const home = await mkdtemp(join(tmpdir(), 'perch-stage-'));
+    dirs.push(home);
+    const tmux: TmuxPort = {
+      listSessions: async () => [{ name: 'perch-child-1', startPath: '/w/proj', command: 'claude', createdAt: 1000, title: '' }],
+      createSession: async () => undefined,
+      killSession: async () => undefined,
+      hasSession: async () => true,
+      sessionOfPane: async (pane) => (pane === '%3' ? 'perch-child-1' : null),
+      panePid: async () => 4000,
+      pidOfPane: async (pane) => (pane === '%3' ? 4000 : null),
+    };
+    const status = new InMemoryStatusStore();
+    status.set('perch-child-1', 'working');
+    const asked: string[] = [];
+    server = new WsServer({
+      ...makeServerDeps(testConfig(home), noClientLog),
+      tmux,
+      status,
+      messaging: {
+        ancestry: { isAncestor: async (ancestor, pid) => ancestor === 4000 && pid === 4242 },
+        delivery: { deliver: async () => ({ ok: true }) },
+        log: { append: async () => undefined },
+      },
+      ...(opts.stageConfig === false
+        ? {}
+        : {
+            stageConfig: {
+              stagesFor: async (path) => {
+                asked.push(path);
+                return [
+                  { name: 'In progress', kind: 'active' as const },
+                  { name: 'In review', kind: 'waiting' as const },
+                ];
+              },
+            },
+          }),
+    });
+    await server.start();
+    const port = server.address().port;
+    const post = (route: string, body: unknown, token = HOOK_TOKEN) =>
+      fetch(`http://127.0.0.1:${port}${route}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    return { status, asked, post };
+  }
+
+  const stage = { pane: '%3', pid: 4242, stage: 'in review' };
+  const endTurn = async (post: (route: string, body: unknown) => Promise<Response>) => {
+    await post('/hooks', { sessionName: 'perch-child-1', event: 'PostToolUse', claude: { tool_name: 'Bash' } });
+    await post('/hooks', { sessionName: 'perch-child-1', event: 'Stop', claude: {} });
+  };
+
+  it('stores a waiting stage from the project of the workspace and its turn end waits', async () => {
+    const { status, asked, post } = await stageServer();
+    const res = await post('/stage', stage);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ result: 'set', stage: { name: 'In review', kind: 'waiting' } });
+    expect(asked).toEqual(['/w/proj']);
+    expect(status.getStage('perch-child-1')).toMatchObject({ name: 'In review', kind: 'waiting' });
+    expect(status.getStagedLast('perch-child-1')).toBe(true);
+    await endTurn(post);
+    expect(status.get('perch-child-1')).toBe('working');
+  });
+
+  it('stores an active stage without marking the turn', async () => {
+    const { status, post } = await stageServer();
+    expect(await (await post('/stage', { ...stage, stage: 'In progress' })).json()).toMatchObject({ result: 'set' });
+    expect(status.getStage('perch-child-1')).toMatchObject({ name: 'In progress', kind: 'active' });
+    expect(status.getStagedLast('perch-child-1')).toBe(false);
+    await endTurn(post);
+    expect(status.get('perch-child-1')).toBe('needs-feedback');
+  });
+
+  it('refuses an unknown stage and a caller outside a workspace, changing nothing', async () => {
+    const { status, post } = await stageServer();
+    expect(await (await post('/stage', { ...stage, stage: 'Nope' })).json()).toMatchObject({ result: 'refused', reason: expect.stringContaining('In progress, In review') });
+    expect(await (await post('/stage', { ...stage, pane: '%4' })).json()).toEqual({ result: 'refused', reason: 'not run from a Tarfa workspace' });
+    expect(status.getStage('perch-child-1')).toBeUndefined();
+    expect(status.get('perch-child-1')).toBe('working');
+  });
+
+  it('401 without the secret, 400 for a malformed body, 404 without a stage config', async () => {
+    const { post } = await stageServer();
+    expect((await post('/stage', stage, 'wrong')).status).toBe(401);
+    expect((await post('/stage', { ...stage, pid: '4242' })).status).toBe(400);
+    expect((await post('/stage', { pane: '%3', pid: 4242 })).status).toBe(400);
+    await server?.stop();
+    const bare = await stageServer({ stageConfig: false });
+    expect((await bare.post('/stage', stage)).status).toBe(404);
+  });
+});
+
 describe('WsServer POST /message', () => {
   const sockets: WebSocket[] = [];
   afterEach(() => {

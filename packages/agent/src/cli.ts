@@ -144,7 +144,7 @@ export async function run(argv: string[], rawEnv: NodeJS.ProcessEnv, home: strin
     throw new UsageError(RELAYS_GONE);
   }
   if (argv[0] === 'pair') return pair(argv.slice(1), env, home);
-  if (argv[0] === 'ls' || argv[0] === 'spawn' || argv[0] === 'peek' || argv[0] === 'unpark' || argv[0] === 'rename' || argv[0] === 'link' || argv[0] === 'send' || argv[0] === 'close' || argv[0] === 'wait') {
+  if (argv[0] === 'ls' || argv[0] === 'spawn' || argv[0] === 'peek' || argv[0] === 'unpark' || argv[0] === 'rename' || argv[0] === 'link' || argv[0] === 'send' || argv[0] === 'stage' || argv[0] === 'close' || argv[0] === 'wait') {
     return orchestration(argv[0], argv.slice(1), env, home, io);
   }
   const config = loadConfig({ ...env, ...(await agentEnvValues(env, home)) }, home);
@@ -240,6 +240,7 @@ Workspaces on this machine:
   peek           print the end of a workspace's screen
   wait           wait until one of the workspaces stops working
   send           send a message to another workspace
+  stage          set this workspace's stage (e.g. tarfa stage "In review")
   unpark         reopen parked workspaces
   rename         rename a workspace (without an id: this one)
   link           print a link that opens a workspace in the app (without an id: this one)
@@ -250,7 +251,7 @@ Workspaces on this machine:
 
 const COMMANDS = new Set([
   'setup', 'apply', 'update', 'pair', 'connect', 'relay-key', 'devices', 'dictation-key', 'install-hooks',
-  'ls', 'spawn', 'peek', 'unpark', 'rename', 'link', 'send', 'close', 'wait',
+  'ls', 'spawn', 'peek', 'unpark', 'rename', 'link', 'send', 'stage', 'close', 'wait',
   'list', 'create', 'recent', 'browse',
 ]);
 
@@ -262,12 +263,13 @@ const UNPARK_USAGE = 'usage: tarfa unpark <workspace id>...';
 const RENAME_USAGE = 'usage: tarfa rename [<workspace id>] <title>   (without an id: the workspace this runs in)';
 const LINK_USAGE = 'usage: tarfa link [<workspace id>] [--pwa <PWA origin>]   (without an id: the workspace this runs in)';
 const SEND_USAGE = 'usage: tarfa send <workspace id> "<message>"   (or the message on stdin)';
+const STAGE_USAGE = 'usage: tarfa stage <stage name>   (the workspace this runs in)';
 const CLOSE_USAGE = 'usage: tarfa close <workspace id>...';
 const WAIT_USAGE = 'usage: tarfa wait <workspace id>... [--timeout <seconds, at least 10>]';
 
 // `ls`, `spawn` and `peek` serve sessions in any repo, so none of them needs deploy/agent.env:
 // it only lends the machine id, and the store paths come from $HOME.
-async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rename' | 'link' | 'send' | 'close' | 'wait', argv: string[], env: NodeJS.ProcessEnv, home: string, io: CliIo): Promise<string> {
+async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rename' | 'link' | 'send' | 'stage' | 'close' | 'wait', argv: string[], env: NodeJS.ProcessEnv, home: string, io: CliIo): Promise<string> {
   const values = await agentEnvValues(env, home).catch(() => ({}) as Record<string, string>);
   const config = loadConfig({ TARFA_MACHINE_ID: hostname().split('.')[0], ...env, ...values }, home);
   const tmux = io.tmux ?? new TmuxAdapter(workspaceSessionEnv(config.stateDir));
@@ -417,6 +419,23 @@ async function orchestration(command: 'ls' | 'spawn' | 'peek' | 'unpark' | 'rena
       if (status === 200 && json.result === 'delivered') return `delivered to ${to}`;
       if (status === 200 && json.result === 'refused' && typeof json.reason === 'string') throw new Error(json.reason);
       throw new Error(`the agent answered ${status}${status === 404 ? ' (it predates tarfa send: restart it)' : ''}${json.error ? ` (${json.error})` : ''}`);
+    }
+    case 'stage': {
+      const name = args.join(' ').trim();
+      if (!name || name.startsWith('-')) throw new UsageError(STAGE_USAGE);
+      const codexThread = env.CODEX_THREAD_ID || undefined;
+      const pane = env.TMUX_PANE ?? '';
+      if (!pane && !codexThread) throw new Error('not inside a Tarfa workspace: $TMUX_PANE is unset');
+      const { status, json } = await agentPost(config.port, config.stateDir, io.fetch ?? fetch)('/stage', {
+        pane,
+        pid: process.pid,
+        stage: name,
+        ...(codexThread ? { codexThread } : {}),
+      });
+      const stage = json.stage as { name?: unknown } | undefined;
+      if (status === 200 && json.result === 'set' && typeof stage?.name === 'string') return `stage: ${stage.name}`;
+      if (status === 200 && json.result === 'refused' && typeof json.reason === 'string') throw new Error(json.reason);
+      throw new Error(`the agent answered ${status}${status === 404 ? ' (it predates tarfa stage: restart it)' : ''}${json.error ? ` (${json.error})` : ''}`);
     }
     case 'rename': {
       if (args.length === 0) throw new Error(RENAME_USAGE);

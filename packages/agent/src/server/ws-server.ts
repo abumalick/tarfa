@@ -40,10 +40,12 @@ import { trackLiveWorkspaces } from '../application/track-live-workspaces';
 import type { Workspace } from '@tarfa/contracts';
 import { ConnectionHandler } from './connection-handler';
 import { ViewerRegistry } from './viewer-registry';
-import { applyHookEvent, markSent } from '../application/apply-hook-event';
+import { applyHookEvent, markSent, markStaged } from '../application/apply-hook-event';
 import { LastReplies } from '../application/last-replies';
 import { sessionOfCodexThread } from '../application/agent-message';
 import { sendMessage } from '../application/send-message';
+import { setStageFromCli } from '../application/set-stage';
+import type { StageConfigPort } from '../ports/stage-config-port';
 import type { MessageDelivery } from '../ports/message-delivery-port';
 import type { MessageLog } from '../ports/message-log-port';
 import type { ProcessAncestry } from '../ports/process-ancestry-port';
@@ -83,6 +85,8 @@ export interface WsServerDeps {
   hookEventLog?: HookEventLogPort;
   // What `POST /message` (tarfa send) needs. Without it the route is not served.
   messaging?: { ancestry: ProcessAncestry; delivery: MessageDelivery; log: MessageLog };
+  // The stage lists of projects (`.tarfa.json`). `POST /stage` (tarfa stage) is served with `messaging` and this.
+  stageConfig?: StageConfigPort;
   workspaceLog: WorkspaceLogPort;
   parked: ParkedStorePort;
   // Optional: where the live workspaces are snapshotted so those lost with their tmux server
@@ -340,6 +344,7 @@ export class WsServer {
   // `tarfa send`, whose marks live here too; `/open` for tarfa-open.sh, a workspace's BROWSER.
   private handleHttp(req: IncomingMessage, res: ServerResponse): void {
     const routes = this.deps.messaging ? ['/hooks', '/unpark', '/close', '/message', '/open'] : ['/hooks', '/unpark', '/close'];
+    if (this.deps.messaging && this.deps.stageConfig) routes.push('/stage');
     if (req.method !== 'POST' || !routes.includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
@@ -383,6 +388,10 @@ export class WsServer {
       }
       if (route === '/open') {
         void this.handleOpen(body, res);
+        return;
+      }
+      if (route === '/stage') {
+        void this.handleStage(body, res);
         return;
       }
       try {
@@ -558,6 +567,42 @@ export class WsServer {
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
     } catch {
       res.writeHead(500).end();
+    }
+  }
+
+  private async handleStage(body: string, res: ServerResponse): Promise<void> {
+    let req: { pane?: unknown; pid?: unknown; stage?: unknown; codexThread?: unknown } | null;
+    try {
+      req = JSON.parse(body) as typeof req;
+    } catch {
+      req = null;
+    }
+    const { pane, pid, stage, codexThread } = req ?? {};
+    if (
+      typeof pane !== 'string' ||
+      !Number.isInteger(pid) ||
+      typeof stage !== 'string' ||
+      (codexThread !== undefined && typeof codexThread !== 'string')
+    ) {
+      res.writeHead(400).end();
+      return;
+    }
+    try {
+      const result = await setStageFromCli(
+        {
+          tmux: this.deps.tmux,
+          ancestry: this.deps.messaging!.ancestry,
+          sessionPrefix: this.deps.config.sessionPrefix,
+          stageConfig: this.deps.stageConfig!,
+          status: this.deps.status,
+          onWaitingStaged: (id) => markStaged({ stagedDuringTool: this.stagedDuringTool, stagedLast: this.stagedLast }, id),
+          onStaged: (id) => void this.broadcastWorkspace(id).catch(() => undefined),
+        },
+        { pane, pid: pid as number, stage, ...(codexThread !== undefined ? { codexThread } : {}) },
+      );
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: (err as Error).message }));
     }
   }
 
