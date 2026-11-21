@@ -18,6 +18,8 @@ export const settings: Messages['settings'] = {
   workspaceList: 'Liste des espaces de travail',
   groupByProject: 'Regrouper par projet',
   groupByProjectHint: 'Un projet remonte dès qu’un de ses espaces de travail a besoin de vous.',
+  stagesView: 'Étapes des tâches',
+  stagesViewHint: 'Met en haut ce qui a besoin de vous et regroupe le reste par étape (En revue, Terminé…). Demande une machine à jour.',
   dictation: 'Dictée',
   elevenLabsKey: 'Clé API ElevenLabs',
   openRouterKey: 'Clé API OpenRouter',

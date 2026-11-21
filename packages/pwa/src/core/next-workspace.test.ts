@@ -69,6 +69,12 @@ describe('nextWorkspace', () => {
     expect(nextWorkspace(list, list[1]!)?.id).toBe('a');
   });
 
+  it('visits a row under a waiting or done stage when stages are off', () => {
+    const done = { stage: { name: 'Done', kind: 'done' as const, since: 0 } };
+    const list = [ws('a', 'needs-feedback'), { ...ws('d', 'idle'), ...done }, ws('i', 'idle')];
+    expect(nextWorkspace(list, list[0]!, null, false)?.id).toBe('d');
+  });
+
   it('skips a child waiting on its orchestrator, which stays working', () => {
     const list = [ws('p', 'needs-feedback'), { ...ws('c', 'working'), parentId: 'p', waitingOn: 'parent' as const }];
     expect(nextWorkspace(list, list[0]!)).toBeNull();

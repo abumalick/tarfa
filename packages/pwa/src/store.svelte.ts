@@ -241,6 +241,8 @@ export class TarfaStore {
   fileWrap = $state(true);
   shareLinks = $state(false);
   groupByProject = $state(false);
+  // The stages view (Settings), on top of an agent that has stages: see `supportsStages`.
+  stagesView = $state(false);
   // The language picked in Settings; 'auto' follows the phone.
   languageChoice = $state<LanguageChoice>('auto');
   // Global terminal font size (zoom), persisted via settings (loaded in start()).
@@ -269,8 +271,9 @@ export class TarfaStore {
   // The orchestrators whose children the home list shows (`machineId:id`), kept like
   // `parkedExpanded`: across opening a workspace, not across a reload.
   readonly expandedParents = new SvelteSet<string>();
-  // The folded stages the home list shows open, by stage name, kept like `parkedExpanded`.
-  readonly expandedStages = new SvelteSet<string>();
+  // The waiting and done stages the home list shows folded, by stage name, kept like
+  // `parkedExpanded`. Every stage starts open.
+  readonly collapsedStages = new SvelteSet<string>();
   // Live agent-browser sessions per connection, from the agent's `browserSessions`
   // message. Keyed by the CONNECTION id (this PWA's machine config id), never the
   // agent's self-reported machine id — same routing rule as workspaces.
@@ -474,6 +477,7 @@ export class TarfaStore {
     this.fileWrap = this.deps.settings.fileWrap();
     this.shareLinks = this.deps.settings.shareLinks();
     this.groupByProject = this.deps.settings.groupByProject();
+    this.stagesView = this.deps.settings.stagesView();
     this.readAloudRate = this.deps.settings.readAloudRate();
     this.readAloudPlayer?.setRate(this.readAloudRate);
     this.audioPlayer?.setRate(this.readAloudRate);
@@ -826,7 +830,7 @@ export class TarfaStore {
   get nextWorkspace(): Workspace | null {
     if (!this.active) return null;
     const labelOf = this.groupByProject ? (ws: Workspace) => projectFolderLabel(this.machines, ws) : null;
-    return nextWorkspace(this.visibleWorkspaces, this.active, labelOf);
+    return nextWorkspace(this.visibleWorkspaces, this.active, labelOf, this.stagesView);
   }
 
   openNext(): void {
@@ -1049,7 +1053,7 @@ export class TarfaStore {
   }
 
   supportsStages(machineId: string): boolean {
-    return (this.agentFeatures[machineId] ?? []).includes(AGENT_FEATURES.stages);
+    return this.stagesView && (this.agentFeatures[machineId] ?? []).includes(AGENT_FEATURES.stages);
   }
 
   setWorkspaceUrgent(urgent: boolean): void {
@@ -1479,6 +1483,11 @@ export class TarfaStore {
     this.deps.settings.setGroupByProject(on);
   }
 
+  setStagesView(on: boolean): void {
+    this.stagesView = on;
+    this.deps.settings.setStagesView(on);
+  }
+
   setShareLinks(on: boolean): void {
     this.shareLinks = on;
     this.deps.settings.setShareLinks(on);
@@ -1637,7 +1646,7 @@ export class TarfaStore {
   }
 
   toggleStage(name: string): void {
-    if (!this.expandedStages.delete(name)) this.expandedStages.add(name);
+    if (!this.collapsedStages.delete(name)) this.collapsedStages.add(name);
   }
 
   setKeyboardAnchor(focus: (() => void) | null): void {

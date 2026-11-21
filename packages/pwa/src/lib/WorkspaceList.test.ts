@@ -60,9 +60,10 @@ function fakeStore(
     toggleChildren(key: string) {
       if (!this.expandedParents.delete(key)) this.expandedParents.add(key);
     },
-    expandedStages: new SvelteSet<string>(),
+    stagesView: false,
+    collapsedStages: new SvelteSet<string>(),
     toggleStage(name: string) {
-      if (!this.expandedStages.delete(name)) this.expandedStages.add(name);
+      if (!this.collapsedStages.delete(name)) this.collapsedStages.add(name);
     },
   };
 }
@@ -197,10 +198,10 @@ describe('WorkspaceList', () => {
     expect(store.open).toHaveBeenCalledWith(ws);
   });
 
-  it('folds a workspace with the blocked status under a Blocked line', () => {
+  it('renders a Blocked badge for a workspace with the blocked status', () => {
     const blockedWs = { ...ws, id: 'perch-c', name: 'parked', status: 'blocked' };
     render(WorkspaceList, { props: { store: fakeStore([blockedWs]) as never } });
-    expect(screen.getByRole('button', { name: '1 · Blocked' })).toBeInTheDocument();
+    expect(screen.getByText('Blocked')).toBeInTheDocument();
     expect(screen.queryByText('Needs you')).not.toBeInTheDocument();
   });
 
@@ -716,17 +717,7 @@ describe('WorkspaceList grouped by project', () => {
     ...ws, id, name: id, projectPath: `/home/u/workspace/${folder}`, status, ...extra,
   });
   const machines = [{ id: 'mac', name: 'Mac', defaultPath: '/home/u/workspace' }];
-  // jsdom has no Web Animations API; a row lifted into needs-you slides in, so reduce motion.
-  beforeEach(() => {
-    vi.stubGlobal('matchMedia', (query: string) => ({
-      matches: query.includes('prefers-reduced-motion'),
-      addEventListener() {},
-      removeEventListener() {},
-    }));
-  });
-  afterEach(() => vi.unstubAllGlobals());
-  const list = [at('a1', 'api', 'idle'), at('w1', 'web', 'idle'), at('a2', 'api', 'working')];
-  // Climbing into needs-you counts: it passes the rows it left behind.
+  const list = [at('a1', 'api', 'needs-feedback'), at('w1', 'web', 'review'), at('a2', 'api', 'working')];
   const climbed = at('a2', 'api', 'needs-feedback', { urgent: true });
 
   it('lists each project under a header, ranked by its most urgent workspace', () => {
@@ -754,7 +745,7 @@ describe('WorkspaceList grouped by project', () => {
     const store = { ...fakeStore(list, machines), groupByProject: true };
     const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
     expect(container.querySelector('.rose')).toBeNull();
-    const w1 = at('w1', 'web', 'idle', { urgent: true });
+    const w1 = at('w1', 'web', 'needs-feedback', { urgent: true });
     await rerender({ store: { ...store, workspaces: [w1, list[0], list[2]] } as never });
     const sections = [...container.querySelectorAll('section.project')];
     expect(sections.map((s) => [s.querySelector('.project-name')!.textContent, s.classList.contains('rose')])).toEqual([
@@ -769,13 +760,6 @@ describe('WorkspaceList grouped by project', () => {
     const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
     await rerender({ store: { ...store, workspaces: [climbed, list[0], list[1]] } as never });
     expect([...container.querySelectorAll('li.rose .name')].map((n) => n.textContent)).toEqual(['a2']);
-  });
-
-  it('marks the workspace that climbed into needs-you when grouped', async () => {
-    const store = { ...fakeStore(list, machines), groupByProject: true };
-    const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
-    await rerender({ store: { ...store, workspaces: [climbed, list[0], list[1]] } as never });
-    expect([...container.querySelectorAll('.needs-you li.rose .name')].map((n) => n.textContent)).toEqual(['a2']);
   });
 
   it('marks nothing when a workspace sinks past the others', async () => {
@@ -804,110 +788,6 @@ describe('WorkspaceList grouped by project', () => {
     const { container } = render(WorkspaceList, { props: { store: fakeStore(list, machines) as never } });
     expect(container.querySelector('section.project')).toBeNull();
     expect(container.querySelectorAll('.path')).toHaveLength(3);
-  });
-});
-
-describe('WorkspaceList stages', () => {
-  const stages = [
-    { name: 'In progress', kind: 'active' as const },
-    { name: 'In review', kind: 'waiting' as const },
-    { name: 'Done', kind: 'done' as const },
-  ];
-  const at = (id: string, status: string, stage?: string, extra: object = {}) => {
-    const s = stages.find((x) => x.name === stage);
-    return { ...ws, id, name: id, status, stages, ...(s ? { stage: { ...s, since: 0 } } : {}), ...extra };
-  };
-  const list = [
-    at('asks', 'needs-feedback', 'In review'),
-    at('runs', 'working', 'In progress'),
-    at('r1', 'idle', 'In review'),
-    at('r2', 'working', 'In review', { waiting: true }),
-    at('d1', 'idle', 'Done'),
-  ];
-  const names = (root: Element | null) => [...(root?.querySelectorAll('.name') ?? [])].map((n) => n.textContent);
-  // jsdom has no Web Animations API; reduced motion makes the fold's slide a no-op.
-  beforeEach(() => {
-    vi.stubGlobal('matchMedia', (query: string) => ({
-      matches: query.includes('prefers-reduced-motion'),
-      addEventListener() {},
-      removeEventListener() {},
-    }));
-  });
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('puts what needs you on top under its own heading, and the active rows below', () => {
-    const { container } = render(WorkspaceList, { props: { store: fakeStore(list) as never } });
-    const needs = screen.getByRole('group', { name: 'Needs you, 1 workspace' });
-    expect(names(needs)).toEqual(['asks']);
-    expect(names(container)).toEqual(['asks', 'runs']);
-  });
-
-  it('folds each waiting and done stage into one line with its count', () => {
-    render(WorkspaceList, { props: { store: fakeStore(list) as never } });
-    const lines = screen.getAllByRole('button', { name: /^\d+ · / }).map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
-    expect(lines).toEqual(['2 · In review ›', '1 · Done ›']);
-  });
-
-  it('expands a folded stage on tap, through the store', async () => {
-    const store = fakeStore(list);
-    const { container } = render(WorkspaceList, { props: { store: store as never } });
-    const line = screen.getByRole('button', { name: /2 · In review/ });
-    expect(line).toHaveAttribute('aria-expanded', 'false');
-    await fireEvent.click(line);
-    expect(line).toHaveAttribute('aria-expanded', 'true');
-    expect(names(container)).toEqual(['asks', 'runs', 'r1', 'r2']);
-  });
-
-  it('shows the stage beside the activity, and Waiting for a turn that ended on a waiting stage', () => {
-    const store = fakeStore(list);
-    store.expandedStages.add('In review');
-    render(WorkspaceList, { props: { store: store as never } });
-    const rowOf = (name: string) => screen.getByText(name, { selector: '.name' }).closest('.row')!;
-    expect(rowOf('runs').querySelector('.stage')).toHaveTextContent('In progress');
-    expect(rowOf('r2').querySelector('.badge')).toHaveTextContent('Waiting');
-    expect(rowOf('r2').querySelector('.stage')).toHaveTextContent('In review');
-  });
-
-  it('marks a row that leaves a folded stage for needs-you', async () => {
-    const store = fakeStore(list);
-    const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
-    const asking = at('r1', 'needs-feedback', 'In review');
-    await rerender({ store: { ...store, workspaces: [list[0], asking, ...list.slice(1).filter((w) => w.id !== 'r1')] } as never });
-    expect([...container.querySelectorAll('.needs-you li.rose .name')].map((n) => n.textContent)).toEqual(['r1']);
-  });
-
-  it('lifts a waiting-stage orchestrator whose child needs you into needs-you, folding nothing of it', () => {
-    const parent = at('lead', 'working', 'In review');
-    const child = at('helper', 'needs-feedback', 'In progress', { parentId: 'lead' });
-    const { container } = render(WorkspaceList, { props: { store: fakeStore([child, parent]) as never } });
-    const needs = screen.getByRole('group', { name: /^Needs you/ });
-    expect(names(needs)).toEqual(['lead']);
-    expect(needs.querySelector('.fold-toggle')).not.toBeNull();
-    expect(container.querySelector('.stage-toggle')).toBeNull();
-  });
-
-  it('names a folded legacy status by its label', () => {
-    render(WorkspaceList, { props: { store: fakeStore([at('b', 'blocked'), at('f', 'finished')]) as never } });
-    expect(screen.getByRole('button', { name: /1 · Blocked/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /1 · Finished/ })).toBeInTheDocument();
-  });
-
-  it('folds each project own stages under it when grouped, with needs-you across projects on top', () => {
-    const machines = [{ id: 'mac', name: 'Mac', defaultPath: '/home/u/workspace' }];
-    const inP = (folder: string, w: object) => ({ ...w, projectPath: `/home/u/workspace/${folder}` });
-    const grouped = [inP('api', list[0]!), inP('web', list[1]!), inP('api', list[2]!), inP('web', list[4]!)];
-    const store = { ...fakeStore(grouped, machines), groupByProject: true };
-    const { container } = render(WorkspaceList, { props: { store: store as never } });
-    expect(names(screen.getByRole('group', { name: 'Needs you, 1 workspace' }))).toEqual(['asks']);
-    const sections = [...container.querySelectorAll('section.project')].map((s) => [
-      s.querySelector('.project-name')!.textContent,
-      names(s),
-      [...s.querySelectorAll('.stage-toggle')].map((b) => b.textContent?.replace(/\s+/g, ' ').trim()),
-    ]);
-    expect(sections).toEqual([
-      ['web', ['runs'], ['1 · Done ›']],
-      ['api', [], ['1 · In review ›']],
-    ]);
   });
 });
 
@@ -947,3 +827,141 @@ describe('WorkspaceList long press', () => {
     expect(await screen.findByTestId('copy-id-notice')).toHaveTextContent('Copied perch-a');
   });
 });
+describe('WorkspaceList stages', () => {
+  const stages = [
+    { name: 'In progress', kind: 'active' as const },
+    { name: 'In review', kind: 'waiting' as const },
+    { name: 'Done', kind: 'done' as const },
+  ];
+  const at = (id: string, status: string, stage?: string, extra: object = {}) => {
+    const s = stages.find((x) => x.name === stage);
+    return { ...ws, id, name: id, status, stages, ...(s ? { stage: { ...s, since: 0 } } : {}), ...extra };
+  };
+  const list = [
+    at('asks', 'needs-feedback', 'In review'),
+    at('runs', 'working', 'In progress'),
+    at('r1', 'idle', 'In review'),
+    at('r2', 'working', 'In review', { waiting: true }),
+    at('d1', 'idle', 'Done'),
+  ];
+  const stagedStore = (...args: Parameters<typeof fakeStore>) => ({ ...fakeStore(...args), stagesView: true });
+  const names = (root: Element | null) => [...(root?.querySelectorAll('.name') ?? [])].map((n) => n.textContent);
+  // jsdom has no Web Animations API; reduced motion makes the fold's slide a no-op.
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('prefers-reduced-motion'),
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('puts what needs you on top under its own heading, and the active rows below', () => {
+    const { container } = render(WorkspaceList, { props: { store: stagedStore(list) as never } });
+    const needs = screen.getByRole('group', { name: 'Needs you, 1 workspace' });
+    expect(names(needs)).toEqual(['asks']);
+    expect(names(container)).toEqual(['asks', 'runs', 'r1', 'r2', 'd1']);
+  });
+
+  it('heads each waiting and done stage with one line and its count', () => {
+    render(WorkspaceList, { props: { store: stagedStore(list) as never } });
+    const lines = screen.getAllByRole('button', { name: /^\d+ · / }).map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
+    expect(lines).toEqual(['2 · In review ›', '1 · Done ›']);
+  });
+
+  it('opens every stage by default, and folds one on tap through the store', async () => {
+    const store = stagedStore(list);
+    const { container } = render(WorkspaceList, { props: { store: store as never } });
+    const line = screen.getByRole('button', { name: /2 · In review/ });
+    expect(line).toHaveAttribute('aria-expanded', 'true');
+    expect(names(container)).toEqual(['asks', 'runs', 'r1', 'r2', 'd1']);
+    await fireEvent.click(line);
+    expect(line).toHaveAttribute('aria-expanded', 'false');
+    expect(names(container)).toEqual(['asks', 'runs', 'd1']);
+  });
+
+  it('shows the stage beside the activity, and Waiting for a turn that ended on a waiting stage', () => {
+    const store = stagedStore(list);
+    render(WorkspaceList, { props: { store: store as never } });
+    const rowOf = (name: string) => screen.getByText(name, { selector: '.name' }).closest('.row')!;
+    expect(rowOf('runs').querySelector('.stage')).toHaveTextContent('In progress');
+    expect(rowOf('r2').querySelector('.badge')).toHaveTextContent('Waiting');
+    expect(rowOf('r2').querySelector('.stage')).toHaveTextContent('In review');
+  });
+
+  it('marks a row that leaves a folded stage for needs-you', async () => {
+    const store = stagedStore(list);
+    const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
+    const asking = at('r1', 'needs-feedback', 'In review');
+    await rerender({ store: { ...store, workspaces: [list[0], asking, ...list.slice(1).filter((w) => w.id !== 'r1')] } as never });
+    expect([...container.querySelectorAll('.needs-you li.rose .name')].map((n) => n.textContent)).toEqual(['r1']);
+  });
+
+  it('lifts a waiting-stage orchestrator whose child needs you into needs-you, folding nothing of it', () => {
+    const parent = at('lead', 'working', 'In review');
+    const child = at('helper', 'needs-feedback', 'In progress', { parentId: 'lead' });
+    const { container } = render(WorkspaceList, { props: { store: stagedStore([child, parent]) as never } });
+    const needs = screen.getByRole('group', { name: /^Needs you/ });
+    expect(names(needs)).toEqual(['lead']);
+    expect(needs.querySelector('.fold-toggle')).not.toBeNull();
+    expect(container.querySelector('.stage-toggle')).toBeNull();
+  });
+
+  it('names a folded legacy status by its label', () => {
+    render(WorkspaceList, { props: { store: stagedStore([at('b', 'blocked'), at('f', 'finished')]) as never } });
+    expect(screen.getByRole('button', { name: /1 · Blocked/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /1 · Finished/ })).toBeInTheDocument();
+  });
+
+  it('folds each project own stages under it when grouped, with needs-you across projects on top', () => {
+    const machines = [{ id: 'mac', name: 'Mac', defaultPath: '/home/u/workspace' }];
+    const inP = (folder: string, w: object) => ({ ...w, projectPath: `/home/u/workspace/${folder}` });
+    const grouped = [inP('api', list[0]!), inP('web', list[1]!), inP('api', list[2]!), inP('web', list[4]!)];
+    const store = { ...stagedStore(grouped, machines), groupByProject: true };
+    const { container } = render(WorkspaceList, { props: { store: store as never } });
+    expect(names(screen.getByRole('group', { name: 'Needs you, 1 workspace' }))).toEqual(['asks']);
+    const sections = [...container.querySelectorAll('section.project')].map((s) => [
+      s.querySelector('.project-name')!.textContent,
+      names(s),
+      [...s.querySelectorAll('.stage-toggle')].map((b) => b.textContent?.replace(/\s+/g, ' ').trim()),
+    ]);
+    expect(sections).toEqual([
+      ['web', ['runs', 'd1'], ['1 · Done ›']],
+      ['api', ['r1'], ['1 · In review ›']],
+    ]);
+  });
+
+  it('marks the workspace that climbed into needs-you when grouped', async () => {
+    const machines = [{ id: 'mac', name: 'Mac', defaultPath: '/home/u/workspace' }];
+    const inP = (folder: string, w: object) => ({ ...w, projectPath: `/home/u/workspace/${folder}` });
+    const before = [inP('api', at('a1', 'idle')), inP('web', at('w1', 'idle')), inP('api', at('a2', 'working'))];
+    const store = { ...stagedStore(before, machines), groupByProject: true };
+    const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
+    const climbed = inP('api', at('a2', 'needs-feedback', undefined, { urgent: true }));
+    await rerender({ store: { ...store, workspaces: [climbed, before[0], before[1]] } as never });
+    expect([...container.querySelectorAll('.needs-you li.rose .name')].map((n) => n.textContent)).toEqual(['a2']);
+  });
+
+  it('with the setting off, lists rows as before: no needs-you heading, no stage lines, no stage label', () => {
+    const { container } = render(WorkspaceList, { props: { store: fakeStore(list) as never } });
+    expect(screen.queryByRole('group', { name: /^Needs you/ })).toBeNull();
+    expect(container.querySelector('.stage-toggle')).toBeNull();
+    expect(container.querySelector('.stage')).toBeNull();
+    expect(names(container)).toEqual(['asks', 'runs', 'r1', 'r2', 'd1']);
+  });
+
+  it('with the setting off and grouped, files every row under its project as before', () => {
+    const machines = [{ id: 'mac', name: 'Mac', defaultPath: '/home/u/workspace' }];
+    const inP = (folder: string, w: object) => ({ ...w, projectPath: `/home/u/workspace/${folder}` });
+    const grouped = [inP('api', list[0]!), inP('web', list[1]!), inP('api', list[2]!), inP('web', list[4]!)];
+    const store = { ...fakeStore(grouped, machines), groupByProject: true };
+    const { container } = render(WorkspaceList, { props: { store: store as never } });
+    expect(screen.queryByRole('group', { name: /^Needs you/ })).toBeNull();
+    const sections = [...container.querySelectorAll('section.project')].map((s) => [s.querySelector('.project-name')!.textContent, names(s)]);
+    expect(sections).toEqual([
+      ['api', ['asks', 'r1']],
+      ['web', ['runs', 'd1']],
+    ]);
+  });
+});
+

@@ -99,12 +99,12 @@ How a workspace's status (working, Needs you, Needs orchestrator) is decided fro
   the 60 s `idle_prompt` is suppressed; the OSC `done` yields to it (`osc-staged`). The phone
   shows it as `waiting: true`. Like `sentDuringTool`, `stagedDuringTool` makes the PostToolUse of
   the Bash call that ran the command leave the mark alone; any later tool call and a prompt clear it, as do `StopFailure` and `SessionStart` (`DROP_MARKS`). A
-  permission prompt or a question does not clear it: it sets needs-feedback, which un-folds the row
+  permission prompt or a question does not clear it: it sets needs-feedback, which lifts the row into Needs you
   (the phone shows waiting only over `working`), and the mark drops at the next tool call. **Only the last stage set
   decides:** a non-waiting `tarfa stage` (active or done) in the same turn clears an earlier
   waiting mark (`clearStaged`), so a turn that ends on "In progress" asks as usual; a phone pick
   of an active or done stage clears it too, so the row stops reading "Waiting". Accepted
-  hole: a waiting stage set last, then a question in the closing text, stays folded; the
+  hole: a waiting stage set last, then a question in the closing text, stays out of Needs you; the
   `tarfa-stages` skill tells the agent to use the question tool, which always raises "Needs you".
 - **"Seen" and a waiting/done stage pick must outlast the turn's `idle_prompt`, through their own
   mark.** Claude Code sends an `idle_prompt` about 60 s after a turn ends; the Notification branch

@@ -38,6 +38,16 @@ describe('SettingsStore', () => {
     expect(new SettingsStore(storage).fileWrap()).toBe(true);
   });
 
+  it('persists the stages view, off by default', () => {
+    const storage = memStorage();
+    const store = new SettingsStore(storage);
+    expect(store.stagesView()).toBe(false);
+    store.setStagesView(true);
+    expect(new SettingsStore(storage).stagesView()).toBe(true);
+    store.setStagesView(false);
+    expect(new SettingsStore(storage).stagesView()).toBe(false);
+  });
+
   it('persists grouping the home list by project, off by default', () => {
     const storage = memStorage();
     const store = new SettingsStore(storage);

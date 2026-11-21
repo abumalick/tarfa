@@ -43,6 +43,7 @@ const FILE_WRAP_KEY = 'tarfa.fileWrap';
 const TERMINAL_FONT_SIZE_KEY = 'tarfa.terminalFontSize';
 const SHARE_LINKS_KEY = 'tarfa.shareLinks';
 const GROUP_BY_PROJECT_KEY = 'tarfa.groupByProject';
+const STAGES_VIEW_KEY = 'tarfa.stagesView';
 const READ_ALOUD_RATE_KEY = 'tarfa.readAloudRate';
 const READ_ALOUD_VOICE_KEY = 'tarfa.readAloudVoice';
 const LANGUAGE_KEY = 'tarfa.language';
@@ -204,6 +205,15 @@ export class SettingsStore {
 
   setGroupByProject(on: boolean): void {
     this.storage.write(GROUP_BY_PROJECT_KEY, on ? '1' : '0');
+  }
+
+  // Workspace stages in the home list and the status picker (being tried out). Off unless set.
+  stagesView(): boolean {
+    return this.storage.read(STAGES_VIEW_KEY) === '1';
+  }
+
+  setStagesView(on: boolean): void {
+    this.storage.write(STAGES_VIEW_KEY, on ? '1' : '0');
   }
 
   // Open terminal links with the share sheet instead of the browser (Android). Off unless set.

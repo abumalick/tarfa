@@ -2001,6 +2001,7 @@ describe('TarfaStore update prompt', () => {
     store.start();
     sockets['wss://mac']!.open();
     sockets['wss://mac']!.deliver({ type: 'authResult', ok: true });
+    store.setStagesView(true);
     expect(store.supportsStages('mac')).toBe(false);
     store.setAgent('mac', { features: ['stages'] });
     expect(store.supportsStages('mac')).toBe(true);
@@ -3226,12 +3227,28 @@ describe('TarfaStore orchestrator folds', () => {
 });
 
 describe('TarfaStore folded stages', () => {
-  it('toggles each folded stage on its own, by name', () => {
+  it('starts with every stage open and folds each one on its own, by name', () => {
     const { store } = build();
+    expect(store.collapsedStages.size).toBe(0);
     store.toggleStage('In review');
-    expect([...store.expandedStages]).toEqual(['In review']);
+    expect([...store.collapsedStages]).toEqual(['In review']);
     store.toggleStage('In review');
-    expect(store.expandedStages.size).toBe(0);
+    expect(store.collapsedStages.size).toBe(0);
+  });
+});
+
+describe('TarfaStore stages setting', () => {
+  it('is off by default, persists, and gates the stages an agent offers', () => {
+    const { store, storage } = build([mac]);
+    store.start();
+    store.setAgent('mac', { features: ['stages'] });
+    expect(store.stagesView).toBe(false);
+    expect(store.supportsStages('mac')).toBe(false);
+    store.setStagesView(true);
+    expect(store.supportsStages('mac')).toBe(true);
+    expect(storage.read('tarfa.stagesView')).toBe('1');
+    store.setAgent('mac', { features: [] });
+    expect(store.supportsStages('mac')).toBe(false);
   });
 });
 

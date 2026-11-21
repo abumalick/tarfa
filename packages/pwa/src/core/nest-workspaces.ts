@@ -39,3 +39,8 @@ export function nestWorkspaces(sorted: readonly Workspace[]): WorkspaceGroup[] {
   });
   return [...groups.values()].sort((a, b) => a.lead - b.lead).map((e) => e.group);
 }
+
+// The order the list reads in once nested: each parent, then its children.
+export function nestedOrder(sorted: readonly Workspace[]): Workspace[] {
+  return nestWorkspaces(sorted).flatMap((g) => [g.workspace, ...g.children]);
+}

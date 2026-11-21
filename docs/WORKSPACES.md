@@ -174,8 +174,11 @@ How workspaces are created, closed, parked, recovered, named and linked, and the
   hand the project another file's list. Parsed results are cached per file and re-read when its
   mtime changes. A list that is empty or repeats a name (case-insensitive) is invalid too and gives the defaults. A refused name then names the invalid file (`StageConfigPort.invalidConfig`). No file: In progress, Waiting, Blocked, Done. The stage lives in the workspace's
   `status.json` entry (gone with it on close; a parked row reads it from the status store).
-  The waiting/needs-you rules are in `docs/ATTENTION-STATUS.md`. The phone's home list folds
-  waiting and done stages, and Next skips the rows folded under them; the `tarfa-stages` skill
+  The waiting/needs-you rules are in `docs/ATTENTION-STATUS.md`. With Settings → Task stages
+  on (`tarfa.stagesView`, off by default, per device and origin), the phone's home list puts
+  needs-you on top and each waiting and done stage under a line that folds it (open until
+  folded), Next skips the rows under them, and the picker offers the stages; off, the list and
+  picker are the ones from before stages, whatever the agent supports; the `tarfa-stages` skill
   sets a project up.
   **`tarfa wait <id>... [--timeout <s, at least 10>]` blocks until one stops working** and prints `<id> <state>`
   per stopped workspace, polling the same read-only stores as `ls` every 2 s, hidden folders

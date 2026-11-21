@@ -11,10 +11,9 @@ test.afterAll(async () => {
 });
 
 // Switching a workspace's status from the terminal header picker re-sorts the list: setting
-// it to "Blocked" folds it under a Blocked line at the bottom; setting it back to "Needs you"
-// lifts it to the top again. (Default 1280px viewport keeps the list visible as a sidebar while
-// the terminal is open.)
-test('status picker re-sorts the workspace; blocked folds it last', async ({ page }) => {
+// it to "Blocked" parks it at the bottom; setting it back to "Needs you" restores the top.
+// (Default 1280px viewport keeps the list visible as a sidebar while the terminal is open.)
+test('status picker re-sorts the workspace; blocked parks it last', async ({ page }) => {
   await seedMachine(page, agent);
   await page.goto('/');
 
@@ -29,11 +28,7 @@ test('status picker re-sorts the workspace; blocked folds it last', async ({ pag
   await page.getByRole('button', { name: /status: needs you/i }).click();
   await page.getByRole('option', { name: /blocked/i }).click();
 
-  // demo now sits folded under a Blocked line, below the idle workspace.
-  const blocked = page.getByRole('button', { name: '1 · Blocked' });
-  await expect(blocked).toBeVisible();
-  await expect(rowNames).toHaveText(['other']);
-  await blocked.click();
+  // demo is now parked: it shows the Blocked badge and sinks below the idle workspace.
   await expect(page.locator('.badge', { hasText: 'Blocked' })).toBeVisible();
   await expect(rowNames).toHaveText(['other', 'demo']);
 

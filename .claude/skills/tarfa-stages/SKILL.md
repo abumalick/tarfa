@@ -15,9 +15,10 @@ A workspace has two separate facts:
   outside, done. **Only an explicit `tarfa stage` call or a phone pick changes it**; no hook
   ever touches it. It stays put across prompts, turns and agent restarts.
 
-The phone's home list puts everything that needs the maintainer in a "Needs you" section on
-top, whatever its stage, and folds the tasks waiting on others (kind `waiting`) or finished
-(kind `done`) into one line per stage with a count.
+With Settings → Task stages on (off by default, per device), the phone's home list puts
+everything that needs the maintainer in a "Needs you" section on top, whatever its stage, and
+groups the tasks waiting on others (kind `waiting`) or finished (kind `done`) under one line per
+stage with a count, open until the maintainer folds it.
 
 ## Commands
 
@@ -97,7 +98,7 @@ Adapt the stage names to the project's list:
   `tarfa stage` with the same stage, again as its last command.
 - When you need the maintainer (a question, a decision, an approval), ask with the question
   tool. Never close a turn on a waiting stage while the real state is "waiting for the
-  maintainer": a question written in the closing text stays folded and unseen.
+  maintainer": a question written in the closing text stays under its stage, out of "Needs you".
 ```
 
 ## Why the rules say what they say
@@ -107,12 +108,12 @@ Adapt the stage names to the project's list:
 - *Same stage again:* each turn's end re-checks the mark, so a polling turn that sets nothing
   would show "Needs you" to a maintainer who has nothing to do.
 - *Question tool:* it always raises "Needs you", even on a waiting stage. The known gap is an
-  agent that sets a waiting stage and then asks in plain text: it stays folded.
+  agent that sets a waiting stage and then asks in plain text: it stays out of "Needs you".
 
 ## The phone side (for the maintainer)
 
-The status picker lists the project's stages for an agent that supports them. Picking a
-`waiting` or `done` stage on a row that needs you also marks it seen, so it leaves "Needs you"
-and folds in one tap. **Seen** and **Needs hands** stay as activity actions. A "Seen" or such a
+With Settings → Task stages on, the status picker lists the project's stages for an agent that
+supports them. Picking a `waiting` or `done` stage on a row that needs you also marks it seen,
+so it leaves "Needs you" for its stage in one tap. **Seen** and **Needs hands** stay as activity actions. A "Seen" or such a
 pick holds only until the agent's next turn: until then it suppresses the idle reminders Claude
 Code sends after a turn ends, nothing more.

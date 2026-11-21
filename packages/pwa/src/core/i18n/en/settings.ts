@@ -16,6 +16,8 @@ export const settings = {
   workspaceList: 'Workspace list',
   groupByProject: 'Group by project',
   groupByProjectHint: 'A project moves up as soon as one of its workspaces needs you.',
+  stagesView: 'Task stages',
+  stagesViewHint: 'Puts what needs you on top and groups the rest by stage (In review, Done…). Needs an up-to-date machine.',
   dictation: 'Dictation',
   elevenLabsKey: 'ElevenLabs API key',
   openRouterKey: 'OpenRouter API key',

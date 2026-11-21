@@ -16,8 +16,8 @@
   import { deriveProjectFolders, filterWorkspaces, projectFolderLabel, pruneStaleFilter } from '../core/project-folders';
   import { motionDuration, prefersReducedMotion, reorderDuration, REORDER_MS, ENTER_LEAVE_MS } from './motion';
   import { STATUS_LABELS, statusLabel } from './workspace-status-display';
-  import type { WorkspaceGroup } from '../core/nest-workspaces';
-  import { homeSections } from '../core/project-sections';
+  import { nestWorkspaces, type WorkspaceGroup } from '../core/nest-workspaces';
+  import { homeSections, projectSections } from '../core/project-sections';
   import { effectiveStage, homeGroups, type FoldedBucket } from '../core/stage-groups';
   import { risers, urgency, type Ranked } from '../core/risers';
   import { statusAge } from '../core/status-age';
@@ -94,10 +94,25 @@
     filterWorkspaces(store.workspaces, store.machines, selected, store.folderFilterMode),
   );
   const labelOf = (ws: Workspace) => projectFolderLabel(store.machines, ws);
-  // Needs-you on top across everything, then the active rows and the folded stages, per project
-  // when grouped.
-  const flat = $derived(store.groupByProject ? null : homeGroups(visibleWorkspaces));
-  const grouped = $derived(store.groupByProject ? homeSections(visibleWorkspaces, labelOf) : null);
+  // With stages: needs-you on top across everything, then the active rows and the waiting and
+  // done stages, per project when grouped. Without: the rows as they are, per project when grouped.
+  const flat = $derived(
+    store.groupByProject
+      ? null
+      : store.stagesView
+        ? homeGroups(visibleWorkspaces)
+        : { needsYou: [], active: nestWorkspaces(visibleWorkspaces).filter((g) => g.workspace.status !== 'parked'), folded: [] },
+  );
+  const grouped = $derived(
+    !store.groupByProject
+      ? null
+      : store.stagesView
+        ? homeSections(visibleWorkspaces, labelOf)
+        : {
+            needsYou: [],
+            sections: projectSections(visibleWorkspaces, labelOf).map((s) => ({ label: s.label, active: s.groups, folded: [] })),
+          },
+  );
   const needsYou = $derived(flat?.needsYou ?? grouped?.needsYou ?? []);
   const sections = $derived(grouped?.sections ?? []);
   const size = (groups: readonly WorkspaceGroup[]) => groups.reduce((n, g) => n + 1 + g.children.length, 0);
@@ -244,7 +259,7 @@
         {#if ws.agentAddress}
           <span class="agent-address" data-testid="agent-address" title={msg().home.agentAddress}>{ws.agentAddress}</span>
         {/if}
-        {#if ws.stage}
+        {#if store.stagesView && ws.stage}
           <span class="stage">{ws.stage.name}</span>
         {/if}
         <span class="badge" data-status={ws.status}>{statusLabel(ws)}</span>
@@ -307,19 +322,19 @@
   </ul>
 {/snippet}
 
-<!-- A waiting or done stage, folded behind one line like the parked group. -->
+<!-- A waiting or done stage behind one line that folds it, like the parked group; open until folded. -->
 {#snippet foldedStages(buckets: FoldedBucket[], section: string | null = null)}
   {#each buckets as bucket (bucket.kind + ':' + bucket.name)}
     <button
       type="button"
       class="parked-toggle stage-toggle"
-      aria-expanded={store.expandedStages.has(bucket.name)}
+      aria-expanded={!store.collapsedStages.has(bucket.name)}
       onclick={() => store.toggleStage(bucket.name)}
     >
       <span>{msg().home.foldedStage(bucketLabel(bucket), size(bucket.groups))}</span>
       <span class="chev" aria-hidden="true">›</span>
     </button>
-    {#if store.expandedStages.has(bucket.name)}
+    {#if !store.collapsedStages.has(bucket.name)}
       <div class="stage-fold" transition:slide={{ duration: motionDuration(ENTER_LEAVE_MS) }}>
         {@render groupList(bucket.groups, section)}
       </div>

@@ -190,6 +190,20 @@
         </button>
       </div>
       <p class="hint">{msg().settings.groupByProjectHint}</p>
+      <div class="row">
+        <span class="text"><span class="name">{msg().settings.stagesView}</span></span>
+        <button
+          type="button"
+          role="switch"
+          class="switch"
+          aria-checked={store.stagesView}
+          aria-label={msg().settings.stagesView}
+          onclick={() => store.setStagesView(!store.stagesView)}
+        >
+          <span class="knob"></span>
+        </button>
+      </div>
+      <p class="hint">{msg().settings.stagesViewHint}</p>
     </div>
 
     <p class="group">{msg().settings.dictation}</p>
