@@ -950,6 +950,17 @@ describe('WorkspaceList stages', () => {
     expect(names(container)).toEqual(['asks', 'runs', 'r1', 'r2', 'd1']);
   });
 
+  it('with the setting off and grouped, glows only the row that lifted its project, as before', async () => {
+    const machines = [{ id: 'mac', name: 'Mac', defaultPath: '/home/u/workspace' }];
+    const inP = (folder: string, w: object) => ({ ...w, projectPath: `/home/u/workspace/${folder}` });
+    const before = [inP('web', at('w1', 'idle')), inP('api', at('a1', 'working')), inP('api', at('a2', 'working'))];
+    const store = { ...fakeStore(before, machines), groupByProject: true };
+    const { container, rerender } = render(WorkspaceList, { props: { store: store as never } });
+    const after = [inP('api', at('a1', 'needs-feedback')), inP('api', at('a2', 'needs-feedback')), before[0]];
+    await rerender({ store: { ...store, workspaces: after } as never });
+    expect([...container.querySelectorAll('li.rose .name')].map((n) => n.textContent)).toEqual(['a1']);
+  });
+
   it('with the setting off and grouped, files every row under its project as before', () => {
     const machines = [{ id: 'mac', name: 'Mac', defaultPath: '/home/u/workspace' }];
     const inP = (folder: string, w: object) => ({ ...w, projectPath: `/home/u/workspace/${folder}` });

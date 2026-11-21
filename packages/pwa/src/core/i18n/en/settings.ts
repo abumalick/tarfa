@@ -17,7 +17,7 @@ export const settings = {
   groupByProject: 'Group by project',
   groupByProjectHint: 'A project moves up as soon as one of its workspaces needs you.',
   stagesView: 'Task stages',
-  stagesViewHint: 'Puts what needs you on top and groups the rest by stage (In review, Done…). Needs an up-to-date machine.',
+  stagesViewHint: 'Puts what needs you on top and groups the rest by stage (Waiting, Done…). Needs an up-to-date machine. A turn an agent ends on a waiting stage reads Waiting either way.',
   dictation: 'Dictation',
   elevenLabsKey: 'ElevenLabs API key',
   openRouterKey: 'OpenRouter API key',

@@ -3250,6 +3250,13 @@ describe('TarfaStore stages setting', () => {
     store.setAgent('mac', { features: [] });
     expect(store.supportsStages('mac')).toBe(false);
   });
+
+  it('reads the setting back at start', () => {
+    const { store, storage } = build([mac]);
+    storage.write('tarfa.stagesView', '1');
+    store.start();
+    expect(store.stagesView).toBe(true);
+  });
 });
 
 describe('TarfaStore workspace links', () => {

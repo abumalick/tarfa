@@ -158,15 +158,20 @@
     if (rising.delete(key)) requestAnimationFrame(() => riseTimers.has(key) && rising.add(key));
     else rising.add(key);
   };
-  // Every row reads as one sequence in list order, folded ones included, so a row lifted into
-  // needs-you counts as climbing past the rows it left behind, folded or not.
+  // With stages, every row reads as one sequence in list order, folded ones included, so a row
+  // lifted into needs-you counts as climbing past the rows it left behind, folded or not.
+  // Without, as before stages: each project's rows climb within their project only.
   $effect(() => {
     const unfolded = (s: { active: WorkspaceGroup[]; folded: FoldedBucket[] }) => [
       ...s.active,
       ...s.folded.flatMap((b) => b.groups),
     ];
     const rows = [...needsYou, ...(flat ? unfolded(flat) : sections.flatMap(unfolded))];
-    const order = new Map<string, Ranked[]>([['rows', rows.map(rankedGroup)]]);
+    const order = new Map<string, Ranked[]>(
+      store.stagesView || !store.groupByProject
+        ? [['rows', rows.map(rankedGroup)]]
+        : sections.map((s): [string, Ranked[]] => [s.label, s.active.map(rankedGroup)]),
+    );
     if (store.groupByProject) {
       order.set(
         '§',

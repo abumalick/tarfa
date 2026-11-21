@@ -19,7 +19,7 @@ export const settings: Messages['settings'] = {
   groupByProject: 'Regrouper par projet',
   groupByProjectHint: 'Un projet remonte dès qu’un de ses espaces de travail a besoin de vous.',
   stagesView: 'Étapes des tâches',
-  stagesViewHint: 'Met en haut ce qui a besoin de vous et regroupe le reste par étape (En revue, Terminé…). Demande une machine à jour.',
+  stagesViewHint: 'Met en haut ce qui a besoin de vous et regroupe le reste par étape (En attente, Terminé…). Demande une machine à jour. Un tour qu’un agent termine sur une étape d’attente s’affiche En attente dans tous les cas.',
   dictation: 'Dictée',
   elevenLabsKey: 'Clé API ElevenLabs',
   openRouterKey: 'Clé API OpenRouter',

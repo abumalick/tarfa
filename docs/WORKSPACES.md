@@ -177,8 +177,10 @@ How workspaces are created, closed, parked, recovered, named and linked, and the
   The waiting/needs-you rules are in `docs/ATTENTION-STATUS.md`. With Settings → Task stages
   on (`tarfa.stagesView`, off by default, per device and origin), the phone's home list puts
   needs-you on top and each waiting and done stage under a line that folds it (open until
-  folded), Next skips the rows under them, and the picker offers the stages; off, the list and
-  picker are the ones from before stages, whatever the agent supports; the `tarfa-stages` skill
+  folded), Next skips the rows under them, and the picker offers the stages; off, the list,
+  Next and the picker are the ones from before stages, whatever the agent supports. The waiting
+  hold is the agent's, so it shows either way: a turn ended on a waiting stage stays `working`,
+  reads "Waiting", and Next passes over it, as for a child waiting on its orchestrator; the `tarfa-stages` skill
   sets a project up.
   **`tarfa wait <id>... [--timeout <s, at least 10>]` blocks until one stops working** and prints `<id> <state>`
   per stopped workspace, polling the same read-only stores as `ls` every 2 s, hidden folders
